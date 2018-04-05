@@ -38,7 +38,7 @@
   modifications to the application code without stopping any application
   threads. So what we do is to inject an extra thread to which we can attach to
   from our monitor. And we periodically send SIGTOP from that thread so that
-  monitor will be notified and then will be take necessary actions to inject 
+  monitor will be notified and then will be able take necessary actions to inject 
   code as required. We inject our library as LD_PRELOAD in our child as well. 
   But in addition we inject extra environment variable IN_CHILD so that child can 
   determine it is in fact the child process instance (aka secure execution 
