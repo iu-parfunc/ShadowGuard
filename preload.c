@@ -1,4 +1,55 @@
 
+/*
+  Authors: Buddhika Chamith
+  year : 2018
+
+  Sets up the secure execution enviornment where the application will be 
+  executed. Application will be run as a child process under the monitor
+  process. Quite a bit is happening here. The main gaols of the the secure
+  execution enviornment are
+  
+  1. The monitor process may modify the application code at runtime.
+  2. During code modifications application threads should not see any
+     permission change in code pages (i.e: see them as writeable). If that is
+     the case an attacker can overwrite executable code and all bets will be
+     off.
+  3. Code modifications should not halt any application thread since it hinders
+     performance. 
+
+  Implmentation Details
+  ---------------------
+
+  In order to achieve 1 & 2 we use ptrace API to poke in to the child process 
+  memory. Ptrace uses internal kernel memory page mappings to overwrite code 
+  pages without modifying application visible memory page permissions [1]. 
+
+  We LD_PRELOAD our library and in the library constructor we self spawn 
+  the application as a child to the current application instance. Then we 
+  ptrace attach to the child from our parent instance. Parent instance acts as
+  the monitor and never leaves the library constructor (i.e: once the child is
+  done it simply exits without continuing on to the application code). We could
+  have made monitor a separate application under which the user application is 
+  run. But current scheme makes it more seamless. Just LD_PRELOAD our library
+  and you are set.
+
+  Achieving 3 is bit tricky. Ptrace allows attaching to separate threads in a 
+  multi-threaded process. Only attached thread will be stopped in signal stops
+  and waited on by the tracer. Our goal is to be able to periodically make 
+  modifications to the application code without stopping any application
+  threads. So what we do is to inject an extra thread to which we can attach to
+  from our monitor. And we periodically send SIGTOP from that thread so that
+  monitor will be notified and then will be take necessary actions to inject 
+  code as required. We inject our library as LD_PRELOAD in our child as well. 
+  But in addition we inject extra environment variable IN_CHLD so that child can 
+  determine it is in fact the child process instance (aka secure execution 
+  environment). Inside the forked child process we check for this and if that's
+  the case we spawn the extra thread inside the library constructor and 
+  then continue on to executing the application code.
+
+  [1] https://stackoverflow.com/questions/49442087/how-does-ptrace-poketext-works-when-modifying-program-text  
+
+*/
+
 #include <string>
 
 #include <signal.h>
@@ -23,7 +74,7 @@ void dummy() {
 }
 
 void* findFunction(char* program, int pid, char* name) {
-  printf("Program : %s\n", program);
+  // printf("Program : %s\n", program);
   ELF *bin = elf64_read((char*) program);
   unsigned int nb_sym = bin->symtab_num;
   Elf64_Sym **tab = bin->symtab;
@@ -34,7 +85,7 @@ void* findFunction(char* program, int pid, char* name) {
     if ((tab[i]->st_info & 0x0F) == STT_FUNC) {
       char* s_name = get_sym_name(bin->file, tab[i], strtab_offset);
 
-      printf("Name : %s Program : %s\n", s_name, program);
+      // printf("Name : %s Program : %s\n", s_name, program);
 
       if (!strcmp(s_name, name)) {
 	char* addr = (char*) tab[i]->st_value;
@@ -175,8 +226,6 @@ __attribute__((constructor))
         printf("[FATAL] Failed to setup secure enviornment..\n");
 	exit(-1);
       }
-
-      kill(getpid(), SIGSTOP);
       return;
     }
 
@@ -239,7 +288,8 @@ __attribute__((constructor))
       char* foo = (char*)findFunction(c_program_path, pid, "_Z3foov"); 
       char* bar = (char*)findFunction(c_program_path, pid, "_Z3barv");
 
-      printf("Parent waiting for child..\n");
+      printf("[INFO] Parent waiting for child..\n");
+      printf("[INFO] Parent PID : %llu\n", getpid());
 
       bool reattached = false;
       while (waitpid(pid, &status, 0) && !WIFEXITED(status)) {
@@ -271,10 +321,11 @@ __attribute__((constructor))
 
             printf("[INFO] Reattached..\n");
             reattached = true;
-	    // ptrace(PTRACE_DETACH, pid, 0, 0); // PTRACE_DETACH is a restarting operation.
+	    ptrace(PTRACE_DETACH, pid, 0, 0); // PTRACE_DETACH is a restarting operation.
 	                                      // No need to do a PTRACE_CONT
 
-	    ptrace(PTRACE_CONT, pid, 0, 0);
+	    // ptrace(PTRACE_CONT, pid, 0, 0);
+	    continue;
 	  }
 	}
 
