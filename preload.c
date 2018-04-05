@@ -5,7 +5,7 @@
 
   Sets up the secure execution enviornment where the application will be 
   executed. Application will be run as a child process under the monitor
-  process. Quite a bit is happening here. The main gaols of the the secure
+  process. Quite a bit is happening here. The main goals of the the secure
   execution enviornment are
   
   1. The monitor process may modify the application code at runtime.
