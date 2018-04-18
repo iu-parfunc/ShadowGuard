@@ -21,6 +21,7 @@ int foo() {
 
 void* worker(void* a) {
   while(1) {
+    sleep(1);
     foo();
   }
 }

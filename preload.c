@@ -58,6 +58,7 @@
 #include <sys/wait.h>
 #include <sys/param.h>
 #include <stdio.h>
+#include <sys/syscall.h>
 #include <string.h>
 #include <unistd.h>
 #include <cstdint>
@@ -205,11 +206,23 @@ pid_t *gettids(const pid_t pid, size_t *const countptr)
     return data;
 }
 
+int attache_set = 0; // Use a semaphore here
+
 void* attachee_thread(void* t) {
+
+#ifdef SYS_gettid
+  pid_t tid = syscall(SYS_gettid);
+#else
+#error "SYS_gettid unavailable on this system"
+#endif
+
   while(1) {
     sleep(1);
-    printf("Running attachee..\n");
-    kill(getpid(), SIGSTOP);
+    printf("Running attachee.. : %llu\n", tid);
+    kill(tid, SIGSTOP);
+    if (!attache_set) {
+      attache_set = 1;
+    }
   }
 }
 
@@ -226,6 +239,13 @@ __attribute__((constructor))
         printf("[FATAL] Failed to setup secure enviornment..\n");
 	exit(-1);
       }
+
+      kill(getpid(), SIGSTOP);
+
+      while (!attache_set) {
+	sleep(1);
+      }
+
       return;
     }
 
@@ -307,15 +327,18 @@ __attribute__((constructor))
 	  }
 
 	  if (tids == 2) {
+	    pid_t attachee;
             for (int k = 0; k < (int)tids; k++) {
               const pid_t t = tid[k];
               printf("[INFO] Thread id : %ld\n", t);
 
 	      if (t != pid) { // Attach to the thread that we spawned
+		attachee = t;
                 if (ptrace(PTRACE_ATTACH, t, (void *)0L, (void *)0L)) {
                   fprintf(stderr, "Cannot attach to TID %d: %s.\n", (int)t, strerror(errno));
 		  exit(0);
 	        }
+
 	      }
             }
 
@@ -324,7 +347,8 @@ __attribute__((constructor))
 	    ptrace(PTRACE_DETACH, pid, 0, 0); // PTRACE_DETACH is a restarting operation.
 	                                      // No need to do a PTRACE_CONT
 
-	    // ptrace(PTRACE_CONT, pid, 0, 0);
+	    printf("PID changed to : %llu from : %llu\n", attachee, pid);
+            pid = attachee; // Change the attachee
 	    continue;
 	  }
 	}
@@ -364,6 +388,7 @@ __attribute__((constructor))
 	res = ptrace(PTRACE_PEEKTEXT, pid, foo + 8, NULL);
 	print_word(res);
 
+        printf("Resuming child : %llu\n", pid);
 	ptrace(PTRACE_CONT, pid, 0, 0);
       }
 
