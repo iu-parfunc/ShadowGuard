@@ -13,8 +13,18 @@ CG: CG.cpp
 PatchNOP: PatchNOP.cpp 
 	g++ $(CFLAGS) $(INC) $(LIB) $^ -o $@ $(DEP)
 
-patch_app: PatchNOP
-	./PatchNOP hmmer
+
+StackInstrumentation: StackInstrumentation.cpp 
+	g++ $(CFLAGS) $(INC) $(LIB) $^ -o $@ $(DEP)
+
+RegisterInstrumentation: RegisterInstrumentation.cpp 
+	g++ $(CFLAGS) $(INC) $(LIB) $^ -o $@ $(DEP)
+
+stack: StackInstrumentation 
+	./StackInstrumentation app
+
+register: RegisterInstrumentation 
+	./RegisterInstrumentation app
 
 do_analysis: CG
 	./CG hmmer
@@ -22,8 +32,7 @@ do_analysis: CG
 app: app.cpp
 	gcc $(CFLAGS) -o app app.cpp
 
-test: PatchNOP app
-	./PatchNOP app
+test: app stack register 
 
 clean:
 	rm -f CG PatchNOP mutant *.so.6 *.so *.cfg *.so.* app

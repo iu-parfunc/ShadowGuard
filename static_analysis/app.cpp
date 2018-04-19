@@ -63,8 +63,6 @@ int main() {
 
   printf("Regular cycles : %llu\n", ncycles / iters);
   printf("Shadow stack cycles : %llu\n", scycles / iters);
-
-
 }
 
 
