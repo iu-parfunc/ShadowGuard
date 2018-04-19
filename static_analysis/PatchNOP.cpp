@@ -3,6 +3,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+// Dependencies
+#include <asmjit/asmjit.h>
+
 // STL classes
 #include <string>
 #include <vector>
@@ -25,7 +28,19 @@ using namespace Dyninst;
 using namespace Dyninst::InstructionAPI;
 using namespace Dyninst::PatchAPI;
 
+using namespace asmjit;
+
 #define BUFFER_STRING_LEN 1024
+
+// Error handler that just prints the error and lets AsmJit ignore it.
+class PrintErrorHandler : public asmjit::ErrorHandler {
+  public:
+    // Return `true` to set last error to `err`, return `false` to do nothing.
+    bool handleError(asmjit::Error err, const char* message, asmjit::CodeEmitter* origin) override {
+      fprintf(stderr, "ERROR: %s\n", message);
+      return false;
+    }
+};
 
 // main Dyninst driver structure
 BPatch *bpatch = NULL;
@@ -94,22 +109,86 @@ Snippet::Ptr buildInstrumentation(void *addr) {
     // null instrumentation (for testing)
     BPatch_snippet *nullExpr = new BPatch_nullExpr();
     return PatchAPI::convert(nullExpr);
-
-    // instruction count instrumentation
-    /*
-    BPatch_variableExpr *instVar = mainImg->findVariable("_INST_main_inst_count");
-    BPatch_snippet *idxExpr = new BPatch_arithExpr(BPatch_plus,
-            *instVar, BPatch_constExpr(iidx*sizeof(unsigned long)));
-    BPatch_snippet *countExpr = new BPatch_arithExpr(BPatch_deref,
-            *idxExpr);
-    BPatch_snippet *valExpr = new BPatch_arithExpr(BPatch_plus,
-            *countExpr, BPatch_constExpr(1));
-    BPatch_snippet *incExpr = new BPatch_arithExpr(BPatch_assign,
-            *idxExpr, *valExpr);
-    iidx++;
-    return PatchAPI::convert(incExpr);
-    */
 }
+
+class StackPopSnippet : public Snippet {
+  public:
+    virtual bool generate(Point* pt, Buffer& buf) {
+      printf("  generating code for stack pop..\n");
+      JitRuntime rt;
+      PrintErrorHandler eh;
+
+      CodeHolder code;
+      code.init(rt.getCodeInfo());
+      code.setErrorHandler(&eh);
+
+      X86Assembler a(&code);
+
+      Label nmatch = a.newLabel();
+      Label abort  = a.newLabel();
+      Label ret    = a.newLabel();
+
+      uint64_t stack_ptr = 0x100000000; 
+
+      a.mov(asmjit::x86::rcx, imm(stack_ptr));
+      a.mov(asmjit::x86::rcx, asmjit::x86::qword_ptr(asmjit::x86::rcx));
+      a.mov(asmjit::x86::rdx, asmjit::x86::qword_ptr(asmjit::x86::rsp));
+      a.bind(nmatch);
+      a.cmp(asmjit::x86::qword_ptr(asmjit::x86::rcx), imm(0));
+      a.jz(abort);
+      a.sub(asmjit::x86::rcx, 8);
+      a.cmp(asmjit::x86::rdx, asmjit::x86::ptr(asmjit::x86::rcx, 8));
+      a.jnz(nmatch);
+      a.mov(asmjit::x86::rdx, imm(stack_ptr));
+      a.mov(asmjit::x86::qword_ptr(asmjit::x86::rdx), asmjit::x86::rcx);
+      a.jmp(ret);
+      a.bind(abort);
+      a.hlt();
+      a.bind(ret);
+
+      int size = code.getCodeSize();
+      char* temp_buf = (char*) malloc(size);
+
+      size = code.relocate(temp_buf);
+      buf.copy(temp_buf, size);
+    }
+};
+
+class StackPushSnippet : public Snippet {
+  public:
+    virtual bool generate(Point* pt, Buffer& buf) {
+      printf("  generating code for stack push..\n");
+      JitRuntime rt;
+      PrintErrorHandler eh;
+
+      CodeHolder code;
+      code.init(rt.getCodeInfo());
+      code.setErrorHandler(&eh);
+
+      X86Assembler a(&code);
+
+      Label nmatch = a.newLabel();
+      Label abort  = a.newLabel();
+      Label ret    = a.newLabel();
+
+      uint64_t stack_ptr = 0x100000000; 
+
+      a.mov(asmjit::x86::rcx, imm(stack_ptr));
+      a.mov(asmjit::x86::rdx, asmjit::x86::rcx);
+      a.mov(asmjit::x86::rcx, asmjit::x86::qword_ptr(asmjit::x86::rcx));
+      a.add(asmjit::x86::rcx, 8);
+      a.mov(asmjit::x86::qword_ptr(asmjit::x86::rdx), asmjit::x86::rcx);
+      a.mov(asmjit::x86::rdx, asmjit::x86::qword_ptr(asmjit::x86::rsp));
+      a.mov(asmjit::x86::qword_ptr(asmjit::x86::rcx), asmjit::x86::rdx);
+
+      int size = code.getCodeSize();
+      char* temp_buf = (char*) malloc(size);
+
+      size = code.relocate(temp_buf);
+      buf.copy(temp_buf, size);
+    }
+};
+
 
 void handleInstruction(void *addr, Instruction::Ptr iptr, PatchBlock *block, PatchFunction *func) {
 
@@ -128,17 +207,39 @@ void handleInstruction(void *addr, Instruction::Ptr iptr, PatchBlock *block, Pat
         return;
     }
 
+
+    entryID id = iptr->getOperation().getID();
+
     // print instruction info
     printf("  instruction at %lx: %s\n",
             (unsigned long)addr, iptr->format((Address)addr).c_str());
 
-    // grab instrumentation point
-    Point *prePoint  = mainMgr->findPoint(
-                        Location::InstructionInstance(func, block, (Address)addr),
-                        Point::PreInsn, true);
+    if (id == e_ret_near) {
+       
+      Snippet::Ptr snippet = StackPopSnippet::create(new StackPopSnippet);
 
-    // build and insert instrumentation
-    prePoint->pushBack(buildInstrumentation(addr));
+      printf("  processing ret instrution..\n");
+
+      // grab instrumentation point
+      Point *prePoint  = mainMgr->findPoint(
+                          Location::InstructionInstance(func, block, (Address)addr),
+                          Point::PreInsn, true);
+
+      // build and insert instrumentation
+      prePoint->pushBack(snippet);
+    } else if (id == e_call) {
+      Snippet::Ptr snippet = StackPushSnippet::create(new StackPushSnippet);
+
+      printf("  processing call instrution..\n");
+
+      // grab instrumentation point
+      Point *prePoint  = mainMgr->findPoint(
+                          Location::InstructionInstance(func, block, (Address)addr),
+                          Point::PreInsn, true);
+
+      // build and insert instrumentation
+      prePoint->pushBack(snippet);
+    }
 }
 
 void handleBasicBlock(BPatch_basicBlock *block, PatchFunction *func)
@@ -177,9 +278,10 @@ void handleFunction(BPatch_function *function, const char *name)
     //printf("function %s:\n", name);
 
     // handle all basic blocks
-    /*
     std::set<BPatch_basicBlock*> blocks;
     std::set<BPatch_basicBlock*>::iterator b;
+    
+    /*
     BPatch_flowGraph *cfg = function->getCFG();
     cfg->getAllBasicBlocks(blocks);
     for (b = blocks.begin(); b != blocks.end(); b++) {
@@ -187,14 +289,49 @@ void handleFunction(BPatch_function *function, const char *name)
     }
     */
 
+    if (strcmp(name, "f") == 0 || strcmp(name, "g") == 0) {
+      std::vector<Point*> pts;
+      mainMgr->findPoints(Scope(PatchAPI::convert(function)), 
+                        Point::FuncEntry,
+                        back_inserter(pts));
+
+      BPatch_snippet *nullExpr = new BPatch_nullExpr();
+      Snippet::Ptr snippet =  PatchAPI::convert(nullExpr);
+
+      for(vector<Point*>::iterator iter = pts.begin(); iter != pts.end(); ++iter) {
+        Point* pt = *iter;
+        pt->pushBack(snippet);
+      }
+      return;
+    }
+
     std::vector<Point*> pts;
     mainMgr->findPoints(Scope(PatchAPI::convert(function)), 
                         Point::FuncEntry,
                         back_inserter(pts));
+
+    Snippet::Ptr snippet = StackPushSnippet::create(new StackPushSnippet);
+
+    printf("  processing function entry for %s..\n", function->getName().c_str());
+
     for(vector<Point*>::iterator iter = pts.begin(); iter != pts.end(); ++iter) {
       Point* pt = *iter;
-      pt->pushBack(buildInstrumentation(nullptr));
-      // mainMgr.add(PushBackCommand::create(pt, snippet));
+      pt->pushBack(snippet);
+    }
+
+    pts.clear();
+
+    printf("  processing function exit for %s..\n", function->getName().c_str());
+
+    mainMgr->findPoints(Scope(PatchAPI::convert(function)), 
+                        Point::FuncExit,
+                        back_inserter(pts));
+
+    snippet = StackPopSnippet::create(new StackPopSnippet);
+
+    for(vector<Point*>::iterator iter = pts.begin(); iter != pts.end(); ++iter) {
+      Point* pt = *iter;
+      pt->pushBack(snippet);
     }
 
 /*
@@ -205,8 +342,8 @@ void handleFunction(BPatch_function *function, const char *name)
     for (b = blocks.begin(); b != blocks.end(); b++) {
       handleBasicBlock(*b, PatchAPI::convert(function));
     }
-    */
 
+*/
 
     //printf("\n");
 }
@@ -241,7 +378,7 @@ void handleModule(BPatch_module *mod, const char *name)
 
 void handleApplication(BPatch_addressSpace *app)
 {
-	char modname[BUFFER_STRING_LEN];
+    char modname[BUFFER_STRING_LEN];
 
 	// get a reference to the application image
     mainApp = app;
@@ -255,6 +392,19 @@ void handleApplication(BPatch_addressSpace *app)
 
     mainApp->beginInsertionSet();
 
+    BPatch_function* function = getMutateeFunction("foo");
+    handleFunction(function, "foo");
+
+    function = getMutateeFunction("bar");
+    handleFunction(function, "bar");
+
+    function = getMutateeFunction("f");
+    handleFunction(function, "f");
+
+    function = getMutateeFunction("g");
+    handleFunction(function, "g");
+
+/*
     // for each module ...
     for (m = modules->begin(); m != modules->end(); m++) {
         (*m)->getName(modname, BUFFER_STRING_LEN);
@@ -275,34 +425,16 @@ void handleApplication(BPatch_addressSpace *app)
 
         handleModule(*m, modname);
     }
-
-    // add initialization/cleanup at init/fini
-    /*
-    BPatch_module *initFiniModule = getInitFiniModule();
-    assert(initFiniModule != NULL);
-    BPatch_function *initFunc = getMutateeFunction("_INST_init_analysis");
-    BPatch_function *finiFunc = getMutateeFunction("_INST_cleanup_analysis");
-    BPatch_Vector<BPatch_snippet*> *blankArgs = new BPatch_Vector<BPatch_snippet*>();
-    BPatch_funcCallExpr *initCall = new BPatch_funcCallExpr(*initFunc, *blankArgs);
-    BPatch_funcCallExpr *finiCall = new BPatch_funcCallExpr(*finiFunc, *blankArgs);
-    initFiniModule->insertInitCallback(*initCall);
-    initFiniModule->insertFiniCallback(*finiCall);
     */
 
     mainApp->finalizeInsertionSet(false); 
-}
-
-void writeConfig(const char *fname) {
-    FILE *fc = fopen(fname, "w");
-    fprintf(fc, "num_instructions=%d\n", iidx);
-    fclose(fc);
 }
 
 int main(int argc, char *argv[])
 {
     // ABBREVIATED: parse command-line parameters
     binary = argv[1];
-    instShared = true;
+    instShared = false;
  
     // initalize DynInst library
     bpatch = new BPatch;
@@ -321,21 +453,11 @@ int main(int argc, char *argv[])
         exit(EXIT_FAILURE);
     }
 
-    // add the instrumentation library
-    /*
-    libObj = ((BPatch_binaryEdit*)app)->loadLibrary("libdyntest.so");
-	if (libObj == NULL) {
-		printf("ERROR: Unable to open libdyntest.so.\n");
-        exit(EXIT_FAILURE);
-    }
-    */
-
     // perform test
     handleApplication(app);
 
     ((BPatch_binaryEdit*)app)->writeFile("mutant");
-    writeConfig("mutant.cfg");
     printf("Done.\n");
 
-	return(EXIT_SUCCESS);
+    return(EXIT_SUCCESS);
 }
