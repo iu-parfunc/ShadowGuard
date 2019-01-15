@@ -15,14 +15,14 @@ if [ ! -d "thirdparty/dyninst-10.0.0/install" ]; then
   cd build
 
   # Configure
-  cmake -DPATH_BOOST= -DLIBELF_INCLUDE_DIR= -DLIBELF_INCLUDE_DIR= -DLIBDWARF_INCLUDE_DIR= -DLIBDWARF_LIBRARIES= -DCMAKE_INSTALL_PREFIX=`pwd`/../install -DENABLE_STATIC_LIBS=TRUE -G 'Unix Makefiles' ..
+  cmake -DPATH_BOOST= -DLIBELF_INCLUDE_DIR= -DLIBELF_INCLUDE_DIR= -DLIBDWARF_INCLUDE_DIR= -DLIBDWARF_LIBRARIES= -DCMAKE_INSTALL_PREFIX=`pwd`/../install -G 'Unix Makefiles' ..
 
   # Build
   #   Dyninst build tends to succeed with a retry after an initial build failure.
   #   Cover that base with couple of retries.
-  nprocs=grep ^cpu\\scores /proc/cpuinfo | uniq |  awk '{print $4}'
+  nprocs=`cat /proc/cpuinfo | awk '/^processor/{print $3}' | wc -l`
   echo "$(($nprocs / 2))"
-  make -j $(($nprocs / 2))
+  make -j "$(($nprocs / 2))"
   for i in 1 2 3; do
     if [ $? -eq 0 ]; then
       break
