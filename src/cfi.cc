@@ -15,6 +15,8 @@
 #include "Point.h"
 #include "Snippet.h"
 
+#include "register_usage.h"
+
 DEFINE_string(mode, "back-edge",
               "Level of CFI protection. Valid values are "
               "back-edge, forward-edge, full.");
@@ -22,6 +24,13 @@ DEFINE_string(mode, "back-edge",
 using namespace Dyninst;
 using namespace Dyninst::InstructionAPI;
 using namespace Dyninst::PatchAPI;
+
+void PrintVector(const std::vector<bool>& vec) {
+  for (int i = 0; i < vec.size(); i++) {
+    printf("%d", vec[i]);
+  }
+  printf("\n");
+}
 
 int main(int argc, char* argv[]) {
   google::InitGoogleLogging(argv[0]);
@@ -42,7 +51,9 @@ int main(int argc, char* argv[]) {
   Dyninst::ParseAPI::CodeObject* co = new Dyninst::ParseAPI::CodeObject(sts);
   co->parse();
 
-  printf("434\n");
+  RegisterUsageInfo info = FindUnusedRegisterInfo(co);
+  PrintVector(info.unused_avx_mask);
+  PrintVector(info.unused_mmx_mask);
 
   return 0;
 }

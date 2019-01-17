@@ -54,16 +54,16 @@ int ExtractNumericPostFix(std::string reg) {
 void PopulateUnusedAvxMask(const std::set<std::string>& used,
                            RegisterUsageInfo* const info) {
   bool used_mask[30] = {false};  // Used register mask
-  for (std::string reg : used) {
-    if (reg.compare(0, 1, "Y")) {  // Register is AVX2
+  for (const std::string& reg : used) {
+    if (!reg.compare(0, 1, "Y")) {  // Register is AVX2
       // Extract integer post fix
       int register_index = ExtractNumericPostFix(reg);
-      // DCHECK(register_index > 0)
+      // DCHECK(register_index > 0 && register_index < 16);
       used_mask[register_index * 2] = true;
       used_mask[register_index * 2 + 1] = true;
-    } else if (reg.compare(0, 1, "X")) {  // Register is AVX
+    } else if (!reg.compare(0, 1, "X")) {  // Register is AVX
       int register_index = ExtractNumericPostFix(reg);
-      // DCHECK(register_index > 0)
+      // DCHECK(register_index > 0 && register_index < 16)
       used_mask[register_index * 2] = true;
     }
   }
@@ -76,7 +76,7 @@ void PopulateUnusedAvxMask(const std::set<std::string>& used,
 void PopulateUnusedMmxMask(const std::set<std::string>& used,
                            RegisterUsageInfo* const info) {
   bool used_mask[8] = {false};  // Used register mask
-  for (std::string reg : used) {
+  for (const std::string& reg : used) {
     if (reg.compare(0, 1, "M")) {  // Register is MMX
       int register_index = ExtractNumericPostFix(reg);
       // DCHECK(register_index > 0)
@@ -92,6 +92,7 @@ void PopulateUnusedMmxMask(const std::set<std::string>& used,
 void PopulateUnusedGprMask(const std::set<std::string>& used,
                            RegisterUsageInfo* const info) {
   bool used_mask[15] = {false};  // Used register mask
+  // TODO(chamibuddhika) Complete this
 }
 
 RegisterUsageInfo FindUnusedRegisterInfo(Dyninst::ParseAPI::CodeObject* co) {

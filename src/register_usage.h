@@ -87,4 +87,4 @@ struct RegisterUsageInfo {
 
 // Find unused registers across all functions in the application. This
 // includes linked shared library functions.
-RegisterUsageInfo FindUnusedRegisters(Dyninst::ParseAPI::CodeObject co);
+RegisterUsageInfo FindUnusedRegisterInfo(Dyninst::ParseAPI::CodeObject* co);
