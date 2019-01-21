@@ -17,3 +17,16 @@ cc_binary(
         "@glog//:glog",
     ],
 )
+
+cc_binary(
+    name = "sizeof",
+    srcs = [
+        "sizeof.cc",
+    ],
+    deps = [
+        "@asmjit//:asmjit",
+        "@com_github_gflags_gflags//:gflags",
+        "@dyninst//:dyninst",
+        "@glog//:glog",
+    ],
+)
