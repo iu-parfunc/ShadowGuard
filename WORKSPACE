@@ -25,22 +25,14 @@ git_repository(
     branch = "master"
 )
 
-'''
-new_local_repository(
-    name = "dyninst",
-    path = "/home/buddhika/Builds/liteCFI/thirdparty",
-    build_file = "thirdparty/BUILD.dyninst",
-)
-
-load("//thirdparty:dyninst.bzl", "dyninst_repository")
-
-dyninst_repository(
-    name = "dyninst",
-)
-'''
-
 new_local_repository (
     name = "dyninst",
     path = "thirdparty/dyninst-10.0.0",
     build_file = '@//thirdparty:dyninst.BUILD',
+)
+
+new_local_repository (
+    name = "asmjit",
+    path = "thirdparty/asmjit",
+    build_file = '@//thirdparty:asmjit.BUILD',
 )

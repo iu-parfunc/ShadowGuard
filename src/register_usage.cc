@@ -1,9 +1,11 @@
 
-#include "register_usage.h"
-
 #include <string>
 
+#include "CodeObject.h"
 #include "Instruction.h"
+#include "Symtab.h"
+#include "glog/logging.h"
+#include "register_usage.h"
 
 std::string Normalize(std::string reg) {
   if (!reg.compare(0, 1, "E")) {
@@ -53,33 +55,42 @@ int ExtractNumericPostFix(std::string reg) {
 
 void PopulateUnusedAvxMask(const std::set<std::string>& used,
                            RegisterUsageInfo* const info) {
-  bool used_mask[30] = {false};  // Used register mask
+  bool used_mask[32] = {false};  // Used register mask
   for (const std::string& reg : used) {
     if (!reg.compare(0, 1, "Y")) {  // Register is AVX2
       // Extract integer post fix
       int register_index = ExtractNumericPostFix(reg);
-      // DCHECK(register_index > 0 && register_index < 16);
+      DCHECK(register_index >= 0 && register_index < 16);
       used_mask[register_index * 2] = true;
       used_mask[register_index * 2 + 1] = true;
     } else if (!reg.compare(0, 1, "X")) {  // Register is AVX
       int register_index = ExtractNumericPostFix(reg);
-      // DCHECK(register_index > 0 && register_index < 16)
+      DCHECK(register_index >= 0 && register_index < 16);
       used_mask[register_index * 2] = true;
     }
   }
 
-  for (int i = 0; i < 30; i++) {
+  for (int i = 0; i < 32; i++) {
     info->unused_avx_mask.push_back(!used_mask[i]);
   }
 }
 
 void PopulateUnusedMmxMask(const std::set<std::string>& used,
                            RegisterUsageInfo* const info) {
+  // First check if FPU register stack is used anywhere. If it has been then we
+  // cannot use MMX register mode since they overlap with the FPU stack
+  // registers.
+  for (const std::string& reg : used) {
+    if (!reg.compare(0, 2, "FP")) {  // FPU register used
+      return;
+    }
+  }
+
   bool used_mask[8] = {false};  // Used register mask
   for (const std::string& reg : used) {
-    if (reg.compare(0, 1, "M")) {  // Register is MMX
+    if (!reg.compare(0, 1, "M")) {  // Register is MMX
       int register_index = ExtractNumericPostFix(reg);
-      // DCHECK(register_index > 0)
+      DCHECK(register_index >= 0 && register_index < 16);
       used_mask[register_index] = true;
     }
   }
@@ -89,13 +100,35 @@ void PopulateUnusedMmxMask(const std::set<std::string>& used,
   }
 }
 
+void PrintSet(const std::set<std::string>& vec) {
+  for (auto element : vec) {
+    printf("%s ", element.c_str());
+  }
+  printf("\n");
+}
+
 void PopulateUnusedGprMask(const std::set<std::string>& used,
                            RegisterUsageInfo* const info) {
   bool used_mask[15] = {false};  // Used register mask
   // TODO(chamibuddhika) Complete this
 }
 
-RegisterUsageInfo FindUnusedRegisterInfo(Dyninst::ParseAPI::CodeObject* co) {
+RegisterUsageInfo GetUnusedRegisterInfo(std::string binary) {
+  Dyninst::SymtabAPI::Symtab* symtab;
+  bool isParsable = Dyninst::SymtabAPI::Symtab::openFile(symtab, binary);
+  if (isParsable == false) {
+    const char* error = "error: file can not be parsed";
+    std::cout << error;
+    DCHECK(false);
+  }
+
+  std::string copy = binary;
+  // Create a new binary code object from the filename argument
+  Dyninst::ParseAPI::SymtabCodeSource* sts =
+      new Dyninst::ParseAPI::SymtabCodeSource(const_cast<char*>(copy.c_str()));
+  Dyninst::ParseAPI::CodeObject* co = new Dyninst::ParseAPI::CodeObject(sts);
+  co->parse();
+
   std::set<std::string> all_regs;
   std::set<std::string> used;
 
@@ -125,6 +158,8 @@ RegisterUsageInfo FindUnusedRegisterInfo(Dyninst::ParseAPI::CodeObject* co) {
       }
     }
   }
+
+  PrintSet(used);
 
   RegisterUsageInfo info;
   PopulateUnusedAvxMask(used, &info);
