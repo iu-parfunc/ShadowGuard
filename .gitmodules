@@ -1,3 +1,0 @@
-[submodule "deps/elph"]
-	path = deps/elph
-	url = https://github.com/iu-parfunc/elph
