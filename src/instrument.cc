@@ -141,6 +141,11 @@ void InstrumentApplication(BPatch_addressSpace* app,
       continue;
     }
 
+    if (module->isSharedLib() && strcmp(modname, "hello")) {
+      printf("\nSkipping Module : %s\n\n", modname);
+      continue;
+    }
+
     printf("\nModule : %s\n\n", modname);
     InstrumentModule(module, patcher, info);
   }

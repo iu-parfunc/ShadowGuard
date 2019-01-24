@@ -152,8 +152,6 @@ std::vector<uint8_t> GetUnusedAvxQuadWords(
 
 using namespace asmjit::x86;
 
-// a->paddq(sp, ptr(rip, 1));
-
 #define NOP_PAD(a, n) \
   int iters = n;      \
   while (iters > 0) { \
@@ -161,51 +159,57 @@ using namespace asmjit::x86;
     iters--;          \
   }
 
-#define JIT_PUSH_RET_SEQ(a, sp)  \
-  if (sp.isMm()) {               \
-    a->movq(rdi, sp);            \
-    a->add(rdi, asmjit::imm(1)); \
-    a->movq(sp, rdi);            \
-    a->ret();                    \
+// Precision loss by incrementing %r11d instead of %r11 limits the stack depth
+// to a max(uint32_t). This tradeoff was due to the fact that using full 64 bit
+// inc (or add for that matter) makes the jump table slot of case 'i3' to spill
+// over 32 bytes in size. With 32 bit inc we keep the maximum jump table slot
+// size to 32 bytes and hence makes it aligned w.r.t. cacheline sizes which
+// hopefully will yield better memory performance.
+#define JIT_PUSH_END_SEQ(a, end, sp) \
+  if (sp.isMm()) {                   \
+    a->movd(r11d, sp);               \
+    a->inc(r11d);                    \
+    a->movd(sp, r11d);               \
+    a->jmp(end);                     \
   }
 
-#define JIT_PUSH_AVX(a, sp, scratch, xmm_reg, ymm_reg, i1, i2, i3, i4) \
-  case i1: {                                                           \
-    a->pinsrq(xmm_reg, rdi, asmjit::imm(0));                           \
-    JIT_PUSH_RET_SEQ(a, sp)                                            \
-    NOP_PAD(a, 10)                                                     \
-    break;                                                             \
-  }                                                                    \
-  case i2: {                                                           \
-    a->pinsrq(xmm_reg, rdi, asmjit::imm(1));                           \
-    JIT_PUSH_RET_SEQ(a, sp)                                            \
-    NOP_PAD(a, 10)                                                     \
-    break;                                                             \
-  }                                                                    \
-  case i3: {                                                           \
-    a->vmovq(scratch.xmm, rdi);                                        \
-    a->vinserti128(scratch.ymm, ymm_reg, scratch.xmm, asmjit::imm(1)); \
-    a->vpblendd(ymm_reg, ymm_reg, scratch.ymm, asmjit::imm(48));       \
-    NOP_PAD(a, 2)                                                      \
-    JIT_PUSH_RET_SEQ(a, sp)                                            \
-    break;                                                             \
-  }                                                                    \
-  case i4: {                                                           \
-    a->vmovq(scratch.xmm, rdi);                                        \
-    a->vpbroadcastq(scratch.ymm, scratch.xmm);                         \
-    a->vpblendd(ymm_reg, ymm_reg, scratch.ymm, asmjit::imm(192));      \
-    NOP_PAD(a, 2)                                                      \
-    JIT_PUSH_RET_SEQ(a, sp)                                            \
-    break;                                                             \
+#define JIT_PUSH_AVX(a, end, sp, scratch, xmm_reg, ymm_reg, i1, i2, i3, i4) \
+  case i1: {                                                                \
+    a->pinsrq(xmm_reg, ptr(rsp), asmjit::imm(0));                           \
+    JIT_PUSH_END_SEQ(a, end, sp)                                            \
+    NOP_PAD(a, 9)                                                           \
+    break;                                                                  \
+  }                                                                         \
+  case i2: {                                                                \
+    a->pinsrq(xmm_reg, ptr(rsp), asmjit::imm(1));                           \
+    JIT_PUSH_END_SEQ(a, end, sp)                                            \
+    NOP_PAD(a, 9)                                                           \
+    break;                                                                  \
+  }                                                                         \
+  case i3: {                                                                \
+    a->vmovq(scratch.xmm, ptr(rsp));                                        \
+    a->vinserti128(scratch.ymm, ymm_reg, scratch.xmm, asmjit::imm(1));      \
+    a->vpblendd(ymm_reg, ymm_reg, scratch.ymm, asmjit::imm(48));            \
+    JIT_PUSH_END_SEQ(a, end, sp)                                            \
+    break;                                                                  \
+  }                                                                         \
+  case i4: {                                                                \
+    a->vmovq(scratch.xmm, ptr(rsp));                                        \
+    a->vpbroadcastq(scratch.ymm, scratch.xmm);                              \
+    a->vpblendd(ymm_reg, ymm_reg, scratch.ymm, asmjit::imm(192));           \
+    JIT_PUSH_END_SEQ(a, end, sp)                                            \
+    NOP_PAD(a, 1)                                                           \
+    break;                                                                  \
   }
 
 #define JIT_DISPATCH_PUSH(a, sp)    \
   a->movq(r11, sp);                 \
-  a->imul(r11, asmjit::imm(32));    \
-  a->lea(rax, ptr(rip, 3));         \
+  a->imul(r11, asmjit::imm(33));    \
+  a->lea(rax, ptr(rip, 6));         \
                                     \
   asmjit::X86Mem c = ptr(rax, r11); \
-  a->jmp(c);
+  a->lea(rax, c);                   \
+  a->jmp(rax);
 
 bool JitSimdStackPush(RegisterUsageInfo info, asmjit::X86Assembler* a) {
   if (!HasEnoughStorage(info)) {
@@ -222,79 +226,82 @@ bool JitSimdStackPush(RegisterUsageInfo info, asmjit::X86Assembler* a) {
 
   std::vector<uint8_t> quad_words = GetUnusedAvxQuadWords(avx_indices);
 
+  asmjit::Label end = a->newLabel();
+
   JIT_DISPATCH_PUSH(a, sp);
 
   for (unsigned int i = 0; i < quad_words.size(); i++) {
-    uint8_t register_index = quad_words[i] / 4;
-
-    switch (register_index) {
-      JIT_PUSH_AVX(a, sp, scratch, xmm0, ymm0, 0, 1, 2, 3)
-      JIT_PUSH_AVX(a, sp, scratch, xmm1, ymm1, 4, 5, 6, 7)
-      JIT_PUSH_AVX(a, sp, scratch, xmm2, ymm2, 8, 9, 10, 11)
-      JIT_PUSH_AVX(a, sp, scratch, xmm3, ymm3, 12, 13, 14, 15)
-      JIT_PUSH_AVX(a, sp, scratch, xmm4, ymm4, 16, 17, 18, 19)
-      JIT_PUSH_AVX(a, sp, scratch, xmm5, ymm5, 20, 21, 22, 23)
-      JIT_PUSH_AVX(a, sp, scratch, xmm6, ymm6, 24, 25, 26, 27)
-      JIT_PUSH_AVX(a, sp, scratch, xmm7, ymm7, 28, 29, 30, 31)
-      JIT_PUSH_AVX(a, sp, scratch, xmm8, ymm8, 32, 33, 34, 35)
-      JIT_PUSH_AVX(a, sp, scratch, xmm9, ymm9, 36, 37, 38, 39)
-      JIT_PUSH_AVX(a, sp, scratch, xmm10, ymm10, 40, 41, 42, 43)
-      JIT_PUSH_AVX(a, sp, scratch, xmm11, ymm11, 44, 45, 46, 47)
-      JIT_PUSH_AVX(a, sp, scratch, xmm12, ymm12, 48, 49, 50, 51)
-      JIT_PUSH_AVX(a, sp, scratch, xmm13, ymm13, 52, 53, 54, 55)
-      JIT_PUSH_AVX(a, sp, scratch, xmm14, ymm14, 56, 57, 58, 59)
-      JIT_PUSH_AVX(a, sp, scratch, xmm15, ymm15, 60, 61, 62, 63)
+    switch (quad_words[i]) {
+      JIT_PUSH_AVX(a, end, sp, scratch, xmm0, ymm0, 0, 1, 2, 3)
+      JIT_PUSH_AVX(a, end, sp, scratch, xmm1, ymm1, 4, 5, 6, 7)
+      JIT_PUSH_AVX(a, end, sp, scratch, xmm2, ymm2, 8, 9, 10, 11)
+      JIT_PUSH_AVX(a, end, sp, scratch, xmm3, ymm3, 12, 13, 14, 15)
+      JIT_PUSH_AVX(a, end, sp, scratch, xmm4, ymm4, 16, 17, 18, 19)
+      JIT_PUSH_AVX(a, end, sp, scratch, xmm5, ymm5, 20, 21, 22, 23)
+      JIT_PUSH_AVX(a, end, sp, scratch, xmm6, ymm6, 24, 25, 26, 27)
+      JIT_PUSH_AVX(a, end, sp, scratch, xmm7, ymm7, 28, 29, 30, 31)
+      JIT_PUSH_AVX(a, end, sp, scratch, xmm8, ymm8, 32, 33, 34, 35)
+      JIT_PUSH_AVX(a, end, sp, scratch, xmm9, ymm9, 36, 37, 38, 39)
+      JIT_PUSH_AVX(a, end, sp, scratch, xmm10, ymm10, 40, 41, 42, 43)
+      JIT_PUSH_AVX(a, end, sp, scratch, xmm11, ymm11, 44, 45, 46, 47)
+      JIT_PUSH_AVX(a, end, sp, scratch, xmm12, ymm12, 48, 49, 50, 51)
+      JIT_PUSH_AVX(a, end, sp, scratch, xmm13, ymm13, 52, 53, 54, 55)
+      JIT_PUSH_AVX(a, end, sp, scratch, xmm14, ymm14, 56, 57, 58, 59)
+      JIT_PUSH_AVX(a, end, sp, scratch, xmm15, ymm15, 60, 61, 62, 63)
     }
   }
+
+  a->bind(end);
 
   return true;
 }
 
-// a->psubq(sp, ptr(rip, 1));
-
-#define JIT_POP_RET_SEQ(a, sp)   \
-  if (sp.isMm()) {               \
-    a->movq(rdi, sp);            \
-    a->sub(rdi, asmjit::imm(1)); \
-    a->movq(sp, rdi);            \
-    a->ret();                    \
+#define JIT_POP_RET_SEQ(a, end, error, sp) \
+  if (sp.isMm()) {                         \
+    a->cmp(rdi, ptr(rsp));                 \
+    a->jne(error);                         \
+    a->jmp(end);                           \
   }
 
-#define JIT_POP_AVX(a, sp, scratch, xmm_reg, ymm_reg, i1, i2, i3, i4) \
-  case i1: {                                                          \
-    a->vpextrq(rdi, xmm_reg, asmjit::imm(0));                         \
-    JIT_POP_RET_SEQ(a, sp)                                            \
-    NOP_PAD(a, 13)                                                    \
-    break;                                                            \
-  }                                                                   \
-  case i2: {                                                          \
-    a->vpextrq(rdi, xmm_reg, asmjit::imm(1));                         \
-    JIT_POP_RET_SEQ(a, sp)                                            \
-    NOP_PAD(a, 13)                                                    \
-    break;                                                            \
-  }                                                                   \
-  case i3: {                                                          \
-    a->vextracti128(scratch.xmm, ymm_reg, asmjit::imm(1));            \
-    a->vpextrq(rdi, scratch.xmm, asmjit::imm(0));                     \
-    JIT_POP_RET_SEQ(a, sp)                                            \
-    NOP_PAD(a, 7)                                                     \
-    break;                                                            \
-  }                                                                   \
-  case i4: {                                                          \
-    a->vextracti128(scratch.xmm, ymm_reg, asmjit::imm(1));            \
-    a->vpextrq(rdi, scratch.xmm, asmjit::imm(1));                     \
-    JIT_POP_RET_SEQ(a, sp)                                            \
-    NOP_PAD(a, 7)                                                     \
-    break;                                                            \
+#define JIT_POP_AVX(a, end, error, sp, scratch, xmm_reg, ymm_reg, i1, i2, i3, \
+                    i4)                                                       \
+  case i1: {                                                                  \
+    a->vpextrq(rdi, xmm_reg, asmjit::imm(0));                                 \
+    JIT_POP_RET_SEQ(a, end, error, sp)                                        \
+    NOP_PAD(a, 11)                                                            \
+    break;                                                                    \
+  }                                                                           \
+  case i2: {                                                                  \
+    a->vpextrq(rdi, xmm_reg, asmjit::imm(1));                                 \
+    JIT_POP_RET_SEQ(a, end, error, sp)                                        \
+    NOP_PAD(a, 11)                                                            \
+    break;                                                                    \
+  }                                                                           \
+  case i3: {                                                                  \
+    a->vextracti128(scratch.xmm, ymm_reg, asmjit::imm(1));                    \
+    a->vpextrq(rdi, scratch.xmm, asmjit::imm(0));                             \
+    JIT_POP_RET_SEQ(a, end, error, sp)                                        \
+    NOP_PAD(a, 5)                                                             \
+    break;                                                                    \
+  }                                                                           \
+  case i4: {                                                                  \
+    a->vextracti128(scratch.xmm, ymm_reg, asmjit::imm(1));                    \
+    a->vpextrq(rdi, scratch.xmm, asmjit::imm(1));                             \
+    JIT_POP_RET_SEQ(a, end, error, sp)                                        \
+    NOP_PAD(a, 5)                                                             \
+    break;                                                                    \
   }
 
 #define JIT_DISPATCH_POP(a, sp)     \
   a->movq(r11, sp);                 \
+  a->sub(r11, asmjit::imm(1));      \
+  a->movq(sp, r11);                 \
   a->imul(r11, asmjit::imm(32));    \
-  a->lea(rdi, ptr(rip, 3));         \
+  a->lea(rdi, ptr(rip, 6));         \
                                     \
   asmjit::X86Mem c = ptr(rdi, r11); \
-  a->jmp(c);
+  a->lea(rdi, c);                   \
+  a->jmp(rdi);
 
 bool JitSimdStackPop(RegisterUsageInfo info, asmjit::X86Assembler* a) {
   if (!HasEnoughStorage(info)) {
@@ -311,30 +318,37 @@ bool JitSimdStackPop(RegisterUsageInfo info, asmjit::X86Assembler* a) {
 
   std::vector<uint8_t> quad_words = GetUnusedAvxQuadWords(avx_indices);
 
+  asmjit::Label error = a->newLabel();
+  asmjit::Label end = a->newLabel();
+
   JIT_DISPATCH_POP(a, sp);
 
   for (unsigned int i = 0; i < quad_words.size(); i++) {
     uint8_t register_index = quad_words[i] / 4;
 
-    switch (register_index) {
-      JIT_POP_AVX(a, sp, scratch, xmm0, ymm0, 0, 1, 2, 3)
-      JIT_POP_AVX(a, sp, scratch, xmm1, ymm1, 4, 5, 6, 7)
-      JIT_POP_AVX(a, sp, scratch, xmm2, ymm2, 8, 9, 10, 11)
-      JIT_POP_AVX(a, sp, scratch, xmm3, ymm3, 12, 13, 14, 15)
-      JIT_POP_AVX(a, sp, scratch, xmm4, ymm4, 16, 17, 18, 19)
-      JIT_POP_AVX(a, sp, scratch, xmm5, ymm5, 20, 21, 22, 23)
-      JIT_POP_AVX(a, sp, scratch, xmm6, ymm6, 24, 25, 26, 27)
-      JIT_POP_AVX(a, sp, scratch, xmm7, ymm7, 28, 29, 30, 31)
-      JIT_POP_AVX(a, sp, scratch, xmm8, ymm8, 32, 33, 34, 35)
-      JIT_POP_AVX(a, sp, scratch, xmm9, ymm9, 36, 37, 38, 39)
-      JIT_POP_AVX(a, sp, scratch, xmm10, ymm10, 40, 41, 42, 43)
-      JIT_POP_AVX(a, sp, scratch, xmm11, ymm11, 44, 45, 46, 47)
-      JIT_POP_AVX(a, sp, scratch, xmm12, ymm12, 48, 49, 50, 51)
-      JIT_POP_AVX(a, sp, scratch, xmm13, ymm13, 52, 53, 54, 55)
-      JIT_POP_AVX(a, sp, scratch, xmm14, ymm14, 56, 57, 58, 59)
-      JIT_POP_AVX(a, sp, scratch, xmm15, ymm15, 60, 61, 62, 63)
+    switch (quad_words[i]) {
+      JIT_POP_AVX(a, end, error, sp, scratch, xmm0, ymm0, 0, 1, 2, 3)
+      JIT_POP_AVX(a, end, error, sp, scratch, xmm1, ymm1, 4, 5, 6, 7)
+      JIT_POP_AVX(a, end, error, sp, scratch, xmm2, ymm2, 8, 9, 10, 11)
+      JIT_POP_AVX(a, end, error, sp, scratch, xmm3, ymm3, 12, 13, 14, 15)
+      JIT_POP_AVX(a, end, error, sp, scratch, xmm4, ymm4, 16, 17, 18, 19)
+      JIT_POP_AVX(a, end, error, sp, scratch, xmm5, ymm5, 20, 21, 22, 23)
+      JIT_POP_AVX(a, end, error, sp, scratch, xmm6, ymm6, 24, 25, 26, 27)
+      JIT_POP_AVX(a, end, error, sp, scratch, xmm7, ymm7, 28, 29, 30, 31)
+      JIT_POP_AVX(a, end, error, sp, scratch, xmm8, ymm8, 32, 33, 34, 35)
+      JIT_POP_AVX(a, end, error, sp, scratch, xmm9, ymm9, 36, 37, 38, 39)
+      JIT_POP_AVX(a, end, error, sp, scratch, xmm10, ymm10, 40, 41, 42, 43)
+      JIT_POP_AVX(a, end, error, sp, scratch, xmm11, ymm11, 44, 45, 46, 47)
+      JIT_POP_AVX(a, end, error, sp, scratch, xmm12, ymm12, 48, 49, 50, 51)
+      JIT_POP_AVX(a, end, error, sp, scratch, xmm13, ymm13, 52, 53, 54, 55)
+      JIT_POP_AVX(a, end, error, sp, scratch, xmm14, ymm14, 56, 57, 58, 59)
+      JIT_POP_AVX(a, end, error, sp, scratch, xmm15, ymm15, 60, 61, 62, 63)
     }
   }
+
+  a->bind(error);
+  a->int3();
+  a->bind(end);
 
   return true;
 }

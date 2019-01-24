@@ -113,32 +113,24 @@ void PopulateUnusedGprMask(const std::set<std::string>& used,
   // TODO(chamibuddhika) Complete this
 }
 
-RegisterUsageInfo GetUnusedRegisterInfo(std::string binary) {
-  Dyninst::SymtabAPI::Symtab* symtab;
-  bool isParsable = Dyninst::SymtabAPI::Symtab::openFile(symtab, binary);
-  if (isParsable == false) {
-    const char* error = "error: file can not be parsed";
-    std::cout << error;
-    DCHECK(false);
-  }
-
-  std::string copy = binary;
+void PopulateUsedRegisters(std::string binary, std::set<std::string>& used) {
   // Create a new binary code object from the filename argument
   Dyninst::ParseAPI::SymtabCodeSource* sts =
-      new Dyninst::ParseAPI::SymtabCodeSource(const_cast<char*>(copy.c_str()));
+      new Dyninst::ParseAPI::SymtabCodeSource(
+          const_cast<char*>(binary.c_str()));
   Dyninst::ParseAPI::CodeObject* co = new Dyninst::ParseAPI::CodeObject(sts);
   co->parse();
-
-  std::set<std::string> all_regs;
-  std::set<std::string> used;
 
   auto fit = co->funcs().begin();
   for (; fit != co->funcs().end(); ++fit) {
     Dyninst::ParseAPI::Function* f = *fit;
-    if (co->cs()->linkage().find(f->addr()) != co->cs()->linkage().end())
-      continue;
+
+    printf("Function : %s\n", f->name().c_str());
 
     std::map<Dyninst::Offset, Dyninst::InstructionAPI::Instruction> insns;
+
+    std::set<std::string> regs;
+
     for (auto b : f->blocks()) {
       b->getInsns(insns);
 
@@ -149,15 +141,31 @@ RegisterUsageInfo GetUnusedRegisterInfo(std::string binary) {
         ins.second.getWriteSet(regsWritten);
 
         for (auto it = regsRead.begin(); it != regsRead.end(); it++) {
+          regs.insert(Normalize((*it)->format()));
           used.insert(Normalize((*it)->format()));
         }
 
         for (auto it = regsWritten.begin(); it != regsWritten.end(); it++) {
+          regs.insert(Normalize((*it)->format()));
           used.insert(Normalize((*it)->format()));
         }
       }
     }
   }
+}
+
+RegisterUsageInfo GetUnusedRegisterInfo(std::string binary) {
+  Dyninst::SymtabAPI::Symtab* symtab;
+  bool isParsable = Dyninst::SymtabAPI::Symtab::openFile(symtab, binary);
+  if (isParsable == false) {
+    const char* error = "error: file can not be parsed";
+    std::cout << error;
+    DCHECK(false);
+  }
+
+  std::set<std::string> used;
+
+  PopulateUsedRegisters(binary, used);
 
   PrintSet(used);
 
