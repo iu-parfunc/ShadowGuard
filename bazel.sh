@@ -68,11 +68,15 @@ build () {
     elif [ "$1" == "release" ]; then
        bazel build //src:*
     else 
-       echo "Unknown build option $1"
+       echo "Unknown build option $1" >> /dev/stderr
     fi 
   else
     bazel build -c dbg --sandbox_debug //src:* 
   fi
+}
+
+clean () {
+  bazel clean
 }
 
 
@@ -92,6 +96,10 @@ case $key in
     ;;
     install)
     ACTION="install"
+    shift # past value
+    ;;
+    clean)
+    ACTION="clean"
     shift # past value
     ;;
     -m|--mode)
@@ -120,6 +128,8 @@ if ! [ -z "$ACTION" ];then
     build $MODE
   elif [ "$ACTION" == "install" ]; then
     install $PREFIX
+  elif [ "$ACTION" == "clean" ]; then
+    clean
   else
     echo "Unknown action $ACTION" >> /dev/stderr
   fi
