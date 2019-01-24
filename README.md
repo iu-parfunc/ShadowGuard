@@ -1,2 +1,2 @@
 # liteCFI
-Adaptive CFI implementation based on lightweight binary instrumentation
+Lightweight backward-edge CFI using a low overhead shadow stack.
