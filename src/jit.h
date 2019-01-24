@@ -5,8 +5,8 @@
 #include "asmjit/asmjit.h"
 #include "register_usage.h"
 
-bool JitSimdStackPush(RegisterUsageInfo info, asmjit::X86Assembler* a);
+bool JitStackPush(RegisterUsageInfo info, asmjit::X86Assembler* a);
 
-bool JitSimdStackPop(RegisterUsageInfo info, asmjit::X86Assembler* a);
+bool JitStackPop(RegisterUsageInfo info, asmjit::X86Assembler* a);
 
 #endif  // LITECFI_JIT_H_

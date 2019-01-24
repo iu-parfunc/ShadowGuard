@@ -109,7 +109,6 @@ void PrintSet(const std::set<std::string>& vec) {
 
 void PopulateUnusedGprMask(const std::set<std::string>& used,
                            RegisterUsageInfo* const info) {
-  bool used_mask[15] = {false};  // Used register mask
   // TODO(chamibuddhika) Complete this
 }
 

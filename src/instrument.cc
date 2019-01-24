@@ -58,7 +58,7 @@ class StackPushSnippet : public StackOpSnippet {
  public:
   explicit StackPushSnippet(const RegisterUsageInfo& info)
       : StackOpSnippet(info) {
-    jit_fn_ = JitSimdStackPush;
+    jit_fn_ = JitStackPush;
   }
 };
 
@@ -66,7 +66,7 @@ class StackPopSnippet : public StackOpSnippet {
  public:
   explicit StackPopSnippet(const RegisterUsageInfo& info)
       : StackOpSnippet(info) {
-    jit_fn_ = JitSimdStackPop;
+    jit_fn_ = JitStackPop;
   }
 };
 

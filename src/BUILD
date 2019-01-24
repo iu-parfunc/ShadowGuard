@@ -7,6 +7,8 @@ cc_binary(
 	"instrument.h",
         "jit.cc",
 	"jit.h",
+	"jit_avx2.cc",
+	"jit_internal.h",
         "register_usage.cc",
         "register_usage.h",
     ],
