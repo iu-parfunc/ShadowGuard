@@ -4,8 +4,15 @@
 #include "Point.h"
 #include "Snippet.h"
 #include "asmjit/asmjit.h"
+#include "gflags/gflags.h"
 #include "glog/logging.h"
 #include "jit.h"
+
+// Shadow stack implementation flag
+DECLARE_string(shadow_stack);
+
+// Shadow stack memory region protection flag
+DECLARE_string(shadow_stack_protection);
 
 bool HasEnoughStorage(const RegisterUsageInfo& info) {
   int n_unused_avx_regs = 0;
