@@ -23,6 +23,15 @@ DEFINE_string(shadow_stack_protection, "sanitize",
               "   * mpx : Uses mpx bound checking\n"
               "   * none : Use no protection\n");
 
+DEFINE_string(cache, "./libs/",
+              "\n Path to the cache of hardened shared libraries."
+              " Once a shared library dependency is encountered the tool will"
+              " check in the cache and reuse that if available.\n");
+
+DEFINE_string(
+    install, "./bin/",
+    "\n Installation path of the hardened binary and its dependencies.");
+
 static bool ValidateShadowStackFlag(const char* flagname,
                                     const std::string& value) {
   if (value == "avx2" || value == "avx512" || value == "mem") {
@@ -64,7 +73,7 @@ int main(int argc, char* argv[]) {
   PrintVector(info.unused_avx_mask);
   PrintVector(info.unused_mmx_mask);
 
-  Instrument(binary, info);
+  // Instrument(binary, info);
 
   return 0;
 }
