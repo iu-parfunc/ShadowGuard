@@ -7,9 +7,13 @@
 #include "Point.h"
 #include "Snippet.h"
 #include "asmjit/asmjit.h"
+#include "gflags/gflags.h"
 #include "jit.h"
+#include "utils.h"
 
 using namespace Dyninst::PatchAPI;
+
+DECLARE_bool(vv);
 
 // Error handler that just prints the error and lets AsmJit ignore it.
 class PrintErrorHandler : public asmjit::ErrorHandler {
@@ -27,7 +31,6 @@ class StackOpSnippet : public Dyninst::PatchAPI::Snippet {
   explicit StackOpSnippet(const RegisterUsageInfo& info) : info_(info) {}
 
   bool generate(Dyninst::PatchAPI::Point* pt, Dyninst::Buffer& buf) override {
-    printf("  generating code for stack pop..\n");
     asmjit::JitRuntime rt;
     PrintErrorHandler eh;
 
@@ -58,6 +61,12 @@ class StackPushSnippet : public StackOpSnippet {
  public:
   explicit StackPushSnippet(const RegisterUsageInfo& info)
       : StackOpSnippet(info) {
+    StdOut(Color::BLUE, FLAGS_vv) << "\nCode Generation " << Endl;
+    StdOut(Color::BLUE, FLAGS_vv) << "=================" << Endl;
+
+    StdOut(Color::BLUE)
+        << "\n[Code Generation] Setting up stack push code generation." << Endl;
+
     jit_fn_ = JitStackPush;
   }
 };
@@ -66,22 +75,24 @@ class StackPopSnippet : public StackOpSnippet {
  public:
   explicit StackPopSnippet(const RegisterUsageInfo& info)
       : StackOpSnippet(info) {
+    StdOut(Color::BLUE)
+        << "[Code Generation] Setting up stack pop code generation." << Endl;
+
     jit_fn_ = JitStackPop;
   }
 };
 
 void InstrumentFunction(BPatch_function* function, PatchMgr::Ptr patcher,
+                        Snippet::Ptr& push, Snippet::Ptr& pop,
                         const RegisterUsageInfo& info) {
   // Shadow stack push instrumentation at function entry
   std::vector<Point*> points;
   patcher->findPoints(Scope(Dyninst::PatchAPI::convert(function)),
                       Point::FuncEntry, back_inserter(points));
 
-  Snippet::Ptr snippet = StackPushSnippet::create(new StackPushSnippet(info));
-
   for (auto it = points.begin(); it != points.end(); ++it) {
     Point* point = *it;
-    point->pushBack(snippet);
+    point->pushBack(push);
   }
 
   points.clear();
@@ -90,15 +101,14 @@ void InstrumentFunction(BPatch_function* function, PatchMgr::Ptr patcher,
   patcher->findPoints(Scope(Dyninst::PatchAPI::convert(function)),
                       Point::FuncExit, back_inserter(points));
 
-  snippet = StackPopSnippet::create(new StackPopSnippet(info));
-
   for (auto it = points.begin(); it != points.end(); ++it) {
     Point* pt = *it;
-    pt->pushBack(snippet);
+    pt->pushBack(pop);
   }
 }
 
 void InstrumentModule(BPatch_module* module, PatchMgr::Ptr patcher,
+                      Snippet::Ptr& push, Snippet::Ptr& pop,
                       const RegisterUsageInfo& info) {
   char funcname[2048];
   std::vector<BPatch_function*>* functions = module->getProcedures();
@@ -114,8 +124,8 @@ void InstrumentModule(BPatch_module* module, PatchMgr::Ptr patcher,
     if ((strcmp(funcname, "memset") != 0) &&
         (strcmp(funcname, "call_gmon_start") != 0) &&
         (strcmp(funcname, "frame_dummy") != 0) && funcname[0] != '_') {
-      printf("Function : %s\n", funcname);
-      InstrumentFunction(function, patcher, info);
+      // printf("Function : %s\n", funcname);
+      InstrumentFunction(function, patcher, push, pop, info);
     }
   }
 }
@@ -124,6 +134,9 @@ void InstrumentApplication(BPatch_addressSpace* app,
                            const RegisterUsageInfo& info) {
   BPatch_image* image = app->getImage();
   PatchMgr::Ptr patcher = Dyninst::PatchAPI::convert(app);
+
+  Snippet::Ptr push = StackPushSnippet::create(new StackPushSnippet(info));
+  Snippet::Ptr pop = StackPopSnippet::create(new StackPopSnippet(info));
 
   std::vector<BPatch_module*>* modules = image->getModules();
   for (auto it = modules->begin(); it != modules->end(); it++) {
@@ -139,13 +152,15 @@ void InstrumentApplication(BPatch_addressSpace* app,
       continue;
     }
 
+    /*
     if (module->isSharedLib()) {
-      printf("\nSkipping Module : %s\n\n", modname);
+      // printf("\nSkipping Module : %s\n\n", modname);
       continue;
     }
+    */
 
-    printf("\nModule : %s\n\n", modname);
-    InstrumentModule(module, patcher, info);
+    // printf("\nModule : %s\n\n", modname);
+    InstrumentModule(module, patcher, push, pop, info);
   }
 }
 
@@ -153,9 +168,13 @@ void Instrument(std::string binary, const RegisterUsageInfo& info) {
   // initalize DynInst library
   BPatch* bpatch = new BPatch;
 
-  printf("Patching %s\n", binary.c_str());
+  StdOut(Color::BLUE, FLAGS_vv) << "\n\nInstrumentation Pass" << Endl;
+  StdOut(Color::BLUE, FLAGS_vv) << "====================" << Endl;
 
-  // open binary (and possibly dependencies)
+  StdOut(Color::BLUE) << "\n[Instrumentation] Instrumenting the binary ..."
+                      << Endl;
+
+  // open binary and linked shared libraries
   BPatch_addressSpace* app = bpatch->openBinary(binary.c_str(), true);
 
   if (app == NULL) {
@@ -164,7 +183,8 @@ void Instrument(std::string binary, const RegisterUsageInfo& info) {
   }
 
   InstrumentApplication(app, info);
-
   ((BPatch_binaryEdit*)app)->writeFile((binary + "_cfi").c_str());
-  printf("Done.\n");
+
+  StdOut(Color::BLUE) << "\n[Instrumentation] Instrumentation complete."
+                      << Endl;
 }

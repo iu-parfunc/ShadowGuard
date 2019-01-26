@@ -7,6 +7,8 @@
 #include "register_usage.h"
 #include "utils.h"
 
+DEFINE_bool(vv, false, "Log verbose output.");
+
 DEFINE_string(
     shadow_stack, "avx2",
     "\n Shadow stack implementation mechanism for backward-edge protection.\n"
@@ -75,13 +77,7 @@ int main(int argc, char* argv[]) {
 
   RegisterUsageInfo info = GetUnusedRegisterInfo(binary);
 
-  printf("Print vector masks\n");
-
-  PrintSequence<std::vector<bool>, bool>(info.unused_avx2_mask);
-  PrintSequence<std::vector<bool>, bool>(info.unused_avx512_mask);
-  PrintSequence<std::vector<bool>, bool>(info.unused_mmx_mask);
-
-  // Instrument(binary, info);
+  Instrument(binary, info);
 
   return 0;
 }

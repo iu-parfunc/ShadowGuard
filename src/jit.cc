@@ -9,6 +9,7 @@
 #include "gflags/gflags.h"
 #include "glog/logging.h"
 #include "jit_internal.h"
+#include "utils.h"
 
 bool HasEnoughStorage(const RegisterUsageInfo& info) {
   int n_unused_avx_regs = 0;

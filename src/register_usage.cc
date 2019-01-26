@@ -18,9 +18,12 @@
 #include "BPatch_function.h"
 #include "BPatch_object.h"
 #include "CodeObject.h"
+#include "gflags/gflags.h"
 #include "glog/logging.h"
 #include "register_usage.h"
 #include "utils.h"
+
+DECLARE_bool(vv);
 
 std::string NormalizeRegisterName(std::string reg) {
   if (!reg.compare(0, 1, "E")) {
@@ -81,9 +84,15 @@ void PopulateUnusedAvx2Mask(const std::set<std::string>& used,
     }
   }
 
+  int unused_count = 0;
   for (int i = 0; i < 16; i++) {
+    if (!used_mask[i]) {
+      unused_count++;
+    }
+
     info->unused_avx2_mask.push_back(!used_mask[i]);
   }
+  info->n_unused_avx2_regs = unused_count;
 }
 
 void PopulateUnusedAvx512Mask(const std::set<std::string>& used,
@@ -100,9 +109,15 @@ void PopulateUnusedAvx512Mask(const std::set<std::string>& used,
     }
   }
 
+  int unused_count = 0;
   for (int i = 0; i < 32; i++) {
+    if (!used_mask[i]) {
+      unused_count++;
+    }
+
     info->unused_avx512_mask.push_back(!used_mask[i]);
   }
+  info->n_unused_avx512_regs = unused_count;
 }
 
 void PopulateUnusedMmxMask(const std::set<std::string>& used,
@@ -117,6 +132,7 @@ void PopulateUnusedMmxMask(const std::set<std::string>& used,
       for (int i = 0; i < 8; i++) {
         info->unused_mmx_mask.push_back(false);
       }
+      info->n_unused_mmx_regs = 0;
       return;
     }
   }
@@ -130,9 +146,14 @@ void PopulateUnusedMmxMask(const std::set<std::string>& used,
     }
   }
 
+  int unused_count = 0;
   for (int i = 0; i < 8; i++) {
+    if (!used_mask[i]) {
+      unused_count++;
+    }
     info->unused_mmx_mask.push_back(!used_mask[i]);
   }
+  info->n_unused_mmx_regs = unused_count;
 }
 
 void PopulateUnusedGprMask(const std::set<std::string>& used,
@@ -148,13 +169,15 @@ void PopulateUsedRegisters(Dyninst::ParseAPI::CodeObject* code_object,
   for (; fit != code_object->funcs().end(); ++fit) {
     Dyninst::ParseAPI::Function* f = *fit;
 
-    printf("Function : %s\n", f->name().c_str());
+    if (FLAGS_vv) {
+      StdOut(Color::YELLOW) << " Function : " << f->name() << Endl;
+    }
 
     std::map<Dyninst::Offset, Dyninst::InstructionAPI::Instruction> insns;
 
     std::set<std::string> regs;
 
-    for (auto b : f->blocks()) {
+    for (auto const& b : f->blocks()) {
       b->getInsns(insns);
 
       for (auto const& ins : insns) {
@@ -177,8 +200,9 @@ void PopulateUsedRegisters(Dyninst::ParseAPI::CodeObject* code_object,
       }
     }
 
-    PrintSequence<std::set<std::string>, std::string>(regs, ", ");
-    printf("\n");
+    if (FLAGS_vv) {
+      PrintSequence<std::set<std::string>, std::string>(regs, 4, ", ");
+    }
   }
 }
 
@@ -198,8 +222,11 @@ bool PopulateCacheFromDisk(
     DCHECK(tokens.size() == 2);
 
     std::string library = tokens[0];
-    printf("Loading library %s\n", library.c_str());
-    printf(" %s\n\n", tokens[1].c_str());
+    if (FLAGS_vv) {
+      StdOut(Color::GREEN) << "Loading cached analysis results for library : "
+                           << library << Endl;
+      StdOut(Color::NONE) << "  " << tokens[1] << Endl << Endl;
+    }
 
     std::vector<std::string> registers = Split(tokens[1], ':');
     DCHECK(registers.size() > 0);
@@ -278,6 +305,9 @@ void FlushCacheToDisk(
 }
 
 RegisterUsageInfo GetUnusedRegisterInfo(std::string binary) {
+  StdOut(Color::BLUE, FLAGS_vv) << "Register Analysis Pass" << Endl;
+  StdOut(Color::BLUE, FLAGS_vv) << "======================" << Endl;
+
   BPatch* bpatch = new BPatch;
   // Open binary and its linked shared libraries for parsing
   BPatch_addressSpace* app = bpatch->openBinary(binary.c_str(), true);
@@ -290,17 +320,31 @@ RegisterUsageInfo GetUnusedRegisterInfo(std::string binary) {
   std::set<std::string> used;
   // Register audit cache deserialized from the disk
   std::map<std::string, std::set<std::string>> cache;
+
+  StdOut(Color::BLUE, FLAGS_vv)
+      << "\n[Register Analysis] Loading analysis cache.\n\n";
   bool is_cache_present = PopulateCacheFromDisk(cache);
+  StdOut(Color::NONE, FLAGS_vv) << Endl;
+
+  StdOut(Color::BLUE) << "[Register Analysis] Running register analysis ...\n";
 
   for (auto it = objects.begin(); it != objects.end(); it++) {
     BPatch_object* object = *it;
 
-    printf("Parsing object : %s\n", object->pathName().c_str());
+    if (IsSharedLibrary(object)) {
+      StdOut(Color::GREEN, FLAGS_vv)
+          << "\nAnalysing shared library : " << object->pathName() << Endl;
+    } else {
+      StdOut(Color::GREEN, FLAGS_vv)
+          << "\nAnalysing program text : " << object->pathName() << Endl;
+    }
 
     std::set<std::string> registers;
     if (is_cache_present && IsSharedLibrary(object)) {
       auto it = cache.find(object->pathName());
       if (it != cache.end()) {
+        StdOut(Color::YELLOW, FLAGS_vv)
+            << " Using cached analysis results." << Endl;
         registers = it->second;
       }
     }
@@ -319,18 +363,40 @@ RegisterUsageInfo GetUnusedRegisterInfo(std::string binary) {
     for (auto const& reg : registers) {
       used.insert(reg);
     }
-
-    printf("\n\n");
   }
 
   FlushCacheToDisk(cache);
-
-  PrintSequence<std::set<std::string>, std::string>(used, ", ");
 
   RegisterUsageInfo info;
   PopulateUnusedAvx2Mask(used, &info);
   PopulateUnusedAvx512Mask(used, &info);
   PopulateUnusedMmxMask(used, &info);
+
+  if (FLAGS_vv) {
+    StdOut(Color::BLUE) << "\n\n[Register Analysis] Results : " << Endl << Endl;
+    StdOut(Color::GREEN) << "  Used registers : " << Endl;
+    PrintSequence<std::set<std::string>, std::string>(used, 4, ", ");
+
+    StdOut(Color::GREEN) << "\n  Unused register masks (1's for unused)"
+                         << Endl;
+
+    StdOut(Color::GREEN) << "    AVX2 :   ";
+    PrintSequence<std::vector<bool>, bool>(info.unused_avx2_mask);
+
+    StdOut(Color::GREEN) << "    AVX512 : ";
+    PrintSequence<std::vector<bool>, bool>(info.unused_avx512_mask);
+
+    StdOut(Color::GREEN) << "    MMX :    ";
+    PrintSequence<std::vector<bool>, bool>(info.unused_mmx_mask);
+    StdOut() << Endl << Endl;
+  }
+
+  StdOut(Color::BLUE) << "[Register Analysis] Register analysis complete."
+                      << Endl << Endl;
+  StdOut(Color::GREEN) << "  Unused Register Count: " << Endl;
+  StdOut(Color::GREEN) << "    AVX2   : " << info.n_unused_avx2_regs << Endl;
+  StdOut(Color::GREEN) << "    AVX512 : " << info.n_unused_avx512_regs << Endl;
+  StdOut(Color::GREEN) << "    MMX    : " << info.n_unused_mmx_regs << Endl;
 
   return info;
 }

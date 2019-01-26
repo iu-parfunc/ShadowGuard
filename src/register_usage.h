@@ -14,6 +14,13 @@ struct RegisterUsageInfo {
   std::vector<bool> unused_mmx_mask;
   // Mask of unused general purpose registers
   std::vector<bool> unused_gpr;
+
+  // Number of unused AVX2 registers
+  int n_unused_avx2_regs;
+  // Number of unused AVX512 registers
+  int n_unused_avx512_regs;
+  // Number of unused MMX registers
+  int n_unused_mmx_regs;
 };
 
 // Find unused registers across all functions in the application. This
