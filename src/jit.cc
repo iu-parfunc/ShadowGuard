@@ -10,12 +10,9 @@
 #include "glog/logging.h"
 #include "jit_internal.h"
 
-// Shadow stack implementation flag
-DECLARE_string(shadow_stack);
-
 bool HasEnoughStorage(const RegisterUsageInfo& info) {
   int n_unused_avx_regs = 0;
-  for (auto unused : info.unused_avx_mask) {
+  for (auto unused : info.unused_avx2_mask) {
     if (unused) {
       n_unused_avx_regs++;
     }

@@ -11,12 +11,19 @@ cc_binary(
 	"jit_internal.h",
         "register_usage.cc",
         "register_usage.h",
+	"register_utils.cc",
+	"register_utils.h",
+	"utils.cc",
+	"utils.h",
     ],
     deps = [
        	"@asmjit//:asmjit",
         "@com_github_gflags_gflags//:gflags",
        	"@dyninst//:dyninst",
         "@glog//:glog",
+    ],
+    copts = [
+        "-stdlib=libstdc++",
     ],
 )
 

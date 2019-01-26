@@ -102,9 +102,12 @@ case $key in
     ACTION="clean"
     shift # past value
     ;;
-    -m|--mode)
-    MODE="$2"
-    shift # past argument
+    --release)
+    MODE="release"
+    shift # past value
+    ;;
+    --debug)
+    MODE="debug"
     shift # past value
     ;;
     -p|--prefix)

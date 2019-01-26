@@ -1,13 +1,28 @@
 
+#include <cstddef>
+#include <fstream>
 #include <string>
 
+#include <errno.h>
+
+#if defined(__GLIBCXX__) || defined(__GLIBCPP__)
+#include <ext/stdio_filebuf.h>
+#else
+#error We require libstdc++ at the moment. Compile with GCC or specify\
+ libstdc++ at compile time (e.g: -stdlib=libstdc++ in Clang).
+#endif
+
+#include <sys/file.h>
+
+#include "BPatch.h"
+#include "BPatch_function.h"
+#include "BPatch_object.h"
 #include "CodeObject.h"
-#include "Instruction.h"
-#include "Symtab.h"
 #include "glog/logging.h"
 #include "register_usage.h"
+#include "utils.h"
 
-std::string Normalize(std::string reg) {
+std::string NormalizeRegisterName(std::string reg) {
   if (!reg.compare(0, 1, "E")) {
     return "R" + reg.substr(1);
   }
@@ -53,25 +68,40 @@ int ExtractNumericPostFix(std::string reg) {
   return -1;
 }
 
-void PopulateUnusedAvxMask(const std::set<std::string>& used,
-                           RegisterUsageInfo* const info) {
-  bool used_mask[32] = {false};  // Used register mask
+void PopulateUnusedAvx2Mask(const std::set<std::string>& used,
+                            RegisterUsageInfo* const info) {
+  // Used register mask. Only 16 registers.
+  bool used_mask[16] = {false};
   for (const std::string& reg : used) {
-    if (!reg.compare(0, 1, "Y")) {  // Register is AVX2
+    if (!reg.compare(0, 3, "YMM") || !reg.compare(0, 3, "XMM")) {
       // Extract integer post fix
       int register_index = ExtractNumericPostFix(reg);
       DCHECK(register_index >= 0 && register_index < 16);
-      used_mask[register_index * 2] = true;
-      used_mask[register_index * 2 + 1] = true;
-    } else if (!reg.compare(0, 1, "X")) {  // Register is AVX
+      used_mask[register_index] = true;
+    }
+  }
+
+  for (int i = 0; i < 16; i++) {
+    info->unused_avx2_mask.push_back(!used_mask[i]);
+  }
+}
+
+void PopulateUnusedAvx512Mask(const std::set<std::string>& used,
+                              RegisterUsageInfo* const info) {
+  // Used register mask. 32 AVX512 registers
+  bool used_mask[32] = {false};
+  for (const std::string& reg : used) {
+    if (!reg.compare(0, 3, "ZMM") || !reg.compare(0, 3, "YMM") ||
+        !reg.compare(0, 3, "XMM")) {
+      // Extract integer post fix
       int register_index = ExtractNumericPostFix(reg);
-      DCHECK(register_index >= 0 && register_index < 16);
-      used_mask[register_index * 2] = true;
+      DCHECK(register_index >= 0 && register_index < 32);
+      used_mask[register_index] = true;
     }
   }
 
   for (int i = 0; i < 32; i++) {
-    info->unused_avx_mask.push_back(!used_mask[i]);
+    info->unused_avx512_mask.push_back(!used_mask[i]);
   }
 }
 
@@ -81,7 +111,12 @@ void PopulateUnusedMmxMask(const std::set<std::string>& used,
   // cannot use MMX register mode since they overlap with the FPU stack
   // registers.
   for (const std::string& reg : used) {
-    if (!reg.compare(0, 2, "FP")) {  // FPU register used
+    if (!reg.compare(0, 2, "FP") ||
+        !reg.compare(0, 2, "ST")) {  // FPU register used
+
+      for (int i = 0; i < 8; i++) {
+        info->unused_mmx_mask.push_back(false);
+      }
       return;
     }
   }
@@ -100,28 +135,17 @@ void PopulateUnusedMmxMask(const std::set<std::string>& used,
   }
 }
 
-void PrintSet(const std::set<std::string>& vec) {
-  for (auto element : vec) {
-    printf("%s ", element.c_str());
-  }
-  printf("\n");
-}
-
 void PopulateUnusedGprMask(const std::set<std::string>& used,
                            RegisterUsageInfo* const info) {
   // TODO(chamibuddhika) Complete this
 }
 
-void PopulateUsedRegisters(std::string binary, std::set<std::string>& used) {
-  // Create a new binary code object from the filename argument
-  Dyninst::ParseAPI::SymtabCodeSource* sts =
-      new Dyninst::ParseAPI::SymtabCodeSource(
-          const_cast<char*>(binary.c_str()));
-  Dyninst::ParseAPI::CodeObject* co = new Dyninst::ParseAPI::CodeObject(sts);
-  co->parse();
+void PopulateUsedRegisters(Dyninst::ParseAPI::CodeObject* code_object,
+                           std::set<std::string>& used) {
+  code_object->parse();
 
-  auto fit = co->funcs().begin();
-  for (; fit != co->funcs().end(); ++fit) {
+  auto fit = code_object->funcs().begin();
+  for (; fit != code_object->funcs().end(); ++fit) {
     Dyninst::ParseAPI::Function* f = *fit;
 
     printf("Function : %s\n", f->name().c_str());
@@ -140,36 +164,172 @@ void PopulateUsedRegisters(std::string binary, std::set<std::string>& used) {
         ins.second.getWriteSet(regsWritten);
 
         for (auto it = regsRead.begin(); it != regsRead.end(); it++) {
-          regs.insert(Normalize((*it)->format()));
-          used.insert(Normalize((*it)->format()));
+          std::string normalized_name = NormalizeRegisterName((*it)->format());
+          regs.insert(normalized_name);
+          used.insert(normalized_name);
         }
 
         for (auto it = regsWritten.begin(); it != regsWritten.end(); it++) {
-          regs.insert(Normalize((*it)->format()));
-          used.insert(Normalize((*it)->format()));
+          std::string normalized_name = NormalizeRegisterName((*it)->format());
+          regs.insert(normalized_name);
+          used.insert(normalized_name);
         }
       }
     }
+
+    PrintSequence<std::set<std::string>, std::string>(regs, ", ");
+    printf("\n");
   }
 }
 
-RegisterUsageInfo GetUnusedRegisterInfo(std::string binary) {
-  Dyninst::SymtabAPI::Symtab* symtab;
-  bool isParsable = Dyninst::SymtabAPI::Symtab::openFile(symtab, binary);
-  if (isParsable == false) {
-    const char* error = "error: file can not be parsed";
-    std::cout << error;
-    DCHECK(false);
+const std::string kAuditCacheFile = ".audit_cache";
+
+bool PopulateCacheFromDisk(
+    std::map<std::string, std::set<std::string>>& cache) {
+  std::ifstream cache_file(kAuditCacheFile);
+
+  if (cache_file.fail()) {
+    return false;
   }
 
+  std::string line;
+  while (std::getline(cache_file, line)) {
+    std::vector<std::string> tokens = Split(line, ',');
+    DCHECK(tokens.size() == 2);
+
+    std::string library = tokens[0];
+    printf("Loading library %s\n", library.c_str());
+    printf(" %s\n\n", tokens[1].c_str());
+
+    std::vector<std::string> registers = Split(tokens[1], ':');
+    DCHECK(registers.size() > 0);
+
+    std::set<std::string> register_set(registers.begin(), registers.end());
+    cache[library] = register_set;
+  }
+
+  return true;
+}
+
+bool IsSharedLibrary(BPatch_object* object) {
+  // TODO(chamibudhika) isSharedLib() should return false for program text
+  // code object modules IMO. Check with Dyninst team about this.
+  //
+  //  std::vector<BPatch_module*> modules;
+  //  object->modules(modules);
+  //  DCHECK(modules.size() > 0);
+  //
+  //  return modules[0]->isSharedLib();
+
+  // For now check if .so extension occurs somewhere in the object path
+  std::string name = std::string(object->pathName());
+  if (name.find(".so") != std::string::npos) {
+    return true;
+  }
+  return false;
+}
+
+void FlushCacheToDisk(
+    const std::map<std::string, std::set<std::string>>& cache) {
+  std::ofstream cache_file(kAuditCacheFile);
+
+  if (!cache_file.is_open()) {
+    char error[2048];
+    fprintf(stderr,
+            "Failed to create/ open the register audit cache file with : %s\n",
+            strerror_r(errno, error, 2048));
+    return;
+  }
+
+  // Exclusively lock the file for writing
+  int fd =
+      static_cast<__gnu_cxx::stdio_filebuf<char>* const>(cache_file.rdbuf())
+          ->fd();
+
+  if (flock(fd, LOCK_EX)) {
+    char error[2048];
+    fprintf(stderr, "Failed to lock the register audit cache file with : %s\n",
+            strerror_r(errno, error, 2048));
+    return;
+  }
+
+  for (auto const& it : cache) {
+    std::string registers_concat = "";
+    std::set<std::string> registers = it.second;
+
+    for (auto const& reg : registers) {
+      registers_concat += (reg + ":");
+    }
+
+    // Remove the trailing ':'
+    registers_concat.pop_back();
+    cache_file << it.first << "," << registers_concat << std::endl;
+  }
+
+  if (flock(fd, LOCK_UN)) {
+    char error[2048];
+    fprintf(stderr,
+            "Failed to unlock the register audit cache file with : %s\n",
+            strerror_r(errno, error, 2048));
+  }
+
+  cache_file.close();
+  return;
+}
+
+RegisterUsageInfo GetUnusedRegisterInfo(std::string binary) {
+  BPatch* bpatch = new BPatch;
+  // Open binary and its linked shared libraries for parsing
+  BPatch_addressSpace* app = bpatch->openBinary(binary.c_str(), true);
+  BPatch_image* image = app->getImage();
+
+  std::vector<BPatch_object*> objects;
+  image->getObjects(objects);
+
+  // Used registers in the application and its linked shared libraries
   std::set<std::string> used;
+  // Register audit cache deserialized from the disk
+  std::map<std::string, std::set<std::string>> cache;
+  bool is_cache_present = PopulateCacheFromDisk(cache);
 
-  PopulateUsedRegisters(binary, used);
+  for (auto it = objects.begin(); it != objects.end(); it++) {
+    BPatch_object* object = *it;
 
-  PrintSet(used);
+    printf("Parsing object : %s\n", object->pathName().c_str());
+
+    std::set<std::string> registers;
+    if (is_cache_present && IsSharedLibrary(object)) {
+      auto it = cache.find(object->pathName());
+      if (it != cache.end()) {
+        registers = it->second;
+      }
+    }
+
+    if (!registers.size()) {
+      // Couldn't find the library info in the cache or this object is the
+      // program text. Parse the object and get register usage information.
+      PopulateUsedRegisters(Dyninst::ParseAPI::convert(object), registers);
+
+      // Update the cache if this is a shared library
+      if (IsSharedLibrary(object)) {
+        cache[object->pathName()] = registers;
+      }
+    }
+
+    for (auto const& reg : registers) {
+      used.insert(reg);
+    }
+
+    printf("\n\n");
+  }
+
+  FlushCacheToDisk(cache);
+
+  PrintSequence<std::set<std::string>, std::string>(used, ", ");
 
   RegisterUsageInfo info;
-  PopulateUnusedAvxMask(used, &info);
+  PopulateUnusedAvx2Mask(used, &info);
+  PopulateUnusedAvx512Mask(used, &info);
   PopulateUnusedMmxMask(used, &info);
 
   return info;

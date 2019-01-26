@@ -5,6 +5,7 @@
 #include "glog/logging.h"
 #include "instrument.h"
 #include "register_usage.h"
+#include "utils.h"
 
 DEFINE_string(
     shadow_stack, "avx2",
@@ -12,15 +13,18 @@ DEFINE_string(
     "\n Valid values are\n"
     "   * avx2 : Uses avx2 register file as backing store\n"
     "   * avx512 : Uses avx512 register file as backing store\n"
-    "   * mem : Uses a memory region as backing store\n");
+    "   * mem : Uses a memory region as backing store\n"
+    "   * xor : Uses a xor check based technique to validate the return chain."
+    " Less context sensitive and precise than other techniques.\n");
 
-DEFINE_string(shadow_stack_protection, "sanitize",
+DEFINE_string(shadow_stack_protection, "sfi",
               "\n Applicable only when `shadow-stack` is set to mem."
               " Specifies protection mechanism for the memory region used as"
               " the backing store for the shadow stack.\n"
               "\n Valid values are\n"
-              "   * sanitize : Sanitize every memory write of the application\n"
-              "   * mpx : Uses mpx bound checking\n"
+              "   * sfi: Use Software Fault Isolation by sanitizing every"
+              " memory write of the application\n"
+              "   * mpx : Use mpx bound checking\n"
               "   * none : Use no protection\n");
 
 DEFINE_string(cache, "./libs/",
@@ -42,7 +46,7 @@ static bool ValidateShadowStackFlag(const char* flagname,
 
 static bool ValidateShadowStackProtectionFlag(const char* flagname,
                                               const std::string& value) {
-  if (value == "sanitize" || value == "mpx" || value == "none") {
+  if (value == "sfi" || value == "mpx" || value == "none") {
     return true;
   }
   return false;
@@ -70,8 +74,12 @@ int main(int argc, char* argv[]) {
   std::string binary(argv[1]);
 
   RegisterUsageInfo info = GetUnusedRegisterInfo(binary);
-  PrintVector(info.unused_avx_mask);
-  PrintVector(info.unused_mmx_mask);
+
+  printf("Print vector masks\n");
+
+  PrintSequence<std::vector<bool>, bool>(info.unused_avx2_mask);
+  PrintSequence<std::vector<bool>, bool>(info.unused_avx512_mask);
+  PrintSequence<std::vector<bool>, bool>(info.unused_mmx_mask);
 
   // Instrument(binary, info);
 

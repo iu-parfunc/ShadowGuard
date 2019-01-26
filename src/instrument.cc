@@ -122,14 +122,12 @@ void InstrumentModule(BPatch_module* module, PatchMgr::Ptr patcher,
 
 void InstrumentApplication(BPatch_addressSpace* app,
                            const RegisterUsageInfo& info) {
-  char modname[2048];
-
   BPatch_image* image = app->getImage();
   PatchMgr::Ptr patcher = Dyninst::PatchAPI::convert(app);
 
   std::vector<BPatch_module*>* modules = image->getModules();
-
   for (auto it = modules->begin(); it != modules->end(); it++) {
+    char modname[2048];
     BPatch_module* module = *it;
     module->getName(modname, 2048);
 
@@ -141,7 +139,7 @@ void InstrumentApplication(BPatch_addressSpace* app,
       continue;
     }
 
-    if (module->isSharedLib() && strcmp(modname, "hello")) {
+    if (module->isSharedLib()) {
       printf("\nSkipping Module : %s\n\n", modname);
       continue;
     }
