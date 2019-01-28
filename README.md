@@ -3,7 +3,8 @@ Lightweight backward-edge CFI using a low overhead shadow stack.
 
 # Installation
 
-We use Bazel for building this project. Get it from https://bazel.build/. 
+We use Bazel for building this project. You can get it from https://bazel.build/.
+
 Since we depend on Dyninst and Asmjit which have cmake builds, a recent 
 cmake installation is also required for building those dependencies. Use the 
 Bazel build wrapper script as below to build the project along with its 
