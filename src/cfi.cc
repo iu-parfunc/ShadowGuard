@@ -4,6 +4,7 @@
 #include "gflags/gflags.h"
 #include "glog/logging.h"
 #include "instrument.h"
+#include "parse.h"
 #include "register_usage.h"
 #include "utils.h"
 
@@ -75,9 +76,11 @@ int main(int argc, char* argv[]) {
 
   std::string binary(argv[1]);
 
-  RegisterUsageInfo info = GetUnusedRegisterInfo(binary);
+  Parser parser = InitParser(binary);
 
-  Instrument(binary, info);
+  RegisterUsageInfo info = GetUnusedRegisterInfo(binary, parser);
+
+  Instrument(binary, info, parser);
 
   return 0;
 }

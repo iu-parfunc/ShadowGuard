@@ -7,6 +7,11 @@
 
 using namespace asmjit::x86;
 
+void JitAvx2StackInit(RegisterUsageInfo& info, asmjit::X86Assembler* a) {
+  AvxRegister meta = GetNextUnusedAvx2Register(info);
+  a->pxor(meta.xmm, meta.xmm);
+}
+
 #define NOP_PAD(a, n) \
   int iters = n;      \
   while (iters > 0) { \
@@ -18,13 +23,13 @@ using namespace asmjit::x86;
   case i1: {                                                                 \
     a->pinsrq(xmm_reg, ptr(rsp), asmjit::imm(0));                            \
     a->jmp(end);                                                             \
-    NOP_PAD(a, 9)                                                            \
+    NOP_PAD(a, 19)                                                           \
     break;                                                                   \
   }                                                                          \
   case i2: {                                                                 \
     a->pinsrq(xmm_reg, ptr(rsp), asmjit::imm(1));                            \
     a->jmp(end);                                                             \
-    NOP_PAD(a, 9)                                                            \
+    NOP_PAD(a, 19)                                                           \
     break;                                                                   \
   }                                                                          \
   case i3: {                                                                 \
@@ -32,6 +37,7 @@ using namespace asmjit::x86;
     a->vinserti128(scratch.ymm, ymm_reg, scratch.xmm, asmjit::imm(1));       \
     a->vpblendd(ymm_reg, ymm_reg, scratch.ymm, asmjit::imm(48));             \
     a->jmp(end);                                                             \
+    NOP_PAD(a, 10)                                                           \
     break;                                                                   \
   }                                                                          \
   case i4: {                                                                 \
@@ -39,15 +45,15 @@ using namespace asmjit::x86;
     a->vpbroadcastq(scratch.ymm, scratch.xmm);                               \
     a->vpblendd(ymm_reg, ymm_reg, scratch.ymm, asmjit::imm(192));            \
     a->jmp(end);                                                             \
-    NOP_PAD(a, 1)                                                            \
+    NOP_PAD(a, 11)                                                           \
     break;                                                                   \
   }
 
 #define JIT_DISPATCH_PUSH(a, sp)       \
   /* Calculate jump target */          \
   a->vpextrq(r11, sp, asmjit::imm(0)); \
-  a->imul(r11, asmjit::imm(33));       \
-  a->lea(rax, ptr(rip, 6));            \
+  a->imul(r11, asmjit::imm(32));       \
+  a->lea(rax, ptr(rip, 22));           \
   asmjit::X86Mem c = ptr(rax, r11);    \
   a->lea(rax, c);                      \
                                        \

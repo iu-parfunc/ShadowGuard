@@ -9,6 +9,8 @@ cc_binary(
 	"jit.h",
 	"jit_avx2.cc",
 	"jit_internal.h",
+	"parse.cc",
+	"parse.h",
         "register_usage.cc",
         "register_usage.h",
 	"register_utils.cc",

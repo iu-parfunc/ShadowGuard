@@ -5,6 +5,8 @@
 #include <string>
 #include <vector>
 
+#include "parse.h"
+
 struct RegisterUsageInfo {
   // Mask of unused AVX and AVX2 registers
   std::vector<bool> unused_avx2_mask;
@@ -25,6 +27,7 @@ struct RegisterUsageInfo {
 
 // Find unused registers across all functions in the application. This
 // includes linked shared library functions.
-RegisterUsageInfo GetUnusedRegisterInfo(std::string binary);
+RegisterUsageInfo GetUnusedRegisterInfo(std::string binary,
+                                        const Parser& parser);
 
 #endif  // LITECFI_REGISTER_USAGE_H_

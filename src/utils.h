@@ -8,6 +8,8 @@
 
 std::vector<std::string> Split(const std::string& s, char delimiter);
 
+std::string GetFileNameFromPath(const std::string& s);
+
 enum class Color : uint8_t {
   NONE = 0x29,
   BLACK = 0x30,

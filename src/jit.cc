@@ -19,17 +19,22 @@ bool HasEnoughStorage(const RegisterUsageInfo& info) {
     }
   }
 
-  int n_unused_mmx_regs = 0;
-  for (auto unused : info.unused_mmx_mask) {
-    if (unused) {
-      n_unused_mmx_regs++;
-    }
-  }
+  // We need at least two unused registers to hold stack state
+  DCHECK(n_unused_avx_regs > 2) << "No free registers available for the stack";
 
-  if (n_unused_avx_regs + n_unused_mmx_regs < 16) {
-    return false;
-  }
+  return true;
+}
 
+bool JitStackInit(RegisterUsageInfo info, asmjit::X86Assembler* a) {
+  if (FLAGS_shadow_stack == "avx2") {
+    JitAvx2StackInit(info, a);
+  } else if (FLAGS_shadow_stack == "avx512") {
+    // TODO(chamibuddhika) Implement this
+    // JitAvx512StackPush(info, a);
+  } else if (FLAGS_shadow_stack == "mem") {
+    // TODO(chamibuddhika) Implement this
+    // JitMemoryStackPush(info, a);
+  }
   return true;
 }
 

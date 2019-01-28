@@ -5,6 +5,8 @@
 #include "asmjit/asmjit.h"
 #include "register_usage.h"
 
+bool JitStackInit(RegisterUsageInfo info, asmjit::X86Assembler* a);
+
 bool JitStackPush(RegisterUsageInfo info, asmjit::X86Assembler* a);
 
 bool JitStackPop(RegisterUsageInfo info, asmjit::X86Assembler* a);

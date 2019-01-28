@@ -120,3 +120,9 @@ std::vector<std::string> Split(const std::string& s, char delimiter) {
   Split(s, delimiter, std::back_inserter(elements));
   return elements;
 }
+
+std::string GetFileNameFromPath(const std::string& s) {
+  // Assume unix paths
+  std::vector<std::string> elements = Split(s, '/');
+  return elements[elements.size() - 1];
+}

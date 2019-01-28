@@ -8,6 +8,7 @@
 // Shadow stack implementation flag
 DECLARE_string(shadow_stack);
 
+void JitAvx2StackInit(RegisterUsageInfo& info, asmjit::X86Assembler* a);
 void JitAvx2StackPush(RegisterUsageInfo& info, asmjit::X86Assembler* a);
 void JitAvx2StackPop(RegisterUsageInfo& info, asmjit::X86Assembler* a);
 

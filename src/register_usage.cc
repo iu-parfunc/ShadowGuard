@@ -20,6 +20,7 @@
 #include "CodeObject.h"
 #include "gflags/gflags.h"
 #include "glog/logging.h"
+#include "parse.h"
 #include "register_usage.h"
 #include "utils.h"
 
@@ -238,24 +239,6 @@ bool PopulateCacheFromDisk(
   return true;
 }
 
-bool IsSharedLibrary(BPatch_object* object) {
-  // TODO(chamibudhika) isSharedLib() should return false for program text
-  // code object modules IMO. Check with Dyninst team about this.
-  //
-  //  std::vector<BPatch_module*> modules;
-  //  object->modules(modules);
-  //  DCHECK(modules.size() > 0);
-  //
-  //  return modules[0]->isSharedLib();
-
-  // For now check if .so extension occurs somewhere in the object path
-  std::string name = std::string(object->pathName());
-  if (name.find(".so") != std::string::npos) {
-    return true;
-  }
-  return false;
-}
-
 void FlushCacheToDisk(
     const std::map<std::string, std::set<std::string>>& cache) {
   std::ofstream cache_file(kAuditCacheFile);
@@ -304,17 +287,20 @@ void FlushCacheToDisk(
   return;
 }
 
-RegisterUsageInfo GetUnusedRegisterInfo(std::string binary) {
+RegisterUsageInfo GetUnusedRegisterInfo(std::string binary,
+                                        const Parser& parser) {
   StdOut(Color::BLUE, FLAGS_vv) << "Register Analysis Pass" << Endl;
   StdOut(Color::BLUE, FLAGS_vv) << "======================" << Endl;
 
+  /*
   BPatch* bpatch = new BPatch;
   // Open binary and its linked shared libraries for parsing
   BPatch_addressSpace* app = bpatch->openBinary(binary.c_str(), true);
   BPatch_image* image = app->getImage();
+  */
 
   std::vector<BPatch_object*> objects;
-  image->getObjects(objects);
+  parser.image->getObjects(objects);
 
   // Used registers in the application and its linked shared libraries
   std::set<std::string> used;
@@ -357,6 +343,11 @@ RegisterUsageInfo GetUnusedRegisterInfo(std::string binary) {
       // Update the cache if this is a shared library
       if (IsSharedLibrary(object)) {
         cache[object->pathName()] = registers;
+      } else {
+        if (FLAGS_vv) {
+          StdOut(Color::GREEN) << "\nApplication Register Usage :" << Endl;
+          PrintSequence<std::set<std::string>, std::string>(registers, 4, ", ");
+        }
       }
     }
 
