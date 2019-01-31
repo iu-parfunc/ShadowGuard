@@ -10,6 +10,8 @@
 
 DEFINE_bool(vv, false, "Log verbose output.");
 
+DEFINE_bool(libs, false, "Protect shared libraries as well.");
+
 DEFINE_string(
     shadow_stack, "avx2",
     "\n Shadow stack implementation mechanism for backward-edge protection.\n"
@@ -19,6 +21,16 @@ DEFINE_string(
     "   * mem : Uses a memory region as backing store\n"
     "   * xor : Uses a xor check based technique to validate the return chain."
     " Less context sensitive and precise than other techniques.\n");
+
+DEFINE_string(
+    instrument, "inline",
+    "\n Method of injecting instrumentation.\n"
+    "\n Valid values are\n"
+    "   * inline : Inline all the instrumentation to each function\n"
+    "   * shared : Create instrumentation as a shared library and inject calls"
+    " to it\n"
+    "   * static : Create instrumentation as a static library and inject jumps"
+    " to it\n");
 
 DEFINE_string(shadow_stack_protection, "sfi",
               "\n Applicable only when `shadow-stack` is set to mem."

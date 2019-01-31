@@ -7,6 +7,11 @@
 #include <type_traits>
 #include <vector>
 
+#include <limits.h>
+#include <pwd.h>
+#include <sys/types.h>
+#include <unistd.h>
+
 #include "utils.h"
 
 struct AnsiColor {
@@ -125,4 +130,15 @@ std::string GetFileNameFromPath(const std::string& s) {
   // Assume unix paths
   std::vector<std::string> elements = Split(s, '/');
   return elements[elements.size() - 1];
+}
+
+std::string GetCurrentDir() {
+  char result[PATH_MAX];
+  ssize_t count = readlink("/proc/self/exe", result, PATH_MAX);
+  return std::string(result, (count > 0) ? count : 0);
+}
+
+std::string GetHomeDir() {
+  struct passwd* pw = getpwuid(getuid());
+  return std::string(pw->pw_dir);
 }

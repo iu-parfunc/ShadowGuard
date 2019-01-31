@@ -61,4 +61,9 @@ inline void PrintSequence(const T& collection, int left_pad = 0,
 
   StdOut(Color::NONE) << "]" << Endl;
 }
+
+std::string GetCurrentDir();
+
+std::string GetHomeDir();
+
 #endif  // LITECFI_UTILS_H_

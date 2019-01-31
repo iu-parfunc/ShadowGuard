@@ -2,12 +2,14 @@
 #include "asmjit/asmjit.h"
 #include "gflags/gflags.h"
 #include "glog/logging.h"
+#include "jit.h"
 #include "jit_internal.h"
 #include "register_utils.h"
 
 using namespace asmjit::x86;
 
-void JitAvx2StackInit(RegisterUsageInfo& info, asmjit::X86Assembler* a) {
+void JitAvx2StackInit(RegisterUsageInfo& info, AssemblerHolder& ah) {
+  asmjit::X86Assembler* a = ah.GetAssembler();
   AvxRegister meta = GetNextUnusedAvx2Register(info);
   a->pxor(meta.xmm, meta.xmm);
 }
@@ -65,7 +67,7 @@ void JitAvx2StackInit(RegisterUsageInfo& info, asmjit::X86Assembler* a) {
   /* Dispatch to jump table */         \
   a->jmp(rax);
 
-void JitAvx2StackPush(RegisterUsageInfo& info, asmjit::X86Assembler* a) {
+void JitAvx2StackPush(RegisterUsageInfo& info, AssemblerHolder& ah) {
   AvxRegister meta = GetNextUnusedAvx2Register(info);
   AvxRegister scratch = GetNextUnusedAvx2Register(info);
 
@@ -74,6 +76,8 @@ void JitAvx2StackPush(RegisterUsageInfo& info, asmjit::X86Assembler* a) {
 
   // Unused quadword element indices in AVX2 register file
   std::vector<uint8_t> quad_words = GetUnusedAvx2QuadWords(info);
+
+  asmjit::X86Assembler* a = ah.GetAssembler();
 
   asmjit::Label end = a->newLabel();
 
@@ -153,7 +157,7 @@ void JitAvx2StackPush(RegisterUsageInfo& info, asmjit::X86Assembler* a) {
   a->lea(rdi, c);                      \
   a->jmp(rdi);
 
-void JitAvx2StackPop(RegisterUsageInfo& info, asmjit::X86Assembler* a) {
+void JitAvx2StackPop(RegisterUsageInfo& info, AssemblerHolder& ah) {
   AvxRegister meta = GetNextUnusedAvx2Register(info);
   AvxRegister scratch = GetNextUnusedAvx2Register(info);
 
@@ -162,6 +166,8 @@ void JitAvx2StackPop(RegisterUsageInfo& info, asmjit::X86Assembler* a) {
 
   // Unused quadword elements in AVX2 register file
   std::vector<uint8_t> quad_words = GetUnusedAvx2QuadWords(info);
+
+  asmjit::X86Assembler* a = ah.GetAssembler();
 
   asmjit::Label error = a->newLabel();
   asmjit::Label end = a->newLabel();

@@ -3,6 +3,8 @@ cc_binary(
     name = "cfi",
     srcs = [
         "cfi.cc",
+	"codegen.cc",
+	"codegen.h",
 	"instrument.cc",
 	"instrument.h",
         "jit.cc",

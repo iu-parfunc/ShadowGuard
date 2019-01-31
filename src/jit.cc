@@ -3,13 +3,45 @@
 
 #include <vector>
 
-// #include "Point.h"
-// #include "Snippet.h"
 #include "asmjit/asmjit.h"
 #include "gflags/gflags.h"
 #include "glog/logging.h"
 #include "jit_internal.h"
 #include "utils.h"
+
+/**************** AssemblerHolder  *****************/
+
+// Error handler that just prints the error and lets AsmJit ignore it.
+class PrintErrorHandler : public asmjit::ErrorHandler {
+ public:
+  // Return `true` to set last error to `err`, return `false` to do nothing.
+  bool handleError(asmjit::Error err, const char* message,
+                   asmjit::CodeEmitter* origin) override {
+    fprintf(stderr, "ERROR: %s\n", message);
+    return false;
+  }
+};
+
+AssemblerHolder::AssemblerHolder() {
+  rt_ = new asmjit::JitRuntime();
+
+  code_ = new asmjit::CodeHolder;
+  code_->init(rt_->getCodeInfo());
+  code_->setErrorHandler(new PrintErrorHandler());
+
+  logger_ = new asmjit::StringLogger();
+  code_->setLogger(logger_);
+
+  assembler_ = new asmjit::X86Assembler(code_);
+}
+
+asmjit::X86Assembler* AssemblerHolder::GetAssembler() { return assembler_; }
+
+asmjit::StringLogger* AssemblerHolder::GetStringLogger() { return logger_; }
+
+asmjit::CodeHolder* AssemblerHolder::GetCode() { return code_; }
+
+/********************** End ***********************/
 
 bool HasEnoughStorage(const RegisterUsageInfo& info) {
   int n_unused_avx_regs = 0;
@@ -25,9 +57,9 @@ bool HasEnoughStorage(const RegisterUsageInfo& info) {
   return true;
 }
 
-bool JitStackInit(RegisterUsageInfo info, asmjit::X86Assembler* a) {
+bool JitStackInit(RegisterUsageInfo info, AssemblerHolder& ah) {
   if (FLAGS_shadow_stack == "avx2") {
-    JitAvx2StackInit(info, a);
+    JitAvx2StackInit(info, ah);
   } else if (FLAGS_shadow_stack == "avx512") {
     // TODO(chamibuddhika) Implement this
     // JitAvx512StackPush(info, a);
@@ -38,13 +70,13 @@ bool JitStackInit(RegisterUsageInfo info, asmjit::X86Assembler* a) {
   return true;
 }
 
-bool JitStackPush(RegisterUsageInfo info, asmjit::X86Assembler* a) {
+bool JitStackPush(RegisterUsageInfo info, AssemblerHolder& ah) {
   if (!HasEnoughStorage(info)) {
     return false;
   }
 
   if (FLAGS_shadow_stack == "avx2") {
-    JitAvx2StackPush(info, a);
+    JitAvx2StackPush(info, ah);
   } else if (FLAGS_shadow_stack == "avx512") {
     // TODO(chamibuddhika) Implement this
     // JitAvx512StackPush(info, a);
@@ -56,13 +88,13 @@ bool JitStackPush(RegisterUsageInfo info, asmjit::X86Assembler* a) {
   return true;
 }
 
-bool JitStackPop(RegisterUsageInfo info, asmjit::X86Assembler* a) {
+bool JitStackPop(RegisterUsageInfo info, AssemblerHolder& ah) {
   if (!HasEnoughStorage(info)) {
     return false;
   }
 
   if (FLAGS_shadow_stack == "avx2") {
-    JitAvx2StackPop(info, a);
+    JitAvx2StackPop(info, ah);
   } else if (FLAGS_shadow_stack == "avx512") {
     // TODO(chamibuddhika) Implement this
     // JitAvx512StackPop(info, a);
