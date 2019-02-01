@@ -36,7 +36,6 @@ std::string Footer() { return "NO_EXEC_STACK_DIRECTIVE"; }
 std::string FunctionProlog(std::string name) {
   std::string prolog = "";
   prolog += "  .globl ASM_SYMBOL(" + name + ")\n";
-  prolog += "  .align 16, 0x90\n";
   prolog += "  ASM_TYPE_FUNCTION(" + name + ")\n";
   prolog += "ASM_SYMBOL(" + name + "):\n";
   prolog += "CFI_STARTPROC\n";
@@ -88,10 +87,6 @@ std::string Codegen(RegisterUsageInfo info) {
     return "";
   }
 
-  std::string stack_init = Header() + CodegenStackInit(info) + Footer();
-  std::ofstream init(temp_dir + "/" + "__litecfi_stack_init_x86_64.S");
-  init << stack_init;
-
   std::string stack_push = Header() + CodegenStackPush(info) + Footer();
   std::ofstream push(temp_dir + "/" + "__litecfi_stack_push_x86_64.S");
   push << stack_push;
@@ -100,14 +95,13 @@ std::string Codegen(RegisterUsageInfo info) {
   std::ofstream pop(temp_dir + "/" + "__litecfi_stack_pop_x86_64.S");
   pop << stack_pop;
 
-  std::string files = temp_dir + "/" + "__litecfi_stack_init_x86_64.S " +
-                      temp_dir + "/" + "__litecfi_stack_push_x86_64.S " +
-                      temp_dir + "/" + "__litecfi_stack_pop_x86_64.S";
+  std::string soname = "libstack.so";
 
-  std::string soname = GetHomeDir() + "/" + "libstack.so";
   std::string compile_so =
       "gcc -fpic -shared -o " + soname + " " + temp_dir + "/" + "*.S";
+
   printf("%s\n", compile_so.c_str());
+
   if (system(compile_so.c_str()) != 0) {
     return "";
   }

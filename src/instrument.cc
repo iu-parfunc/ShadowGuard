@@ -74,14 +74,6 @@ void SharedLibraryInstrumentation(
     bool is_init_function) {
   BPatch_Vector<BPatch_snippet*> args;
   BPatch_binaryEdit* binary_edit = ((BPatch_binaryEdit*)parser.app);
-  if (is_init_function) {
-    BPatch_funcCallExpr stack_init(*(instrumentation_fns["init"]), args);
-    std::vector<BPatch_point*>* entries = function->findPoint(BPatch_entry);
-    BPatchSnippetHandle* handle = binary_edit->insertSnippet(
-        stack_init, *entries, BPatch_callBefore, BPatch_lastSnippet);
-    DCHECK(handle != nullptr) << "Failed instrumenting function entry";
-    return;
-  }
 
   // Shared library function call to shadow stack push at function entry
   BPatch_funcCallExpr stack_push(*(instrumentation_fns["push"]), args);
@@ -110,17 +102,9 @@ void InsertInstrumentation(BPatch_function* function, Point::Type location,
   }
 }
 
-void InlineInstrumentation(BPatch_function* function,
-                           const RegisterUsageInfo& info, const Parser& parser,
-                           PatchMgr::Ptr patcher, bool is_init_function) {
-  // Instrument for initializing the stack in the init function
-  if (is_init_function) {
-    Snippet::Ptr stack_init =
-        StackInitSnippet::create(new StackInitSnippet(info));
-    InsertInstrumentation(function, Point::FuncEntry, stack_init, patcher);
-    return;
-  }
-
+void InlinedInstrumentation(BPatch_function* function,
+                            const RegisterUsageInfo& info, const Parser& parser,
+                            PatchMgr::Ptr patcher, bool is_init_function) {
   // Inlined shadow stack push instrumentation at function entry
   Snippet::Ptr stack_push =
       StackPushSnippet::create(new StackPushSnippet(info));
@@ -136,8 +120,16 @@ void InstrumentFunction(
     const Parser& parser, PatchMgr::Ptr patcher,
     std::map<std::string, BPatch_function*>& instrumentation_fns,
     bool is_init_function) {
+  // Instrument for initializing the stack in the init function
+  if (is_init_function) {
+    Snippet::Ptr stack_init =
+        StackInitSnippet::create(new StackInitSnippet(info));
+    InsertInstrumentation(function, Point::FuncEntry, stack_init, patcher);
+    return;
+  }
+
   if (FLAGS_instrument == "inline") {
-    InlineInstrumentation(function, info, parser, patcher, is_init_function);
+    InlinedInstrumentation(function, info, parser, patcher, is_init_function);
     return;
   }
 
@@ -159,34 +151,26 @@ void InstrumentModule(
     BPatch_module* module, const RegisterUsageInfo& info, const Parser& parser,
     PatchMgr::Ptr patcher,
     std::map<std::string, BPatch_function*>& instrumentation_fns,
-    std::string function_filter = "") {
+    const std::set<std::string>& init_fns) {
   char funcname[2048];
   std::vector<BPatch_function*>* functions = module->getProcedures();
 
-  std::vector<std::string> filter_functions = Split(function_filter, ',');
   for (auto it = functions->begin(); it != functions->end(); it++) {
     BPatch_function* function = *it;
     function->getName(funcname, 2048);
 
     std::string func(funcname);
-    for (auto const& filter_function : filter_functions) {
-      if (filter_function == func) {
-        // Only instrument init function from libc for now
-        InstrumentFunction(function, info, parser, patcher, instrumentation_fns,
-                           true);
-        return;
-      }
-    }
-
-    // CRITERIA FOR INSTRUMENTATION:
-    // don't handle:
-    //   - memset() or call_gmon_start() or frame_dummy()
-    //   - functions that begin with an underscore
-    if ((strcmp(funcname, "memset") != 0) &&
-        (strcmp(funcname, "call_gmon_start") != 0) &&
-        (strcmp(funcname, "frame_dummy") != 0) && funcname[0] != '_') {
+    if (init_fns.find(func) != init_fns.end()) {
       InstrumentFunction(function, info, parser, patcher, instrumentation_fns,
-                         false);
+                         true);
+    } else {
+      // Avoid instrumenting some internal libc functions
+      if ((strcmp(funcname, "memset") != 0) &&
+          (strcmp(funcname, "call_gmon_start") != 0) &&
+          (strcmp(funcname, "frame_dummy") != 0) && funcname[0] != '_') {
+        InstrumentFunction(function, info, parser, patcher, instrumentation_fns,
+                           false);
+      }
     }
   }
 }
@@ -195,7 +179,7 @@ void InstrumentCodeObject(
     BPatch_object* object, const RegisterUsageInfo& info, const Parser& parser,
     PatchMgr::Ptr patcher,
     std::map<std::string, BPatch_function*>& instrumentation_fns,
-    std::string function_filter = "") {
+    const std::set<std::string>& init_fns) {
   std::vector<BPatch_module*> modules;
   object->modules(modules);
 
@@ -207,14 +191,17 @@ void InstrumentCodeObject(
     module->getName(modname, 2048);
 
     InstrumentModule(module, info, parser, patcher, instrumentation_fns,
-                     function_filter);
+                     init_fns);
   }
 }
 
 BPatch_function* FindFunctionByName(BPatch_image* image, std::string name) {
   BPatch_Vector<BPatch_function*> funcs;
-  if (image->findFunction(name.c_str(), funcs) == nullptr || !funcs.size() ||
-      funcs[0] == nullptr) {
+  if (image->findFunction(name.c_str(), funcs,
+                          /* showError */ true,
+                          /* regex_case_sensitive */ true,
+                          /* incUninstrumentable */ true) == nullptr ||
+      !funcs.size() || funcs[0] == nullptr) {
     return nullptr;
   }
   return funcs[0];
@@ -239,16 +226,13 @@ void Instrument(std::string binary, const RegisterUsageInfo& info,
         << "Failed to load instrumentation library";
 
     /* Find code coverage functions in the instrumentation library */
-    BPatch_function* stack_init_fn =
-        FindFunctionByName(parser.image, kStackInitFunction);
     BPatch_function* stack_push_fn =
         FindFunctionByName(parser.image, kStackPushFunction);
     BPatch_function* stack_pop_fn =
         FindFunctionByName(parser.image, kStackPopFunction);
 
-    printf(" %p %p %p\n", stack_init_fn, stack_push_fn, stack_pop_fn);
+    printf(" %p %p\n", stack_push_fn, stack_pop_fn);
 
-    instrumentation_fns["init"] = stack_init_fn;
     instrumentation_fns["push"] = stack_push_fn;
     instrumentation_fns["pop"] = stack_pop_fn;
   }
@@ -261,13 +245,15 @@ void Instrument(std::string binary, const RegisterUsageInfo& info,
       continue;
     }
 
-    if (IsLibC(object)) {
-      // Instrument just the init functions in libc
-      InstrumentCodeObject(object, info, parser, patcher, instrumentation_fns,
-                           "__libc_csu_init, __libc_start_main");
-    }
-
-    InstrumentCodeObject(object, info, parser, patcher, instrumentation_fns);
+    // This is the main program text. Mark some functions as premain
+    // initialization functions. These function entries will be instrumentated
+    // for stack initialization.
+    std::set<std::string> init_fns;
+    init_fns.insert("_start");
+    init_fns.insert("__libc_csu_init");
+    init_fns.insert("__libc_start_main");
+    InstrumentCodeObject(object, info, parser, patcher, instrumentation_fns,
+                         init_fns);
   }
 
   binary_edit->writeFile((binary + "_cfi").c_str());
