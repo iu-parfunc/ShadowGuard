@@ -61,8 +61,8 @@ bool JitStackInit(RegisterUsageInfo info, AssemblerHolder& ah) {
   if (FLAGS_shadow_stack == "avx2") {
     JitAvx2StackInit(info, ah);
   } else if (FLAGS_shadow_stack == "avx512") {
-    // TODO(chamibuddhika) Implement this
-    // JitAvx512StackPush(info, a);
+    // TODO(chamibuddhika) Test this
+    JitAvx512StackPush(info, ah);
   } else if (FLAGS_shadow_stack == "mem") {
     // TODO(chamibuddhika) Implement this
     // JitMemoryStackPush(info, a);
@@ -78,8 +78,8 @@ bool JitStackPush(RegisterUsageInfo info, AssemblerHolder& ah) {
   if (FLAGS_shadow_stack == "avx2") {
     JitAvx2StackPush(info, ah);
   } else if (FLAGS_shadow_stack == "avx512") {
-    // TODO(chamibuddhika) Implement this
-    // JitAvx512StackPush(info, a);
+    // TODO(chamibuddhika) Test this
+    JitAvx512StackPush(info, ah);
   } else if (FLAGS_shadow_stack == "mem") {
     // TODO(chamibuddhika) Implement this
     // JitMemoryStackPush(info, a);
@@ -96,8 +96,8 @@ bool JitStackPop(RegisterUsageInfo info, AssemblerHolder& ah) {
   if (FLAGS_shadow_stack == "avx2") {
     JitAvx2StackPop(info, ah);
   } else if (FLAGS_shadow_stack == "avx512") {
-    // TODO(chamibuddhika) Implement this
-    // JitAvx512StackPop(info, a);
+    // TODO(chamibuddhika) Test this
+    JitAvx512StackPop(info, ah);
   } else if (FLAGS_shadow_stack == "mem") {
     // TODO(chamibuddhika) Implement this
     // JitMemoryStackPop(info, a);

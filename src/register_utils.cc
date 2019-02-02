@@ -146,10 +146,21 @@ std::vector<uint8_t> GetUnusedAvx2QuadWords(const RegisterUsageInfo& info) {
   std::vector<uint8_t> quad_words;
   for (unsigned int i = 0; i < info.unused_avx2_mask.size(); i++) {
     if (info.unused_avx2_mask[i]) {
-      quad_words.push_back(4 * i);
-      quad_words.push_back(4 * i + 1);
-      quad_words.push_back(4 * i + 2);
-      quad_words.push_back(4 * i + 3);
+      for (unsigned int j = 0; j < 4; j++) {
+        quad_words.push_back(4 * i + j);
+      }
+    }
+  }
+  return quad_words;
+}
+
+std::vector<uint16_t> GetUnusedAvx512QuadWords(const RegisterUsageInfo& info) {
+  std::vector<uint16_t> quad_words;
+  for (unsigned int i = 0; i < info.unused_avx512_mask.size(); i++) {
+    if (info.unused_avx512_mask[i]) {
+      for (unsigned int j = 0; j < 8; j++) {
+        quad_words.push_back(8 * i + j);
+      }
     }
   }
   return quad_words;
