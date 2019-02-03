@@ -84,10 +84,14 @@ void SharedLibraryInstrumentation(
 
   // Shared library function call to shadow stack pop at function exit
   BPatch_funcCallExpr stack_pop(*(instrumentation_fns["pop"]), args);
-  std::vector<BPatch_point*>* exits = function->findPoint(BPatch_entry);
-  handle = binary_edit->insertSnippet(stack_pop, *exits, BPatch_callBefore,
-                                      BPatch_lastSnippet);
-  DCHECK(handle != nullptr) << "Failed instrumenting function exit";
+  std::vector<BPatch_point*>* exits = function->findPoint(BPatch_exit);
+
+  // Some functions (like exit()) do not feature function exits. Skipt them.
+  if (exits == nullptr || exits->size() == 0) {
+    handle = binary_edit->insertSnippet(stack_pop, *exits, BPatch_callBefore,
+                                        BPatch_lastSnippet);
+    DCHECK(handle != nullptr) << "Failed instrumenting function exit";
+  }
 }
 
 void InsertInstrumentation(BPatch_function* function, Point::Type location,
