@@ -10,7 +10,6 @@ cc_binary(
         "jit.cc",
 	"jit.h",
 	"jit_avx2.cc",
-	"jit_avx512.cc",
 	"jit_internal.h",
 	"parse.cc",
 	"parse.h",
@@ -26,9 +25,6 @@ cc_binary(
         "@com_github_gflags_gflags//:gflags",
        	"@dyninst//:dyninst",
         "@glog//:glog",
-    ],
-    copts = [
-        "-stdlib=libstdc++",
     ],
 )
 

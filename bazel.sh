@@ -50,7 +50,7 @@ deps () {
     cd build
 
     # Configure
-    cmake -DASMJIT_STATIC=ON -DASMJIT_BUILD_X86=ON -DCMAKE_INSTALL_PREFIX=`pwd`/../install -G 'Unix Makefiles' ..
+    cmake -E env CXXFLAGS="-fPIC" cmake -DASMJIT_STATIC=ON -DASMJIT_BUILD_X86=ON -DCMAKE_INSTALL_PREFIX=`pwd`/../install -G 'Unix Makefiles' ..
 
     # Build
     nprocs=`cat /proc/cpuinfo | awk '/^processor/{print $3}' | wc -l`
