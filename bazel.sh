@@ -79,6 +79,11 @@ clean () {
   bazel clean
 }
 
+realclean () {
+  rm -rf thirdparty/asmjit
+  rm -rf thirdparty/dyninst-10.0.0
+  bazel clean
+}
 
 POSITIONAL=()
 while [[ $# -gt 0 ]]
@@ -100,6 +105,10 @@ case $key in
     ;;
     clean)
     ACTION="clean"
+    shift # past value
+    ;;
+    realclean)
+    ACTION="realclean"
     shift # past value
     ;;
     --release)
@@ -133,6 +142,8 @@ if ! [ -z "$ACTION" ];then
     install $PREFIX
   elif [ "$ACTION" == "clean" ]; then
     clean
+  elif [ "$ACTION" == "realclean" ]; then
+    realclean
   else
     echo "Unknown action $ACTION" >> /dev/stderr
   fi
