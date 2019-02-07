@@ -62,7 +62,7 @@ bool JitStackInit(RegisterUsageInfo info, AssemblerHolder& ah) {
     JitAvx2StackInit(info, ah);
   } else if (FLAGS_shadow_stack == "avx512") {
     // TODO(chamibuddhika) Test this
-    JitAvx512StackPush(info, ah);
+    JitAvx512StackInit(info, ah);
   } else if (FLAGS_shadow_stack == "mem") {
     // TODO(chamibuddhika) Implement this
     // JitMemoryStackPush(info, a);

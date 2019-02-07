@@ -27,7 +27,7 @@ deps () {
       if [ $? -eq 0 ]; then
         break
       fi
-      make -j
+      make -j "$(($nprocs / 2))"
     done
   
     # Install
@@ -41,6 +41,7 @@ deps () {
 
   if [ ! -d "thirdparty/asmjit" ]; then
     git clone https://github.com/asmjit/asmjit.git thirdparty/asmjit
+    # git clone -b next-wip --single-branch https://github.com/asmjit/asmjit.git thirdparty/asmjit
   fi
 
   if [ ! -d "thirdparty/asmjit/install" ]; then

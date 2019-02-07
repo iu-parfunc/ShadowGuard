@@ -16,31 +16,31 @@ void JitAvx2StackInit(RegisterUsageInfo& info, AssemblerHolder& ah) {
 
 #define JIT_PUSH_AVX2(a, end, scratch, xmm_reg, ymm_reg, i1, i2, i3, i4) \
   case i1: {                                                             \
+    a->align(0 /* code-alignment */, 32);                                \
     a->pinsrq(xmm_reg, ptr(rsp), asmjit::imm(0));                        \
     a->jmp(end);                                                         \
-    NOP_PAD(a, 19)                                                       \
     break;                                                               \
   }                                                                      \
   case i2: {                                                             \
+    a->align(0 /* code-alignment */, 32);                                \
     a->pinsrq(xmm_reg, ptr(rsp), asmjit::imm(1));                        \
     a->jmp(end);                                                         \
-    NOP_PAD(a, 19)                                                       \
     break;                                                               \
   }                                                                      \
   case i3: {                                                             \
+    a->align(0 /* code-alignment */, 32);                                \
     a->vmovq(scratch.xmm, ptr(rsp));                                     \
     a->vinserti128(scratch.ymm, ymm_reg, scratch.xmm, asmjit::imm(1));   \
     a->vpblendd(ymm_reg, ymm_reg, scratch.ymm, asmjit::imm(48));         \
     a->jmp(end);                                                         \
-    NOP_PAD(a, 10)                                                       \
     break;                                                               \
   }                                                                      \
   case i4: {                                                             \
+    a->align(0 /* code-alignment */, 32);                                \
     a->vmovq(scratch.xmm, ptr(rsp));                                     \
     a->vpbroadcastq(scratch.ymm, scratch.xmm);                           \
     a->vpblendd(ymm_reg, ymm_reg, scratch.ymm, asmjit::imm(192));        \
     a->jmp(end);                                                         \
-    NOP_PAD(a, 11)                                                       \
     break;                                                               \
   }
 
@@ -82,29 +82,29 @@ void JitAvx2StackPush(RegisterUsageInfo& info, AssemblerHolder& ah) {
 
 #define JIT_POP_AVX2(a, end, error, scratch, xmm_reg, ymm_reg, i1, i2, i3, i4) \
   case i1: {                                                                   \
+    a->align(0 /* code-alignment */, 32);                                      \
     a->vpextrq(rdi, xmm_reg, asmjit::imm(0));                                  \
     JIT_POP_RET_SEQ(a, end, error)                                             \
-    NOP_PAD(a, 11)                                                             \
     break;                                                                     \
   }                                                                            \
   case i2: {                                                                   \
+    a->align(0 /* code-alignment */, 32);                                      \
     a->vpextrq(rdi, xmm_reg, asmjit::imm(1));                                  \
     JIT_POP_RET_SEQ(a, end, error)                                             \
-    NOP_PAD(a, 11)                                                             \
     break;                                                                     \
   }                                                                            \
   case i3: {                                                                   \
+    a->align(0 /* code-alignment */, 32);                                      \
     a->vextracti128(scratch.xmm, ymm_reg, asmjit::imm(1));                     \
     a->vpextrq(rdi, scratch.xmm, asmjit::imm(0));                              \
     JIT_POP_RET_SEQ(a, end, error)                                             \
-    NOP_PAD(a, 5)                                                              \
     break;                                                                     \
   }                                                                            \
   case i4: {                                                                   \
+    a->align(0 /* code-alignment */, 32);                                      \
     a->vextracti128(scratch.xmm, ymm_reg, asmjit::imm(1));                     \
     a->vpextrq(rdi, scratch.xmm, asmjit::imm(1));                              \
     JIT_POP_RET_SEQ(a, end, error)                                             \
-    NOP_PAD(a, 5)                                                              \
     break;                                                                     \
   }
 
