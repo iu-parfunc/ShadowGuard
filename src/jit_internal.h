@@ -91,10 +91,12 @@ DECLARE_string(shadow_stack);
   /* Align first jump table slot to next 64 byte boundary */           \
   a->align(0 /* code-alignment */, 64);
 
+asmjit::X86Gp GetRaHolder();
+
 // Check and return sequence which follows a stack pop. Here we assume stack has
 // been pop'd at rdi
 #define JIT_POP_RET_SEQ(a, end, error) \
-  a->cmp(rdi, ptr(rsp));               \
+  a->cmp(rdi, ptr(GetRaHolder()));     \
   a->jne(error);                       \
   a->jmp(end);
 

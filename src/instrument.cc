@@ -88,8 +88,7 @@ void SharedLibraryInstrumentation(
 
   // Some functions (like exit()) do not feature function exits. Skip them.
   if (exits != nullptr && exits->size() > 0) {
-    handle = binary_edit->insertSnippet(stack_pop, *exits, BPatch_callBefore,
-                                        BPatch_lastSnippet);
+    handle = binary_edit->insertSnippet(stack_pop, *exits);
     DCHECK(handle != nullptr) << "Failed instrumenting function exit";
   }
 }

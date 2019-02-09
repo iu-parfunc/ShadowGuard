@@ -17,19 +17,19 @@ void JitAvx2StackInit(RegisterUsageInfo& info, AssemblerHolder& ah) {
 #define JIT_PUSH_AVX2(a, end, scratch, xmm_reg, ymm_reg, i1, i2, i3, i4) \
   case i1: {                                                             \
     a->align(0 /* code-alignment */, 32);                                \
-    a->pinsrq(xmm_reg, ptr(rsp), asmjit::imm(0));                        \
+    a->pinsrq(xmm_reg, ptr(GetRaHolder()), asmjit::imm(0));              \
     a->jmp(end);                                                         \
     break;                                                               \
   }                                                                      \
   case i2: {                                                             \
     a->align(0 /* code-alignment */, 32);                                \
-    a->pinsrq(xmm_reg, ptr(rsp), asmjit::imm(1));                        \
+    a->pinsrq(xmm_reg, ptr(GetRaHolder()), asmjit::imm(1));              \
     a->jmp(end);                                                         \
     break;                                                               \
   }                                                                      \
   case i3: {                                                             \
     a->align(0 /* code-alignment */, 32);                                \
-    a->vmovq(scratch.xmm, ptr(rsp));                                     \
+    a->vmovq(scratch.xmm, ptr(GetRaHolder()));                           \
     a->vinserti128(scratch.ymm, ymm_reg, scratch.xmm, asmjit::imm(1));   \
     a->vpblendd(ymm_reg, ymm_reg, scratch.ymm, asmjit::imm(48));         \
     a->jmp(end);                                                         \
@@ -37,7 +37,7 @@ void JitAvx2StackInit(RegisterUsageInfo& info, AssemblerHolder& ah) {
   }                                                                      \
   case i4: {                                                             \
     a->align(0 /* code-alignment */, 32);                                \
-    a->vmovq(scratch.xmm, ptr(rsp));                                     \
+    a->vmovq(scratch.xmm, ptr(GetRaHolder()));                           \
     a->vpbroadcastq(scratch.ymm, scratch.xmm);                           \
     a->vpblendd(ymm_reg, ymm_reg, scratch.ymm, asmjit::imm(192));        \
     a->jmp(end);                                                         \

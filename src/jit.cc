@@ -43,6 +43,17 @@ asmjit::CodeHolder* AssemblerHolder::GetCode() { return code_; }
 
 /********************** End ***********************/
 
+DECLARE_string(instrument);
+
+asmjit::X86Gp GetRaHolder() {
+  if (FLAGS_instrument == "shared") {
+    return asmjit::x86::rbp;
+  }
+
+  // Inlined instrumentation
+  return asmjit::x86::rsp;
+}
+
 bool HasEnoughStorage(const RegisterUsageInfo& info) {
   int n_unused_avx_regs = 0;
   for (auto unused : info.unused_avx2_mask) {
