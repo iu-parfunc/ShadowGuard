@@ -1,6 +1,7 @@
 
 #include <string.h>
 
+#include "call_graph.h"
 #include "gflags/gflags.h"
 #include "glog/logging.h"
 #include "instrument.h"
@@ -72,7 +73,7 @@ DEFINE_validator(shadow_stack, &ValidateShadowStackFlag);
 DEFINE_validator(shadow_stack_protection, &ValidateShadowStackProtectionFlag);
 
 void PrintVector(const std::vector<bool>& vec) {
-  for (int i = 0; i < vec.size(); i++) {
+  for (unsigned int i = 0; i < vec.size(); i++) {
     printf("%d", vec[i]);
   }
   printf("\n");
@@ -89,6 +90,8 @@ int main(int argc, char* argv[]) {
   std::string binary(argv[1]);
 
   Parser parser = InitParser(binary);
+
+  LazyCallGraph* cg = LazyCallGraph::GetCallGraph(parser);
 
   RegisterUsageInfo info = GetUnusedRegisterInfo(binary, parser);
 

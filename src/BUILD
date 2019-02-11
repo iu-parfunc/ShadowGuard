@@ -2,6 +2,8 @@
 cc_binary(
     name = "cfi",
     srcs = [
+        "call_graph.cc",
+	"call_graph.h",
         "cfi.cc",
 	"codegen.cc",
 	"codegen.h",
