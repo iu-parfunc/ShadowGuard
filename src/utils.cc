@@ -96,6 +96,7 @@ std::ostream& StdOut(Color color) {
     ColoredMessage(Color::BOLD_CYAN, AnsiColor::BOLD_CYAN);
     ColoredMessage(Color::BOLD_WHITE, AnsiColor::BOLD_WHITE);
   }
+  return std::cout << AnsiColor::END;
 }
 
 std::ostream& StdOut(Color color, bool logged) {

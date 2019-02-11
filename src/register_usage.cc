@@ -166,35 +166,34 @@ void PopulateUsedRegisters(Dyninst::ParseAPI::CodeObject* code_object,
                            std::set<std::string>& used) {
   code_object->parse();
 
-  auto fit = code_object->funcs().begin();
-  for (; fit != code_object->funcs().end(); ++fit) {
-    Dyninst::ParseAPI::Function* f = *fit;
-
+  for (auto function : code_object->funcs()) {
     if (FLAGS_vv) {
-      StdOut(Color::YELLOW) << " Function : " << f->name() << Endl;
+      StdOut(Color::YELLOW) << " Function : " << function->name() << Endl;
     }
 
     std::map<Dyninst::Offset, Dyninst::InstructionAPI::Instruction> insns;
 
     std::set<std::string> regs;
 
-    for (auto const& b : f->blocks()) {
+    for (auto b : function->blocks()) {
       b->getInsns(insns);
 
       for (auto const& ins : insns) {
-        std::set<Dyninst::InstructionAPI::RegisterAST::Ptr> regsRead;
-        std::set<Dyninst::InstructionAPI::RegisterAST::Ptr> regsWritten;
-        ins.second.getReadSet(regsRead);
-        ins.second.getWriteSet(regsWritten);
+        std::set<Dyninst::InstructionAPI::RegisterAST::Ptr> read;
+        std::set<Dyninst::InstructionAPI::RegisterAST::Ptr> written;
+        ins.second.getReadSet(read);
+        ins.second.getWriteSet(written);
 
-        for (auto it = regsRead.begin(); it != regsRead.end(); it++) {
-          std::string normalized_name = NormalizeRegisterName((*it)->format());
+        for (auto const& read_register : read) {
+          std::string normalized_name =
+              NormalizeRegisterName(read_register->format());
           regs.insert(normalized_name);
           used.insert(normalized_name);
         }
 
-        for (auto it = regsWritten.begin(); it != regsWritten.end(); it++) {
-          std::string normalized_name = NormalizeRegisterName((*it)->format());
+        for (auto const& written_register : written) {
+          std::string normalized_name =
+              NormalizeRegisterName(written_register->format());
           regs.insert(normalized_name);
           used.insert(normalized_name);
         }
@@ -287,17 +286,35 @@ void FlushCacheToDisk(
   return;
 }
 
+std::vector<std::string> GetCalledSharedLibraryFunctions(
+    std::vector<BPatch_object*> objects) {
+  std::vector<std::string> plt_stub_funcs;
+  for (auto object : objects) {
+    if (!IsSharedLibrary(object)) {
+      // This is the code object corresponding to the program text
+      Dyninst::ParseAPI::CodeObject* code_object =
+          Dyninst::ParseAPI::convert(object);
+
+      std::map<Dyninst::Address, std::string> linkage =
+          code_object->cs()->linkage();
+
+      // Iterate on functions and find externally linked PLT stub functions
+      for (auto function : code_object->funcs()) {
+        auto plt_it = linkage.find(function->addr());
+        if (plt_it != code_object->cs()->linkage().end() &&
+            plt_it->second != "") {
+          plt_stub_funcs.push_back(plt_it->second);
+        }
+      }
+    }
+  }
+  return plt_stub_funcs;
+}
+
 RegisterUsageInfo GetUnusedRegisterInfo(std::string binary,
                                         const Parser& parser) {
   StdOut(Color::BLUE, FLAGS_vv) << "Register Analysis Pass" << Endl;
   StdOut(Color::BLUE, FLAGS_vv) << "======================" << Endl;
-
-  /*
-  BPatch* bpatch = new BPatch;
-  // Open binary and its linked shared libraries for parsing
-  BPatch_addressSpace* app = bpatch->openBinary(binary.c_str(), true);
-  BPatch_image* image = app->getImage();
-  */
 
   std::vector<BPatch_object*> objects;
   parser.image->getObjects(objects);
@@ -309,14 +326,18 @@ RegisterUsageInfo GetUnusedRegisterInfo(std::string binary,
 
   StdOut(Color::BLUE, FLAGS_vv)
       << "\n[Register Analysis] Loading analysis cache.\n\n";
-  bool is_cache_present = PopulateCacheFromDisk(cache);
-  StdOut(Color::NONE, FLAGS_vv) << Endl;
 
+  bool is_cache_present = PopulateCacheFromDisk(cache);
+
+  StdOut(Color::NONE, FLAGS_vv) << Endl;
   StdOut(Color::BLUE) << "[Register Analysis] Running register analysis ...\n";
 
-  for (auto it = objects.begin(); it != objects.end(); it++) {
-    BPatch_object* object = *it;
+  std::vector<std::string> plt_funcs = GetCalledSharedLibraryFunctions(objects);
 
+  StdOut(Color::GREEN, FLAGS_vv) << "\nCalled shared library functions\n";
+  PrintSequence<std::vector<std::string>, std::string>(plt_funcs, 2, ", ");
+
+  for (auto object : objects) {
     if (IsSharedLibrary(object)) {
       StdOut(Color::GREEN, FLAGS_vv)
           << "\nAnalysing shared library : " << object->pathName() << Endl;
