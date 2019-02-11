@@ -2,11 +2,11 @@
 deps () {
   ### Build Dyninst
 
+  root_dir=`pwd`
   # Fetch
   if [ ! -d "thirdparty/dyninst-10.0.0" ]; then
-    wget https://github.com/dyninst/dyninst/archive/v10.0.0.tar.gz;\
-    tar -xzvf v10.0.0.tar.gz -C thirdparty/
-    rm v10.0.0.tar.gz;\
+    git clone https://github.com/mxz297/dyninst.git thirdparty/dyninst-10.0.0
+    git checkout liteCFI
   fi
 
   if [ ! -d "thirdparty/dyninst-10.0.0/install" ]; then
@@ -39,6 +39,7 @@ deps () {
 
   # Fetch
 
+  cd $root_dir
   if [ ! -d "thirdparty/asmjit" ]; then
     git clone https://github.com/asmjit/asmjit.git thirdparty/asmjit
     # git clone -b next-wip --single-branch https://github.com/asmjit/asmjit.git thirdparty/asmjit
