@@ -1,23 +1,13 @@
 
-#include <cstddef>
-#include <fstream>
+#include <memory>
 #include <string>
-
-#include <errno.h>
-
-#if defined(__GLIBCXX__) || defined(__GLIBCPP__)
-#include <ext/stdio_filebuf.h>
-#else
-#error We require libstdc++ at the moment. Compile with GCC or specify\
- libstdc++ at compile time (e.g: -stdlib=libstdc++ in Clang).
-#endif
-
-#include <sys/file.h>
 
 #include "BPatch.h"
 #include "BPatch_function.h"
 #include "BPatch_object.h"
 #include "CodeObject.h"
+#include "cache.h"
+#include "call_graph.h"
 #include "gflags/gflags.h"
 #include "glog/logging.h"
 #include "parse.h"
@@ -25,6 +15,35 @@
 #include "utils.h"
 
 DECLARE_bool(vv);
+
+void PrintRegisterUsageSummary(std::set<std::string>& used,
+                               RegisterUsageInfo& info) {
+  if (FLAGS_vv) {
+    StdOut(Color::BLUE) << "\n\n[Register Analysis] Results : " << Endl << Endl;
+    StdOut(Color::GREEN) << "  Used registers : " << Endl;
+    PrintSequence<std::set<std::string>, std::string>(used, 4, ", ");
+
+    StdOut(Color::GREEN) << "\n  Unused register masks (1's for unused)"
+                         << Endl;
+
+    StdOut(Color::GREEN) << "    AVX2 :   ";
+    PrintSequence<std::vector<bool>, bool>(info.unused_avx2_mask);
+
+    StdOut(Color::GREEN) << "    AVX512 : ";
+    PrintSequence<std::vector<bool>, bool>(info.unused_avx512_mask);
+
+    StdOut(Color::GREEN) << "    MMX :    ";
+    PrintSequence<std::vector<bool>, bool>(info.unused_mmx_mask);
+    StdOut() << Endl << Endl;
+  }
+
+  StdOut(Color::BLUE) << "[Register Analysis] Register analysis complete."
+                      << Endl << Endl;
+  StdOut(Color::GREEN) << "  Unused Register Count: " << Endl;
+  StdOut(Color::GREEN) << "    AVX2   : " << info.n_unused_avx2_regs << Endl;
+  StdOut(Color::GREEN) << "    AVX512 : " << info.n_unused_avx512_regs << Endl;
+  StdOut(Color::GREEN) << "    MMX    : " << info.n_unused_mmx_regs << Endl;
+}
 
 std::string NormalizeRegisterName(std::string reg) {
   if (!reg.compare(0, 1, "E")) {
@@ -162,133 +181,119 @@ void PopulateUnusedGprMask(const std::set<std::string>& used,
   // TODO(chamibuddhika) Complete this
 }
 
-void PopulateUsedRegisters(Dyninst::ParseAPI::CodeObject* code_object,
-                           std::set<std::string>& used) {
+void PopulateUsedRegistersInFunction(
+    Dyninst::ParseAPI::Function* const function,
+    std::set<std::string>* const used) {
+  if (FLAGS_vv) {
+    StdOut(Color::YELLOW) << "     Function : " << function->name() << Endl;
+  }
+
+  std::map<Dyninst::Offset, Dyninst::InstructionAPI::Instruction> insns;
+
+  std::set<std::string> regs;
+
+  for (auto b : function->blocks()) {
+    b->getInsns(insns);
+
+    for (auto const& ins : insns) {
+      std::set<Dyninst::InstructionAPI::RegisterAST::Ptr> read;
+      std::set<Dyninst::InstructionAPI::RegisterAST::Ptr> written;
+      ins.second.getReadSet(read);
+      ins.second.getWriteSet(written);
+
+      for (auto const& read_register : read) {
+        std::string normalized_name =
+            NormalizeRegisterName(read_register->format());
+        regs.insert(normalized_name);
+        used->insert(normalized_name);
+      }
+
+      for (auto const& written_register : written) {
+        std::string normalized_name =
+            NormalizeRegisterName(written_register->format());
+        regs.insert(normalized_name);
+        used->insert(normalized_name);
+      }
+    }
+  }
+
+  if (FLAGS_vv) {
+    PrintSequence<std::set<std::string>, std::string>(regs, 8, ", ");
+  }
+}
+
+void PopulateUsedRegisters(Dyninst::ParseAPI::CodeObject* const code_object,
+                           std::set<std::string>* const used) {
   code_object->parse();
 
   for (auto function : code_object->funcs()) {
-    if (FLAGS_vv) {
-      StdOut(Color::YELLOW) << " Function : " << function->name() << Endl;
-    }
+    PopulateUsedRegistersInFunction(function, used);
+  }
+}
 
-    std::map<Dyninst::Offset, Dyninst::InstructionAPI::Instruction> insns;
+std::set<std::string> GetRegisterUsageForSharedFunction(
+    std::string function, SharedLibrary* const lib,
+    LazyCallGraph<RegisterUsageInfo>* const call_graph) {
+  // First check in the cache
+  auto it = lib->register_usage.find(function);
+  if (it != lib->register_usage.end()) {
+    return it->second;
+  }
 
-    std::set<std::string> regs;
-
-    for (auto b : function->blocks()) {
-      b->getInsns(insns);
-
-      for (auto const& ins : insns) {
-        std::set<Dyninst::InstructionAPI::RegisterAST::Ptr> read;
-        std::set<Dyninst::InstructionAPI::RegisterAST::Ptr> written;
-        ins.second.getReadSet(read);
-        ins.second.getWriteSet(written);
-
-        for (auto const& read_register : read) {
-          std::string normalized_name =
-              NormalizeRegisterName(read_register->format());
-          regs.insert(normalized_name);
-          used.insert(normalized_name);
+  // Failing that, analyze the call graph
+  std::set<std::string>* used = new std::set<std::string>();
+  call_graph->VisitCallGraph(
+      function, [=](LazyFunction<RegisterUsageInfo>* const lazy) {
+        std::set<std::string> registers;
+        if (lazy->data) {
+          registers = lazy->data->used;
+          std::copy(registers.begin(), registers.end(),
+                    std::inserter(*used, used->end()));
+          return;
         }
 
-        for (auto const& written_register : written) {
-          std::string normalized_name =
-              NormalizeRegisterName(written_register->format());
-          regs.insert(normalized_name);
-          used.insert(normalized_name);
-        }
-      }
-    }
+        PopulateUsedRegistersInFunction(lazy->function, &registers);
 
-    if (FLAGS_vv) {
-      PrintSequence<std::set<std::string>, std::string>(regs, 4, ", ");
-    }
-  }
+        RegisterUsageInfo* info = new RegisterUsageInfo();
+        info->used = registers;
+        PopulateUnusedAvx2Mask(registers, info);
+        PopulateUnusedAvx512Mask(registers, info);
+        PopulateUnusedMmxMask(registers, info);
+
+        lazy->data = info;
+
+        std::copy(registers.begin(), registers.end(),
+                  std::inserter(*used, used->end()));
+        return;
+      });
+
+  // RAII the collection
+  std::unique_ptr<std::set<std::string>> ptr(used);
+
+  // Update the cache
+  lib->register_usage.insert(
+      std::pair<std::string, std::set<std::string>>(function, *(ptr.get())));
+
+  return *(ptr.get());
 }
 
-const std::string kAuditCacheFile = ".audit_cache";
+std::set<std::string> GetMatchingSharedLibraryFunctions(
+    const BPatch_object* const object, const std::set<std::string>& plt_stubs) {
+  Dyninst::ParseAPI::CodeObject* code_object =
+      Dyninst::ParseAPI::convert(object);
 
-bool PopulateCacheFromDisk(
-    std::map<std::string, std::set<std::string>>& cache) {
-  std::ifstream cache_file(kAuditCacheFile);
-
-  if (cache_file.fail()) {
-    return false;
-  }
-
-  std::string line;
-  while (std::getline(cache_file, line)) {
-    std::vector<std::string> tokens = Split(line, ',');
-    DCHECK(tokens.size() == 2);
-
-    std::string library = tokens[0];
-    if (FLAGS_vv) {
-      StdOut(Color::GREEN) << "Loading cached analysis results for library : "
-                           << library << Endl;
-      StdOut(Color::NONE) << "  " << tokens[1] << Endl << Endl;
+  std::set<std::string> called;
+  for (auto function : code_object->funcs()) {
+    if (plt_stubs.find(function->name()) != plt_stubs.end()) {
+      called.insert(function->name());
     }
-
-    std::vector<std::string> registers = Split(tokens[1], ':');
-    DCHECK(registers.size() > 0);
-
-    std::set<std::string> register_set(registers.begin(), registers.end());
-    cache[library] = register_set;
   }
-
-  return true;
+  return called;
 }
 
-void FlushCacheToDisk(
-    const std::map<std::string, std::set<std::string>>& cache) {
-  std::ofstream cache_file(kAuditCacheFile);
-
-  if (!cache_file.is_open()) {
-    char error[2048];
-    fprintf(stderr,
-            "Failed to create/ open the register audit cache file with : %s\n",
-            strerror_r(errno, error, 2048));
-    return;
-  }
-
-  // Exclusively lock the file for writing
-  int fd =
-      static_cast<__gnu_cxx::stdio_filebuf<char>* const>(cache_file.rdbuf())
-          ->fd();
-
-  if (flock(fd, LOCK_EX)) {
-    char error[2048];
-    fprintf(stderr, "Failed to lock the register audit cache file with : %s\n",
-            strerror_r(errno, error, 2048));
-    return;
-  }
-
-  for (auto const& it : cache) {
-    std::string registers_concat = "";
-    std::set<std::string> registers = it.second;
-
-    for (auto const& reg : registers) {
-      registers_concat += (reg + ":");
-    }
-
-    // Remove the trailing ':'
-    registers_concat.pop_back();
-    cache_file << it.first << "," << registers_concat << std::endl;
-  }
-
-  if (flock(fd, LOCK_UN)) {
-    char error[2048];
-    fprintf(stderr,
-            "Failed to unlock the register audit cache file with : %s\n",
-            strerror_r(errno, error, 2048));
-  }
-
-  cache_file.close();
-  return;
-}
-
-std::vector<std::string> GetCalledSharedLibraryFunctions(
-    std::vector<BPatch_object*> objects) {
-  std::vector<std::string> plt_stub_funcs;
+std::set<std::string> GetCalledPltStubs(
+    const std::vector<BPatch_object*>& objects) {
+  std::set<std::string> plt_stub_funcs;
   for (auto object : objects) {
     if (!IsSharedLibrary(object)) {
       // This is the code object corresponding to the program text
@@ -301,9 +306,8 @@ std::vector<std::string> GetCalledSharedLibraryFunctions(
       // Iterate on functions and find externally linked PLT stub functions
       for (auto function : code_object->funcs()) {
         auto plt_it = linkage.find(function->addr());
-        if (plt_it != code_object->cs()->linkage().end() &&
-            plt_it->second != "") {
-          plt_stub_funcs.push_back(plt_it->second);
+        if (plt_it != linkage.end() && plt_it->second != "") {
+          plt_stub_funcs.insert(plt_it->second);
         }
       }
     }
@@ -311,104 +315,118 @@ std::vector<std::string> GetCalledSharedLibraryFunctions(
   return plt_stub_funcs;
 }
 
-RegisterUsageInfo GetUnusedRegisterInfo(std::string binary,
-                                        const Parser& parser) {
+void AnalyzeSharedLibraryRegisterUsage(
+    const std::vector<BPatch_object*>& objects,
+    std::map<std::string, SharedLibrary*>* const cache,
+    LazyCallGraph<RegisterUsageInfo>* const call_graph,
+    std::set<std::string>* const used) {
+  StdOut(Color::GREEN, FLAGS_vv)
+      << "\n\n  >> Analysing shared library register usage ..." << Endl;
+  // Find shared library plt stubs called from the main application
+  std::set<std::string> plt_stubs = GetCalledPltStubs(objects);
+  StdOut(Color::GREEN, FLAGS_vv) << "\n    Called shared library functions\n";
+  PrintSequence<std::set<std::string>, std::string>(plt_stubs, 6, ", ");
+
+  // Now analyze register usage of shared library functions corresponding to the
+  // discovered plt stubs
+  for (auto object : objects) {
+    if (IsSharedLibrary(object)) {
+      // Get shared library functions from this library matching any of the plt
+      // stubs found
+      std::set<std::string> matching =
+          GetMatchingSharedLibraryFunctions(object, plt_stubs);
+
+      if (matching.size() == 0) {
+        // No matching functions found in this shared library. Move on to the
+        // next.
+        continue;
+      }
+
+      // Check if we have results already cached for this shared library. Later
+      // we need to also check if any of the functions that we are currently
+      // looking for have been cached as well
+      SharedLibrary* lib = nullptr;
+      auto it = cache->find(object->pathName());
+      if (it != cache->end()) {
+        lib = it->second;
+      }
+
+      if (!lib) {
+        StdOut(Color::GREEN, FLAGS_vv)
+            << "\n    Analysing " << object->pathName() << Endl;
+        lib = new SharedLibrary();
+        lib->path = object->pathName();
+        cache->insert(
+            std::pair<std::string, SharedLibrary*>(object->pathName(), lib));
+      }
+
+      for (auto function : matching) {
+        std::set<std::string> registers =
+            GetRegisterUsageForSharedFunction(function, lib, call_graph);
+        std::copy(registers.begin(), registers.end(),
+                  std::inserter(*used, used->end()));
+      }
+    }
+  }
+}
+
+void AnalyzeMainApplicationRegisterUsage(
+    const std::vector<BPatch_object*>& objects,
+    std::set<std::string>* const used) {
+  StdOut(Color::GREEN, FLAGS_vv)
+      << "\n  >> Analyzing main application register usage ..." << Endl;
+  for (auto object : objects) {
+    if (!IsSharedLibrary(object)) {
+      // This is the program text.
+      std::set<std::string> registers;
+      PopulateUsedRegisters(Dyninst::ParseAPI::convert(object), &registers);
+      std::copy(registers.begin(), registers.end(),
+                std::inserter(*used, used->end()));
+      if (FLAGS_vv) {
+        StdOut(Color::GREEN)
+            << "\n    [Main Application]  Register Usage :" << Endl;
+        PrintSequence<std::set<std::string>, std::string>(registers, 6, ", ");
+      }
+      return;
+    }
+  }
+}
+
+RegisterUsageInfo GetRegisterUsageInfo(
+    std::string binary, LazyCallGraph<RegisterUsageInfo>* const call_graph,
+    const Parser& parser) {
   StdOut(Color::BLUE, FLAGS_vv) << "Register Analysis Pass" << Endl;
   StdOut(Color::BLUE, FLAGS_vv) << "======================" << Endl;
 
   std::vector<BPatch_object*> objects;
   parser.image->getObjects(objects);
 
+  // Get register audit cache deserialized from the disk
+  StdOut(Color::BLUE, FLAGS_vv) << "\n+ Loading cached "
+                                   "shared library register usage data...\n";
+  std::map<std::string, SharedLibrary*>* cache = GetRegisterAuditCache();
+  StdOut(Color::NONE, FLAGS_vv) << Endl;
+
+  StdOut(Color::BLUE) << "+ Running register analysis ...\n";
+
   // Used registers in the application and its linked shared libraries
   std::set<std::string> used;
-  // Register audit cache deserialized from the disk
-  std::map<std::string, std::set<std::string>> cache;
 
-  StdOut(Color::BLUE, FLAGS_vv)
-      << "\n[Register Analysis] Loading analysis cache.\n\n";
+  // Find used registers in the main application
+  AnalyzeMainApplicationRegisterUsage(objects, &used);
 
-  bool is_cache_present = PopulateCacheFromDisk(cache);
+  // Add used registers in shared library functions called from main
+  AnalyzeSharedLibraryRegisterUsage(objects, cache, call_graph, &used);
 
-  StdOut(Color::NONE, FLAGS_vv) << Endl;
-  StdOut(Color::BLUE) << "[Register Analysis] Running register analysis ...\n";
+  // Update on disk register analysis cache
+  FlushRegisterAuditCache(cache);
 
-  std::vector<std::string> plt_funcs = GetCalledSharedLibraryFunctions(objects);
-
-  StdOut(Color::GREEN, FLAGS_vv) << "\nCalled shared library functions\n";
-  PrintSequence<std::vector<std::string>, std::string>(plt_funcs, 2, ", ");
-
-  for (auto object : objects) {
-    if (IsSharedLibrary(object)) {
-      StdOut(Color::GREEN, FLAGS_vv)
-          << "\nAnalysing shared library : " << object->pathName() << Endl;
-    } else {
-      StdOut(Color::GREEN, FLAGS_vv)
-          << "\nAnalysing program text : " << object->pathName() << Endl;
-    }
-
-    std::set<std::string> registers;
-    if (is_cache_present && IsSharedLibrary(object)) {
-      auto it = cache.find(object->pathName());
-      if (it != cache.end()) {
-        StdOut(Color::YELLOW, FLAGS_vv)
-            << " Using cached analysis results." << Endl;
-        registers = it->second;
-      }
-    }
-
-    if (!registers.size()) {
-      // Couldn't find the library info in the cache or this object is the
-      // program text. Parse the object and get register usage information.
-      PopulateUsedRegisters(Dyninst::ParseAPI::convert(object), registers);
-
-      // Update the cache if this is a shared library
-      if (IsSharedLibrary(object)) {
-        cache[object->pathName()] = registers;
-      } else {
-        if (FLAGS_vv) {
-          StdOut(Color::GREEN) << "\nApplication Register Usage :" << Endl;
-          PrintSequence<std::set<std::string>, std::string>(registers, 4, ", ");
-        }
-      }
-    }
-
-    for (auto const& reg : registers) {
-      used.insert(reg);
-    }
-  }
-
-  FlushCacheToDisk(cache);
-
+  // Calculate usage summary data
   RegisterUsageInfo info;
   PopulateUnusedAvx2Mask(used, &info);
   PopulateUnusedAvx512Mask(used, &info);
   PopulateUnusedMmxMask(used, &info);
 
-  if (FLAGS_vv) {
-    StdOut(Color::BLUE) << "\n\n[Register Analysis] Results : " << Endl << Endl;
-    StdOut(Color::GREEN) << "  Used registers : " << Endl;
-    PrintSequence<std::set<std::string>, std::string>(used, 4, ", ");
-
-    StdOut(Color::GREEN) << "\n  Unused register masks (1's for unused)"
-                         << Endl;
-
-    StdOut(Color::GREEN) << "    AVX2 :   ";
-    PrintSequence<std::vector<bool>, bool>(info.unused_avx2_mask);
-
-    StdOut(Color::GREEN) << "    AVX512 : ";
-    PrintSequence<std::vector<bool>, bool>(info.unused_avx512_mask);
-
-    StdOut(Color::GREEN) << "    MMX :    ";
-    PrintSequence<std::vector<bool>, bool>(info.unused_mmx_mask);
-    StdOut() << Endl << Endl;
-  }
-
-  StdOut(Color::BLUE) << "[Register Analysis] Register analysis complete."
-                      << Endl << Endl;
-  StdOut(Color::GREEN) << "  Unused Register Count: " << Endl;
-  StdOut(Color::GREEN) << "    AVX2   : " << info.n_unused_avx2_regs << Endl;
-  StdOut(Color::GREEN) << "    AVX512 : " << info.n_unused_avx512_regs << Endl;
-  StdOut(Color::GREEN) << "    MMX    : " << info.n_unused_mmx_regs << Endl;
-
+  PrintRegisterUsageSummary(used, info);
   return info;
 }

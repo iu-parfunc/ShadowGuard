@@ -5,9 +5,15 @@
 #include <string>
 #include <vector>
 
+#include "call_graph.h"
 #include "parse.h"
 
 struct RegisterUsageInfo {
+  // Used register set
+  std::set<std::string> used;
+
+  // Register masks
+  //
   // Mask of unused AVX and AVX2 registers
   std::vector<bool> unused_avx2_mask;
   // Mask of unused AVX, AVX2 and AVX512 registers
@@ -27,7 +33,8 @@ struct RegisterUsageInfo {
 
 // Find unused registers across all functions in the application. This
 // includes linked shared library functions.
-RegisterUsageInfo GetUnusedRegisterInfo(std::string binary,
-                                        const Parser& parser);
+RegisterUsageInfo GetRegisterUsageInfo(
+    std::string binary, LazyCallGraph<RegisterUsageInfo>* call_graph,
+    const Parser& parser);
 
 #endif  // LITECFI_REGISTER_USAGE_H_

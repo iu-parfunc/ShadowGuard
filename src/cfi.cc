@@ -91,9 +91,10 @@ int main(int argc, char* argv[]) {
 
   Parser parser = InitParser(binary);
 
-  LazyCallGraph* cg = LazyCallGraph::GetCallGraph(parser);
+  LazyCallGraph<RegisterUsageInfo>* call_graph =
+      LazyCallGraph<RegisterUsageInfo>::GetCallGraph(parser);
 
-  RegisterUsageInfo info = GetUnusedRegisterInfo(binary, parser);
+  RegisterUsageInfo info = GetRegisterUsageInfo(binary, call_graph, parser);
 
   Instrument(binary, info, parser);
 
