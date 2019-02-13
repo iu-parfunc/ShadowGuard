@@ -12,7 +12,7 @@
 template <typename T>
 class LazyCallGraph;
 
-// Implements lazily evaluated call graph function. We lazily evaluate callees
+// Implements a lazily evaluated call graph function. We lazily evaluate callees
 // of the corresponding function and its associated data when visited during a
 // call graph walk.
 template <typename T>
@@ -46,7 +46,8 @@ struct LazyFunction {
       Dyninst::ParseAPI::Function* const function);
 
   std::set<LazyFunction<T>*> callees;
-  // Keys are actual function definitions not any of its plt stubs
+  // Keys are actual function definitions not plt stubs associated with any of
+  // the functions
   static std::map<Dyninst::ParseAPI::Function*, LazyFunction<T>*> lazy_func_map;
   bool initialized = false;
 
