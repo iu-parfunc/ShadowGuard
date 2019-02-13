@@ -1,4 +1,11 @@
 
+#include "utils.h"
+
+#include <limits.h>
+#include <pwd.h>
+#include <sys/types.h>
+#include <unistd.h>
+
 #include <fstream>
 #include <iostream>
 #include <iterator>
@@ -6,13 +13,6 @@
 #include <string>
 #include <type_traits>
 #include <vector>
-
-#include <limits.h>
-#include <pwd.h>
-#include <sys/types.h>
-#include <unistd.h>
-
-#include "utils.h"
 
 struct AnsiColor {
   static const std::string BLACK;
