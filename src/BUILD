@@ -45,3 +45,22 @@ cc_binary(
         "@glog//:glog",
     ],
 )
+
+cc_binary(
+    name = "icall_test",
+    srcs = [
+        "icall_test.cc",
+	"parse.cc",
+	"parse.h",
+    ],
+    deps = [
+        "@dyninst//:dyninst",
+    ],
+)
+
+cc_binary(
+    name = "icall",
+    srcs = [
+        "icall.cc",
+    ],
+)
