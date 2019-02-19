@@ -222,15 +222,6 @@ void PopulateUsedRegistersInFunction(
   }
 }
 
-void PopulateUsedRegisters(Dyninst::ParseAPI::CodeObject* const code_object,
-                           std::set<std::string>* const used) {
-  code_object->parse();
-
-  for (auto function : code_object->funcs()) {
-    PopulateUsedRegistersInFunction(function, used);
-  }
-}
-
 std::set<std::string> GetRegisterUsageForSharedFunction(
     std::string function, SharedLibrary* const lib,
     LazyCallGraph<RegisterUsageInfo>* const call_graph) {
@@ -240,15 +231,16 @@ std::set<std::string> GetRegisterUsageForSharedFunction(
     return it->second;
   }
 
-  // Failing that, analyze the call graph
-  std::set<std::string>* used = new std::set<std::string>();
-  call_graph->VisitCallGraph(
-      function, [=](LazyFunction<RegisterUsageInfo>* const lazy) {
+  // Visit call graph rooted at this function. Call graph will cache the
+  // results. So multiple visits to same node will not recalculate results.
+  RegisterUsageInfo* info = call_graph->VisitCallGraph(
+      function,
+      [=](LazyFunction<RegisterUsageInfo>* const lazy) {
         std::set<std::string> registers;
+        // If this function has already been processed return the cached
+        // results
         if (lazy->data) {
           registers = lazy->data->used;
-          std::copy(registers.begin(), registers.end(),
-                    std::inserter(*used, used->end()));
           return;
         }
 
@@ -256,95 +248,37 @@ std::set<std::string> GetRegisterUsageForSharedFunction(
 
         RegisterUsageInfo* info = new RegisterUsageInfo();
         info->used = registers;
-        PopulateUnusedAvx2Mask(registers, info);
-        PopulateUnusedAvx512Mask(registers, info);
-        PopulateUnusedMmxMask(registers, info);
 
+        // If there are unknown callees at this functions the analysis is
+        // imprecise
+        info->is_precise = !lazy->unknown_callees;
         lazy->data = info;
 
-        std::copy(registers.begin(), registers.end(),
-                  std::inserter(*used, used->end()));
         return;
-      });
+      },
+      nullptr);
 
-  // RAII the collection
-  std::unique_ptr<std::set<std::string>> ptr(used);
+  // If any one of the library functions have imprecise analysis we consider the
+  // library as a whole imprecisely analysed
+  lib->is_precise &= info->is_precise;
 
   // Update the cache
   lib->register_usage.insert(
-      std::pair<std::string, std::set<std::string>>(function, *(ptr.get())));
+      std::pair<std::string, std::set<std::string>>(function, info->used));
 
-  return *(ptr.get());
-}
-
-std::set<std::string> GetMatchingSharedLibraryFunctions(
-    const BPatch_object* const object, const std::set<std::string>& plt_stubs) {
-  Dyninst::ParseAPI::CodeObject* code_object =
-      Dyninst::ParseAPI::convert(object);
-
-  std::set<std::string> called;
-  for (auto function : code_object->funcs()) {
-    if (plt_stubs.find(function->name()) != plt_stubs.end()) {
-      called.insert(function->name());
-    }
-  }
-  return called;
-}
-
-std::set<std::string> GetCalledPltStubs(
-    const std::vector<BPatch_object*>& objects) {
-  std::set<std::string> plt_stub_funcs;
-  for (auto object : objects) {
-    if (!IsSharedLibrary(object)) {
-      // This is the code object corresponding to the program text
-      Dyninst::ParseAPI::CodeObject* code_object =
-          Dyninst::ParseAPI::convert(object);
-
-      std::map<Dyninst::Address, std::string> linkage =
-          code_object->cs()->linkage();
-
-      // Iterate on functions and find externally linked PLT stub functions
-      for (auto function : code_object->funcs()) {
-        auto plt_it = linkage.find(function->addr());
-        if (plt_it != linkage.end() && plt_it->second != "") {
-          plt_stub_funcs.insert(plt_it->second);
-        }
-      }
-    }
-  }
-  return plt_stub_funcs;
+  return info->used;
 }
 
 void AnalyzeSharedLibraryRegisterUsage(
     const std::vector<BPatch_object*>& objects,
     std::map<std::string, SharedLibrary*>* const cache,
-    LazyCallGraph<RegisterUsageInfo>* const call_graph,
-    std::set<std::string>* const used) {
+    LazyCallGraph<RegisterUsageInfo>* const call_graph) {
   StdOut(Color::GREEN, FLAGS_vv)
       << "\n\n  >> Analysing shared library register usage ..." << Endl;
-  // Find shared library plt stubs called from the main application
-  std::set<std::string> plt_stubs = GetCalledPltStubs(objects);
-  StdOut(Color::GREEN, FLAGS_vv) << "\n    Called shared library functions\n";
-  PrintSequence<std::set<std::string>, std::string>(plt_stubs, 6, ", ");
 
-  // Now analyze register usage of shared library functions corresponding to the
-  // discovered plt stubs
   for (auto object : objects) {
     if (IsSharedLibrary(object)) {
-      // Get shared library functions from this library matching any of the plt
-      // stubs found
-      std::set<std::string> matching =
-          GetMatchingSharedLibraryFunctions(object, plt_stubs);
-
-      if (matching.size() == 0) {
-        // No matching functions found in this shared library. Move on to the
-        // next.
-        continue;
-      }
-
-      // Check if we have results already cached for this shared library. Later
-      // we need to also check if any of the functions that we are currently
-      // looking for have been cached as well
+      // Check if we have results already cached for this shared library.
       SharedLibrary* lib = nullptr;
       auto it = cache->find(object->pathName());
       if (it != cache->end()) {
@@ -360,11 +294,12 @@ void AnalyzeSharedLibraryRegisterUsage(
             std::pair<std::string, SharedLibrary*>(object->pathName(), lib));
       }
 
-      for (auto function : matching) {
-        std::set<std::string> registers =
-            GetRegisterUsageForSharedFunction(function, lib, call_graph);
-        std::copy(registers.begin(), registers.end(),
-                  std::inserter(*used, used->end()));
+      Dyninst::ParseAPI::CodeObject* code_object =
+          Dyninst::ParseAPI::convert(object);
+
+      for (auto function : code_object->funcs()) {
+        std::set<std::string> registers = GetRegisterUsageForSharedFunction(
+            function->name(), lib, call_graph);
       }
     }
   }
@@ -372,29 +307,56 @@ void AnalyzeSharedLibraryRegisterUsage(
 
 void AnalyzeMainApplicationRegisterUsage(
     const std::vector<BPatch_object*>& objects,
-    std::set<std::string>* const used) {
+    LazyCallGraph<RegisterUsageInfo>* const call_graph) {
   StdOut(Color::GREEN, FLAGS_vv)
       << "\n  >> Analyzing main application register usage ..." << Endl;
   for (auto object : objects) {
     if (!IsSharedLibrary(object)) {
       // This is the program text.
-      std::set<std::string> registers;
-      PopulateUsedRegisters(Dyninst::ParseAPI::convert(object), &registers);
-      std::copy(registers.begin(), registers.end(),
-                std::inserter(*used, used->end()));
-      if (FLAGS_vv) {
-        StdOut(Color::GREEN)
-            << "\n    [Main Application]  Register Usage :" << Endl;
-        PrintSequence<std::set<std::string>, std::string>(registers, 6, ", ");
+      Dyninst::ParseAPI::CodeObject* code_object =
+          Dyninst::ParseAPI::convert(object);
+      code_object->parse();
+
+      for (auto function : code_object->funcs()) {
+        // Visit call graph rooted at each of the functions defined in the main
+        // application. Call graph will cache the results. So multiple visits to
+        // same node will not recalculate results.
+        call_graph->VisitCallGraph(
+            function->name(),
+            [=](LazyFunction<RegisterUsageInfo>* const lazy) {
+              std::set<std::string> registers;
+              // If this function has already been processed returned the cached
+              // results
+              if (lazy->data) {
+                return;
+              }
+
+              PopulateUsedRegistersInFunction(lazy->function, &registers);
+
+              RegisterUsageInfo* info = new RegisterUsageInfo();
+              info->used = registers;
+
+              // If there are unknown callees at this functions the analysis is
+              // imprecise
+              info->is_precise = !lazy->unknown_callees;
+
+              lazy->data = info;
+
+              // Create register masks
+              PopulateUnusedAvx2Mask(lazy->data->used, lazy->data);
+              PopulateUnusedAvx512Mask(lazy->data->used, lazy->data);
+              PopulateUnusedMmxMask(lazy->data->used, lazy->data);
+              return;
+            },
+            nullptr);
       }
-      return;
     }
   }
 }
 
-RegisterUsageInfo GetRegisterUsageInfo(
-    std::string binary, LazyCallGraph<RegisterUsageInfo>* const call_graph,
-    const Parser& parser) {
+void AnalyseRegisterUsage(std::string binary,
+                          LazyCallGraph<RegisterUsageInfo>* const call_graph,
+                          const Parser& parser) {
   StdOut(Color::BLUE, FLAGS_vv) << "Register Analysis Pass" << Endl;
   StdOut(Color::BLUE, FLAGS_vv) << "======================" << Endl;
 
@@ -409,24 +371,12 @@ RegisterUsageInfo GetRegisterUsageInfo(
 
   StdOut(Color::BLUE) << "+ Running register analysis ...\n";
 
-  // Used registers in the application and its linked shared libraries
-  std::set<std::string> used;
-
   // Find used registers in the main application
-  AnalyzeMainApplicationRegisterUsage(objects, &used);
+  AnalyzeMainApplicationRegisterUsage(objects, call_graph);
 
   // Add used registers in shared library functions called from main
-  AnalyzeSharedLibraryRegisterUsage(objects, cache, call_graph, &used);
+  AnalyzeSharedLibraryRegisterUsage(objects, cache, call_graph);
 
   // Update on disk register analysis cache
   FlushRegisterAuditCache(cache);
-
-  // Calculate usage summary data
-  RegisterUsageInfo info;
-  PopulateUnusedAvx2Mask(used, &info);
-  PopulateUnusedAvx512Mask(used, &info);
-  PopulateUnusedMmxMask(used, &info);
-
-  PrintRegisterUsageSummary(used, info);
-  return info;
 }

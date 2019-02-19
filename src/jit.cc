@@ -9,6 +9,10 @@
 #include "jit_internal.h"
 #include "utils.h"
 
+const std::string kStackInitFunction = "litecfi_avx2_stack_init";
+const std::string kStackPushFunction = "litecfi_avx2_stack_push";
+const std::string kStackPopFunction = "litecfi_avx2_stack_pop";
+
 /**************** AssemblerHolder  *****************/
 
 // Error handler that just prints the error and lets AsmJit ignore it.

@@ -52,6 +52,11 @@ std::set<LazyFunction<T>*> LazyFunction<T>::GetCallees() {
     if (edge->interproc()) {
       Dyninst::ParseAPI::Block* block = edge->trg();
 
+      if (!block || block == reinterpret_cast<Dyninst::ParseAPI::Block*>(-1)) {
+        unknown_callees = true;
+        continue;
+      }
+
       std::vector<Dyninst::ParseAPI::Function*> functions;
       // Get the target functions of this call edge
       block->getFuncs(functions);
@@ -93,8 +98,10 @@ template <typename T>
 Dyninst::ParseAPI::Function* LazyCallGraph<T>::GetFunctionDefinition(
     std::string name) {
   auto it = function_defs_.find(name);
+  /*
   DCHECK(it != function_defs_.end())
       << "No definition of the function : " << name;
+      */
   return it->second;
 }
 
@@ -113,22 +120,6 @@ void LazyCallGraph<T>::PopulateFunctionDefinitions(
         code_object->cs()->linkage();
 
     for (auto function : code_object->funcs()) {
-      // Skip plt stubs
-      if (IsPltFunction(function, linkage)) continue;
-
-      // There are multiple definitions of `_dl_start` in ld.so and libc.so.
-      // Moving on to find some more collisions.
-      if (function->name() == "_dl_start") continue;
-
-      // Oh well...
-      if (function->name() == "__libc_check_standard_fds") {
-        printf("__libc_check_standard_fds is at code object : %p\n",
-               code_object);
-      }
-
-      DCHECK(function_defs_.find(function->name()) == function_defs_.end())
-          << "Multiple definitions of the function : " << function->name();
-
       function_defs_.insert(
           std::pair<std::string, Dyninst::ParseAPI::Function*>(function->name(),
                                                                function));
@@ -151,7 +142,6 @@ LazyCallGraph<T>* LazyCallGraph<T>::GetCallGraph(const Parser& parser) {
     code_object_map.insert(
         std::pair<std::string, Dyninst::ParseAPI::CodeObject*>(
             object->pathName(), code_object));
-    printf(" %s => %p\n", object->pathName().c_str(), code_object);
   }
 
   // Resolve function definitions for all functions
@@ -164,9 +154,12 @@ LazyCallGraph<T>* LazyCallGraph<T>::GetCallGraph(const Parser& parser) {
   for (auto const& it : code_object_map) {
     Dyninst::ParseAPI::CodeObject* code_object = it.second;
     for (auto function : code_object->funcs()) {
-      cg->functions_.insert(std::pair<std::string, LazyFunction<T>*>(
-          function->name(), LazyFunction<T>::GetInstance(
-                                GetFunctionDefinition(function->name()))));
+      Dyninst::ParseAPI::Function* func =
+          GetFunctionDefinition(function->name());
+      if (func) {
+        cg->functions_.insert(std::pair<std::string, LazyFunction<T>*>(
+            function->name(), LazyFunction<T>::GetInstance(func)));
+      }
     }
   }
   return cg;
@@ -182,28 +175,42 @@ LazyFunction<T>* LazyCallGraph<T>::GetFunction(std::string name) {
 template <typename T>
 void LazyCallGraph<T>::VisitCallGraph(
     LazyFunction<T>* const function,
-    std::function<void(LazyFunction<T>* const)> callback,
+    std::function<void(LazyFunction<T>* const)> pre_callback,
+    std::function<void(LazyFunction<T>* const)> post_callback,
     std::set<LazyFunction<T>*>* const visited) {
   if (visited->find(function) != visited->end()) {
     return;
   }
-  // Run callback on current node
-  callback(function);
+
+  // Update and get child info for current function
+  std::set<LazyFunction<T>*> callees = function->GetCallees();
+
+  // Run pre callback on current node
+  pre_callback(function);
 
   visited->insert(function);
 
   // Visit children
-  std::set<LazyFunction<T>*> callees = function->GetCallees();
   for (LazyFunction<T>* callee : callees) {
-    VisitCallGraph(callee, callback, visited);
+    VisitCallGraph(callee, pre_callback, post_callback, visited);
+  }
+
+  // Run post callback on current node
+  if (post_callback) {
+    post_callback(function);
   }
 }
 
 template <typename T>
-void LazyCallGraph<T>::VisitCallGraph(
-    std::string root, std::function<void(LazyFunction<T>* const)> callback) {
+T* LazyCallGraph<T>::VisitCallGraph(
+    std::string root, std::function<void(LazyFunction<T>* const)> pre_callback,
+    std::function<void(LazyFunction<T>* const)> post_callback) {
   std::set<LazyFunction<T>*> visited;
-  VisitCallGraph(GetFunction(root), callback, &visited);
+  LazyFunction<T>* function = GetFunction(root);
+
+  VisitCallGraph(function, pre_callback, post_callback, &visited);
+
+  return function->data;
 }
 
 #endif  // LITECFI_CALL_GRAPH_IMPL_H_

@@ -7,7 +7,8 @@
 #include "parse.h"
 #include "register_usage.h"
 
-void Instrument(std::string binary, const RegisterUsageInfo& info,
+void Instrument(std::string binary,
+                LazyCallGraph<RegisterUsageInfo>* const call_graph,
                 const Parser& parser);
 
 #endif  // LITECFI_INSTRUMENT_H_

@@ -7,9 +7,15 @@
 #include "asmjit/asmjit.h"
 #include "register_usage.h"
 
-const std::string kStackInitFunction = "litecfi_avx2_stack_init";
-const std::string kStackPushFunction = "litecfi_avx2_stack_push";
-const std::string kStackPopFunction = "litecfi_avx2_stack_pop";
+extern const std::string kStackInitFunction;
+extern const std::string kStackPushFunction;
+extern const std::string kStackPopFunction;
+
+extern const std::string kRegisterSpillFunction;
+extern const std::string kRegisterRestoreFunction;
+
+extern const std::string kContextSaveFunction;
+extern const std::string kContextRestoreFunction;
 
 class AssemblerHolder {
  public:

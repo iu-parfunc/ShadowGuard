@@ -40,28 +40,34 @@ std::map<std::string, SharedLibrary*>* GetRegisterAuditCache() {
     DCHECK(tokens.size() == 2);
 
     std::vector<std::string> library_n_function = Split(tokens[0], '%');
+
+    if (library_n_function.size() < 2) continue;
+
     std::string library = library_n_function[0];
     std::string function = library_n_function[1];
 
+    SharedLibrary* lib = nullptr;
     auto it = cache->find(library);
     if (it != cache->end()) {
-      SharedLibrary* lib = it->second;
-
-      std::vector<std::string> registers = Split(tokens[1], ':');
-      DCHECK(registers.size() > 0);
-      std::set<std::string> register_set(registers.begin(), registers.end());
-
-      lib->register_usage[function] = register_set;
+      lib = it->second;
     } else {
-      SharedLibrary* lib = new SharedLibrary();
+      lib = new SharedLibrary();
+      lib->path = library;
+
       cache->insert(std::pair<std::string, SharedLibrary*>(library, lib));
 
       if (FLAGS_vv) {
         StdOut(Color::GREEN)
-            << "Loading cached analysis results for library : " << library
+            << "  >> Loading cached analysis results for library : " << library
             << Endl;
       }
     }
+
+    std::vector<std::string> registers = Split(tokens[1], ':');
+    DCHECK(registers.size() > 0);
+    std::set<std::string> register_set(registers.begin(), registers.end());
+
+    lib->register_usage[function] = register_set;
   }
 
   return cache;
@@ -94,8 +100,8 @@ void FlushRegisterAuditCache(
   for (auto const& it : *cache) {
     SharedLibrary* lib = it.second;
 
-    std::string registers_concat = "";
     for (auto const& reg_iter : lib->register_usage) {
+      std::string registers_concat = "";
       std::set<std::string> registers = reg_iter.second;
       for (auto const& reg : registers) {
         registers_concat += (reg + ":");

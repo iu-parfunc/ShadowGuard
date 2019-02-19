@@ -20,8 +20,10 @@
 using namespace Dyninst::PatchAPI;
 
 DECLARE_string(instrument);
-
 DECLARE_bool(libs);
+DECLARE_string(shadow_stack);
+
+static std::vector<bool> reserved;
 
 class StackOpSnippet : public Dyninst::PatchAPI::Snippet {
  public:
@@ -67,30 +69,179 @@ class StackPopSnippet : public StackOpSnippet {
   }
 };
 
+std::vector<bool> GetReservedAvxMask() {
+  if (reserved.size() > 0) {
+    return reserved;
+  }
+
+  int n_regs = 0;
+  int reserved_from = 0;
+
+  if (FLAGS_shadow_stack == "avx2") {
+    n_regs = 16;
+    reserved_from = 8;
+  } else if (FLAGS_shadow_stack == "avx512") {
+    n_regs = 32;
+    reserved_from = 16;
+  }
+
+  for (int i = 0; i < n_regs; i++) {
+    // We reserve extended avx2 registers for the stack
+    if (i >= reserved_from) {
+      reserved.push_back(true);
+      continue;
+    }
+    reserved.push_back(false);
+  }
+  return reserved;
+}
+
+std::vector<uint8_t> GetRegisterCollisions(const std::vector<bool>& unused) {
+  std::vector<bool> reserved = GetReservedAvxMask();
+
+  int n_regs = 0;
+  if (FLAGS_shadow_stack == "avx2") {
+    n_regs = 16;
+  } else if (FLAGS_shadow_stack == "avx512") {
+    n_regs = 32;
+  }
+
+  std::vector<uint8_t> collisions;
+  for (int i = 0; i < n_regs; i++) {
+    if (reserved[i] && !unused[i]) {
+      collisions.push_back(i);
+    }
+  }
+  return collisions;
+}
+
+BPatch_funcCallExpr GetRegisterOperationSnippet(
+    std::map<std::string, BPatch_function*>& instrumentation_fns,
+    const std::vector<uint8_t>& collisions, std::string op_prefix) {
+  long n_regs = collisions.size();
+  DCHECK(n_regs <= 8)
+      << "Can only save or restore up to 8 conflicting registers: " << n_regs;
+
+  BPatch_function* fn =
+      instrumentation_fns[op_prefix + "_" + std::to_string(n_regs)];
+  DCHECK(fn) << "Couldn't find the register operation " << op_prefix << "_"
+             << std::to_string(n_regs);
+
+  BPatch_Vector<BPatch_snippet*> args;
+  for (int i = 0; i < n_regs; i++) {
+    BPatch_constExpr* reg = new BPatch_constExpr(collisions[i]);
+    args.push_back(reg);
+  }
+
+  return BPatch_funcCallExpr(*fn, args);
+}
+
 void SharedLibraryInstrumentation(
     BPatch_function* function, const RegisterUsageInfo& info,
     const Parser& parser, PatchMgr::Ptr patcher,
-    std::map<std::string, BPatch_function*>& instrumentation_fns,
-    bool is_init_function) {
+    std::map<std::string, BPatch_function*>& instrumentation_fns) {
   BPatch_Vector<BPatch_snippet*> args;
   BPatch_binaryEdit* binary_edit = ((BPatch_binaryEdit*)parser.app);
 
+  // ---------- Instrument Function Entry ----------------
+
+  // [1] Shadow stack push
+  //
   // Shared library function call to shadow stack push at function entry
   BPatch_funcCallExpr stack_push(*(instrumentation_fns["push"]), args);
   std::vector<BPatch_point*>* entries = function->findPoint(BPatch_entry);
   BPatchSnippetHandle* handle = binary_edit->insertSnippet(
-      stack_push, *entries, BPatch_callBefore, BPatch_lastSnippet);
-  DCHECK(handle != nullptr) << "Failed instrumenting function entry";
+      stack_push, *entries, BPatch_callBefore, BPatch_firstSnippet);
+  DCHECK(handle != nullptr) << "Failed instrumenting stack push.";
 
+  // [2] Spill conflicting AVX registers used in both function and shadow stack
+  //
+  std::vector<uint8_t> collisions =
+      GetRegisterCollisions(info.unused_avx2_mask);
+  if (collisions.size() > 0) {
+    BPatch_funcCallExpr reg_spill = GetRegisterOperationSnippet(
+        instrumentation_fns, collisions, "register_spill");
+
+    handle = nullptr;
+    handle = binary_edit->insertSnippet(reg_spill, *entries, BPatch_callBefore,
+                                        BPatch_lastSnippet);
+    DCHECK(handle != nullptr) << "Failed instrumenting register spill.";
+  }
+
+  // ----------- Instrument Call Instructions -------------
+  if (collisions.size() > 0) {
+    std::vector<BPatch_point*>* calls = function->findPoint(BPatch_subroutine);
+
+    // [1] Save the colliding register context
+    //
+    BPatch_funcCallExpr ctx_save = GetRegisterOperationSnippet(
+        instrumentation_fns, collisions, "ctx_save");
+
+    handle = nullptr;
+    handle = binary_edit->insertSnippet(ctx_save, *calls, BPatch_callBefore,
+                                        BPatch_firstSnippet);
+    DCHECK(handle != nullptr) << "Failed instrumenting context save.";
+
+    // [2] Restore the shadow stack state on AVX registers
+    //
+    BPatch_funcCallExpr reg_peek = GetRegisterOperationSnippet(
+        instrumentation_fns, collisions, "register_peek");
+
+    handle = nullptr;
+    handle = binary_edit->insertSnippet(reg_peek, *calls, BPatch_callBefore,
+                                        BPatch_lastSnippet);
+    DCHECK(handle != nullptr) << "Failed instrumenting register restore.";
+
+    // [3] Restore the register context
+    //
+    BPatch_funcCallExpr ctx_restore = GetRegisterOperationSnippet(
+        instrumentation_fns, collisions, "ctx_restore");
+
+    handle = nullptr;
+    handle = binary_edit->insertSnippet(ctx_restore, *calls, BPatch_callAfter,
+                                        BPatch_firstSnippet);
+
+    DCHECK(handle != nullptr) << "Failed instrumenting context restore.";
+  }
+
+  // ---------- Instrument Function Exit ----------------
+
+  // [1] Restore the spilled AVX shadow stack context
+  //
+  std::vector<BPatch_point*>* exits = function->findPoint(BPatch_exit);
+  if (collisions.size() > 0) {
+    BPatch_funcCallExpr reg_restore = GetRegisterOperationSnippet(
+        instrumentation_fns, collisions, "register_restore");
+
+    handle = nullptr;
+    handle = binary_edit->insertSnippet(reg_restore, *exits, BPatch_callBefore,
+                                        BPatch_firstSnippet);
+    DCHECK(handle != nullptr) << "Failed instrumenting register restore.";
+  }
+
+  // [2] Shadow stack pop
+  //
   // Shared library function call to shadow stack pop at function exit
   BPatch_funcCallExpr stack_pop(*(instrumentation_fns["pop"]), args);
-  std::vector<BPatch_point*>* exits = function->findPoint(BPatch_exit);
 
   // Some functions (like exit()) do not feature function exits. Skip them.
   if (exits != nullptr && exits->size() > 0) {
     handle = binary_edit->insertSnippet(stack_pop, *exits);
-    DCHECK(handle != nullptr) << "Failed instrumenting function exit";
+    DCHECK(handle != nullptr) << "Failed instrumenting stack pop.";
   }
+}
+
+void InstrumentTlsInit(
+    BPatch_function* function, const Parser& parser, PatchMgr::Ptr patcher,
+    std::map<std::string, BPatch_function*>& instrumentation_fns) {
+  BPatch_Vector<BPatch_snippet*> args;
+  BPatch_funcCallExpr tls_init(*(instrumentation_fns["tls_init"]), args);
+
+  BPatch_binaryEdit* binary_edit = ((BPatch_binaryEdit*)parser.app);
+  std::vector<BPatch_point*>* entries = function->findPoint(BPatch_entry);
+
+  BPatchSnippetHandle* handle = binary_edit->insertSnippet(tls_init, *entries);
+  DCHECK(handle != nullptr) << "Failed instrumenting tls initialization.";
 }
 
 void InsertInstrumentation(BPatch_function* function, Point::Type location,
@@ -107,52 +258,64 @@ void InsertInstrumentation(BPatch_function* function, Point::Type location,
 
 void InlinedInstrumentation(BPatch_function* function,
                             const RegisterUsageInfo& info, const Parser& parser,
-                            PatchMgr::Ptr patcher, bool is_init_function) {
+                            PatchMgr::Ptr patcher) {
   // Inlined shadow stack push instrumentation at function entry
   Snippet::Ptr stack_push =
       StackPushSnippet::create(new StackPushSnippet(info));
   InsertInstrumentation(function, Point::FuncEntry, stack_push, patcher);
 
+  // Spill conflicting registers
+
+  // Instrument all calls to
+  //   Save context precall
+  //   Restore context after call
+
   // Inlined shadow stack pop instrumentation at function exit
   Snippet::Ptr stack_pop = StackPopSnippet::create(new StackPopSnippet(info));
   InsertInstrumentation(function, Point::FuncExit, stack_pop, patcher);
+
+  // Restore spilled registers
 }
 
 void InstrumentFunction(
-    BPatch_function* function, const RegisterUsageInfo& info,
-    const Parser& parser, PatchMgr::Ptr patcher,
+    BPatch_function* function,
+    LazyCallGraph<RegisterUsageInfo>* const call_graph, const Parser& parser,
+    PatchMgr::Ptr patcher,
     std::map<std::string, BPatch_function*>& instrumentation_fns,
     bool is_init_function) {
+  // Gets the function name in ParseAPI function instance
+  std::string fn_name = Dyninst::PatchAPI::convert(function)->name();
+  LazyFunction<RegisterUsageInfo>* fn = call_graph->GetFunction(fn_name);
+  DCHECK(fn) << "Function " << fn_name << " cannot be found";
+
+  RegisterUsageInfo* info = fn->data;
+
   // Instrument for initializing the stack in the init function
   if (is_init_function) {
+    RegisterUsageInfo reserved;
+    reserved.unused_avx2_mask = GetReservedAvxMask();
+
     Snippet::Ptr stack_init =
-        StackInitSnippet::create(new StackInitSnippet(info));
+        StackInitSnippet::create(new StackInitSnippet(reserved));
     InsertInstrumentation(function, Point::FuncEntry, stack_init, patcher);
     return;
   }
 
   if (FLAGS_instrument == "inline") {
-    InlinedInstrumentation(function, info, parser, patcher, is_init_function);
+    InlinedInstrumentation(function, *info, parser, patcher);
     return;
   }
 
   if (FLAGS_instrument == "shared") {
-    SharedLibraryInstrumentation(function, info, parser, patcher,
-                                 instrumentation_fns, is_init_function);
+    SharedLibraryInstrumentation(function, *info, parser, patcher,
+                                 instrumentation_fns);
     return;
   }
 }
 
-bool IsLibC(BPatch_object* object) {
-  if (object->pathName().find("libc") != std::string::npos) {
-    return true;
-  }
-  return false;
-}
-
 void InstrumentModule(
-    BPatch_module* module, const RegisterUsageInfo& info, const Parser& parser,
-    PatchMgr::Ptr patcher,
+    BPatch_module* module, LazyCallGraph<RegisterUsageInfo>* const call_graph,
+    const Parser& parser, PatchMgr::Ptr patcher,
     std::map<std::string, BPatch_function*>& instrumentation_fns,
     const std::set<std::string>& init_fns) {
   char funcname[2048];
@@ -164,23 +327,25 @@ void InstrumentModule(
 
     std::string func(funcname);
     if (init_fns.find(func) != init_fns.end()) {
-      InstrumentFunction(function, info, parser, patcher, instrumentation_fns,
-                         true);
+      InstrumentFunction(function, call_graph, parser, patcher,
+                         instrumentation_fns, true);
+    } else if (func == "pthread_create") {
+      InstrumentTlsInit(function, parser, patcher, instrumentation_fns);
     } else {
       // Avoid instrumenting some internal libc functions
       if ((strcmp(funcname, "memset") != 0) &&
           (strcmp(funcname, "call_gmon_start") != 0) &&
           (strcmp(funcname, "frame_dummy") != 0) && funcname[0] != '_') {
-        InstrumentFunction(function, info, parser, patcher, instrumentation_fns,
-                           false);
+        InstrumentFunction(function, call_graph, parser, patcher,
+                           instrumentation_fns, false);
       }
     }
   }
 }
 
 void InstrumentCodeObject(
-    BPatch_object* object, const RegisterUsageInfo& info, const Parser& parser,
-    PatchMgr::Ptr patcher,
+    BPatch_object* object, LazyCallGraph<RegisterUsageInfo>* const call_graph,
+    const Parser& parser, PatchMgr::Ptr patcher,
     std::map<std::string, BPatch_function*>& instrumentation_fns,
     const std::set<std::string>& init_fns) {
   std::vector<BPatch_module*> modules;
@@ -193,7 +358,7 @@ void InstrumentCodeObject(
     BPatch_module* module = *it;
     module->getName(modname, 2048);
 
-    InstrumentModule(module, info, parser, patcher, instrumentation_fns,
+    InstrumentModule(module, call_graph, parser, patcher, instrumentation_fns,
                      init_fns);
   }
 }
@@ -210,7 +375,62 @@ BPatch_function* FindFunctionByName(BPatch_image* image, std::string name) {
   return funcs[0];
 }
 
-void Instrument(std::string binary, const RegisterUsageInfo& info,
+void PopulateRegisterContextOperations(
+    BPatch_binaryEdit* binary_edit, const Parser& parser,
+    std::map<std::string, BPatch_function*>& fns) {
+  DCHECK(binary_edit->loadLibrary("libtls.so")) << "Failed to load tls library";
+
+  std::string fn_prefix = "litecfi_register_spill";
+  std::string key_prefix = "register_spill";
+  for (int i = 1; i <= 8; i++) {
+    std::string fn_name = fn_prefix + "_" + std::to_string(i);
+    fns[key_prefix + "_" + std::to_string(i)] =
+        FindFunctionByName(parser.image, fn_name);
+  }
+
+  fn_prefix = "litecfi_register_restore";
+  key_prefix = "register_restore";
+  for (int i = 1; i <= 8; i++) {
+    std::string fn_name = fn_prefix + "_" + std::to_string(i);
+    fns[key_prefix + "_" + std::to_string(i)] =
+        FindFunctionByName(parser.image, fn_name);
+  }
+
+  fn_prefix = "litecfi_register_peek";
+  key_prefix = "register_peek";
+  for (int i = 1; i <= 8; i++) {
+    std::string fn_name = fn_prefix + "_" + std::to_string(i);
+    fns[key_prefix + "_" + std::to_string(i)] =
+        FindFunctionByName(parser.image, fn_name);
+  }
+
+  fn_prefix = "litecfi_ctx_save";
+  key_prefix = "ctx_save";
+  for (int i = 1; i <= 8; i++) {
+    std::string fn_name = fn_prefix + "_" + std::to_string(i);
+    fns[key_prefix + "_" + std::to_string(i)] =
+        FindFunctionByName(parser.image, fn_name);
+  }
+
+  fn_prefix = "litecfi_ctx_restore";
+  key_prefix = "ctx_restore";
+  for (int i = 1; i <= 8; i++) {
+    std::string fn_name = fn_prefix + "_" + std::to_string(i);
+    fns[key_prefix + "_" + std::to_string(i)] =
+        FindFunctionByName(parser.image, fn_name);
+  }
+
+  fn_prefix = "litecfi_ctx_peek";
+  key_prefix = "ctx_peek";
+  for (int i = 1; i <= 8; i++) {
+    std::string fn_name = fn_prefix + "_" + std::to_string(i);
+    fns[key_prefix + "_" + std::to_string(i)] =
+        FindFunctionByName(parser.image, fn_name);
+  }
+}
+
+void Instrument(std::string binary,
+                LazyCallGraph<RegisterUsageInfo>* const call_graph,
                 const Parser& parser) {
   std::vector<BPatch_object*> objects;
   parser.image->getObjects(objects);
@@ -220,6 +440,14 @@ void Instrument(std::string binary, const RegisterUsageInfo& info,
 
   std::map<std::string, BPatch_function*> instrumentation_fns;
   if (FLAGS_instrument == "shared") {
+    RegisterUsageInfo info;
+
+    // Mark reserved avx2 register as unused for the purpose of shadow stack
+    // code generation
+    if (FLAGS_shadow_stack == "avx2") {
+      info.unused_avx2_mask = GetReservedAvxMask();
+    }
+
     std::string instrumentation_library =
         Codegen(const_cast<RegisterUsageInfo&>(info));
 
@@ -234,11 +462,11 @@ void Instrument(std::string binary, const RegisterUsageInfo& info,
     BPatch_function* stack_pop_fn =
         FindFunctionByName(parser.image, kStackPopFunction);
 
-    printf(" %p %p\n", stack_push_fn, stack_pop_fn);
-
     instrumentation_fns["push"] = stack_push_fn;
     instrumentation_fns["pop"] = stack_pop_fn;
   }
+
+  PopulateRegisterContextOperations(binary_edit, parser, instrumentation_fns);
 
   for (auto it = objects.begin(); it != objects.end(); it++) {
     BPatch_object* object = *it;
@@ -255,8 +483,8 @@ void Instrument(std::string binary, const RegisterUsageInfo& info,
     init_fns.insert("_start");
     init_fns.insert("__libc_csu_init");
     init_fns.insert("__libc_start_main");
-    InstrumentCodeObject(object, info, parser, patcher, instrumentation_fns,
-                         init_fns);
+    InstrumentCodeObject(object, call_graph, parser, patcher,
+                         instrumentation_fns, init_fns);
   }
 
   binary_edit->writeFile((binary + "_cfi").c_str());

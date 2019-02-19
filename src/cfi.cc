@@ -57,6 +57,9 @@ static bool ValidateShadowStackFlag(const char* flagname,
   if (value == "avx2" || value == "avx512" || value == "mem") {
     return true;
   }
+
+  DCHECK(value == "avx2") << "Only avx2 mode supported yet.\n";
+
   return false;
 }
 
@@ -94,9 +97,9 @@ int main(int argc, char* argv[]) {
   LazyCallGraph<RegisterUsageInfo>* call_graph =
       LazyCallGraph<RegisterUsageInfo>::GetCallGraph(parser);
 
-  RegisterUsageInfo info = GetRegisterUsageInfo(binary, call_graph, parser);
+  AnalyseRegisterUsage(binary, call_graph, parser);
 
-  Instrument(binary, info, parser);
+  Instrument(binary, call_graph, parser);
 
   return 0;
 }

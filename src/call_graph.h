@@ -12,8 +12,8 @@
 template <typename T>
 class LazyCallGraph;
 
-// Implements a lazily evaluated call graph function. We lazily evaluate callees
-// of the corresponding function and its associated data when visited during a
+// Implements a lazily evaluated function entry. We lazily evaluate callees
+// of the function entry and its associated data when visited during a
 // call graph walk.
 template <typename T>
 struct LazyFunction {
@@ -28,6 +28,10 @@ struct LazyFunction {
 
   // Data associated with the function
   T* data = nullptr;
+
+  // If there are unresolvable callees at this function (i.e: due to indirect
+  // calls)
+  bool unknown_callees = false;
 
   LazyFunction(const LazyFunction&) = delete;
   LazyFunction& operator=(const LazyFunction&) = delete;
@@ -56,7 +60,7 @@ struct LazyFunction {
 
 // Implements a lazily evaluated call graph. Each call graph walk is initiated
 // starting from some root function. Each such walk will evaluate the portion of
-// the call graph induced by the root function.
+// the call graph rooted at given function.
 template <typename T>
 class LazyCallGraph {
  public:
@@ -69,9 +73,11 @@ class LazyCallGraph {
   // Gets the underlying function definition
   static Dyninst::ParseAPI::Function* GetFunctionDefinition(std::string name);
 
-  // Does a depth first visit of the call graph starting from root
-  void VisitCallGraph(std::string root,
-                      std::function<void(LazyFunction<T>* const)> callback);
+  // Does a depth first visit of the call graph starting from root and returns
+  // the calculated data for current node
+  T* VisitCallGraph(std::string root,
+                    std::function<void(LazyFunction<T>* const)> pre_callback,
+                    std::function<void(LazyFunction<T>* const)> post_callback);
 
  private:
   // Returns true if the function corresponds to a plt stub as opposed to an
@@ -88,7 +94,8 @@ class LazyCallGraph {
 
   // Does a depth first visit at given node
   void VisitCallGraph(LazyFunction<T>* const function,
-                      std::function<void(LazyFunction<T>* const)> callback,
+                      std::function<void(LazyFunction<T>* const)> pre_callback,
+                      std::function<void(LazyFunction<T>* const)> post_callback,
                       std::set<LazyFunction<T>*>* const visited);
 
   static std::map<std::string, LazyFunction<T>*> functions_;

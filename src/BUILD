@@ -33,6 +33,14 @@ cc_binary(
     ],
 )
 
+cc_library(
+    name = "tls",
+    srcs = [
+        "thread_local.cc",
+        "thread_local.h",
+    ],
+)
+
 cc_binary(
     name = "sizeof",
     srcs = [

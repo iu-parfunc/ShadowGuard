@@ -12,6 +12,10 @@ struct RegisterUsageInfo {
   // Used register set
   std::set<std::string> used;
 
+  // If the analysis is precise or not. It may be imprecise due to the existence
+  // of indirect calls
+  bool is_precise = true;
+
   // Register masks
   //
   // Mask of unused AVX and AVX2 registers
@@ -31,10 +35,11 @@ struct RegisterUsageInfo {
   int n_unused_mmx_regs;
 };
 
-// Find unused registers across all functions in the application. This
-// includes linked shared library functions.
-RegisterUsageInfo GetRegisterUsageInfo(
-    std::string binary, LazyCallGraph<RegisterUsageInfo>* call_graph,
-    const Parser& parser);
+// Find unused registers across all functions in the application and update the
+// call graph with the register usage information. This also includes linked
+// shared library functions.
+void AnalyseRegisterUsage(std::string binary,
+                          LazyCallGraph<RegisterUsageInfo>* call_graph,
+                          const Parser& parser);
 
 #endif  // LITECFI_REGISTER_USAGE_H_
