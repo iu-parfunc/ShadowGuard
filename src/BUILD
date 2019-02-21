@@ -55,6 +55,18 @@ cc_binary(
 )
 
 cc_binary(
+    name = "reg_test",
+    srcs = [
+        "reg_test.cc",
+	"parse.cc",
+	"parse.h",
+    ],
+    deps = [
+        "@dyninst//:dyninst",
+    ],
+)
+
+cc_binary(
     name = "icall_test",
     srcs = [
         "icall_test.cc",
