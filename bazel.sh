@@ -6,11 +6,11 @@ deps () {
   # Fetch
   if [ ! -d "thirdparty/dyninst-10.0.0" ]; then
     git clone https://github.com/mxz297/dyninst.git thirdparty/dyninst-10.0.0
+    cd thirdparty/dyninst-10.0.0/;\
     git checkout liteCFI
   fi
 
   if [ ! -d "thirdparty/dyninst-10.0.0/install" ]; then
-    cd thirdparty/dyninst-10.0.0/;\
     mkdir install;\
     mkdir -p build;\
     cd build
