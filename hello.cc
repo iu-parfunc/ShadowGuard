@@ -1,7 +1,7 @@
 
 #include <stdio.h>
 
-#include "cycle.h"
+// #include "cycle.h"
 
 int bar() { return 42; }
 
@@ -21,11 +21,11 @@ int foo() { return baz(); }
 int main() {
   // long iters = 10000000;
   long iters = 1;
-  ticks start = getticks();
+  // ticks start = getticks();
   for (long i = 0; i < iters; i++) {
     baz();
   }
-  ticks end = getticks();
+  // ticks end = getticks();
 
   /*
   printf("elapsed : %llu\n", (end - start));
