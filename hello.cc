@@ -1,5 +1,5 @@
 
-#include <stdio.h>
+// #include <stdio.h>
 
 // #include "cycle.h"
 
@@ -31,4 +31,14 @@ int main() {
   printf("elapsed : %llu\n", (end - start));
   printf("avg(cycles) : %llu\n", (end - start) / iters);
   */
+}
+
+void _start() {
+  /* main body of program: call main(), etc */
+  main();
+
+  /* exit system call */
+  asm("movq $1,%rax;"
+      "xorq %rbx,%rbx;"
+      "int  $0x80");
 }
