@@ -10,11 +10,11 @@
 extern "C" {
 #endif
 
-static thread_local uint64_t* overflow_stack = nullptr;
+thread_local uint64_t* overflow_stack = nullptr;
 
-static thread_local uint64_t* spill_stack = nullptr;
+thread_local uint64_t* spill_stack = nullptr;
 
-static thread_local uint64_t* ctx_save_stack = nullptr;
+thread_local uint64_t* ctx_save_stack = nullptr;
 
 static void setup_memory(uint64_t** mem_ptr, long size) {
   // Add space for two guard pages at the beginning and the end of the stack
@@ -38,6 +38,8 @@ void litecfi_mem_initialize() {
   setup_memory(&overflow_stack, stack_size);
   setup_memory(&spill_stack, stack_size);
   setup_memory(&ctx_save_stack, stack_size);
+
+  // printf("SPILL STACK is at : %p\n", spill_stack);
 }
 
 // TODO(chamibuddhika) Implement this
@@ -52,75 +54,79 @@ uint64_t litecfi_overflow_stack_pop() { return 0; }
     assert(false);
 
 // clang-format off
-#define PUSH_AVX2(spill_stack, index, ymm_spill) \
+#define PUSH_AVX2(spill_stack, index, ymm_spill)  \
   case index: {                                   \
     asm(ymm_spill                                 \
         "addq $256, %0;\n\t"                      \
-        : "=m"(spill_stack)                       \
-        : "a"(spill_stack)                        \
+        : "+a"(spill_stack)                       \
+        :                         \
         :);                                       \
+    break;                                        \
   }
 
-#define POP_AVX2(spill_stack, index, ymm_restore) \
+#define POP_AVX2(spill_stack, index, ymm_restore)     \
   case index: {                                       \
-    asm(ymm_restore                                   \
-        "subq $256, %0;\n\t"                          \
-        : "=m"(spill_stack)                           \
-        : "a"(spill_stack)                            \
+    asm("subq $256, %0;\n\t"                          \
+        ymm_restore                                   \
+        : "+a"(spill_stack)                           \
+        :                             \
         :);                                           \
+    break;                                            \
   }
 
 #define PEEK_AVX2(spill_stack, index, offset, ymm_peek) \
   case index: {                                         \
     asm("imul $256, %0;\n\t"                            \
+        "neg %0;\n\t"\
         "movq %1, %%rdx;\n\t"                           \
-        "sub %0, %%edx;\n\t"                           \
+        "leaq (%%rdx, %%rbx, 1), %%rdx;\n\t"                           \
         ymm_peek                                        \
         :                                               \
         : "b"(offset), "a"(spill_stack)                 \
         : "rdx");                                       \
+    break;                                              \
   }
 // clang-format on
 
 #define REGISTER_PUSH(index, sp)                    \
   switch (index) {                                  \
-    PUSH_AVX2(sp, 0, "vmovdqu %%ymm0, (%1);\n\t")   \
-    PUSH_AVX2(sp, 1, "vmovdqu %%ymm1, (%1);\n\t")   \
-    PUSH_AVX2(sp, 2, "vmovdqu %%ymm2, (%1);\n\t")   \
-    PUSH_AVX2(sp, 3, "vmovdqu %%ymm3, (%1);\n\t")   \
-    PUSH_AVX2(sp, 4, "vmovdqu %%ymm4, (%1);\n\t")   \
-    PUSH_AVX2(sp, 5, "vmovdqu %%ymm5, (%1);\n\t")   \
-    PUSH_AVX2(sp, 6, "vmovdqu %%ymm6, (%1);\n\t")   \
-    PUSH_AVX2(sp, 7, "vmovdqu %%ymm7, (%1);\n\t")   \
-    PUSH_AVX2(sp, 8, "vmovdqu %%ymm8, (%1);\n\t")   \
-    PUSH_AVX2(sp, 9, "vmovdqu %%ymm9, (%1);\n\t")   \
-    PUSH_AVX2(sp, 10, "vmovdqu %%ymm10, (%1);\n\t") \
-    PUSH_AVX2(sp, 11, "vmovdqu %%ymm11, (%1);\n\t") \
-    PUSH_AVX2(sp, 12, "vmovdqu %%ymm12, (%1);\n\t") \
-    PUSH_AVX2(sp, 13, "vmovdqu %%ymm13, (%1);\n\t") \
-    PUSH_AVX2(sp, 14, "vmovdqu %%ymm14, (%1);\n\t") \
-    PUSH_AVX2(sp, 15, "vmovdqu %%ymm15, (%1);\n\t") \
+    PUSH_AVX2(sp, 0, "vmovdqu %%ymm0, (%0);\n\t")   \
+    PUSH_AVX2(sp, 1, "vmovdqu %%ymm1, (%0);\n\t")   \
+    PUSH_AVX2(sp, 2, "vmovdqu %%ymm2, (%0);\n\t")   \
+    PUSH_AVX2(sp, 3, "vmovdqu %%ymm3, (%0);\n\t")   \
+    PUSH_AVX2(sp, 4, "vmovdqu %%ymm4, (%0);\n\t")   \
+    PUSH_AVX2(sp, 5, "vmovdqu %%ymm5, (%0);\n\t")   \
+    PUSH_AVX2(sp, 6, "vmovdqu %%ymm6, (%0);\n\t")   \
+    PUSH_AVX2(sp, 7, "vmovdqu %%ymm7, (%0);\n\t")   \
+    PUSH_AVX2(sp, 8, "vmovdqu %%ymm8, (%0);\n\t")   \
+    PUSH_AVX2(sp, 9, "vmovdqu %%ymm9, (%0);\n\t")   \
+    PUSH_AVX2(sp, 10, "vmovdqu %%ymm10, (%0);\n\t") \
+    PUSH_AVX2(sp, 11, "vmovdqu %%ymm11, (%0);\n\t") \
+    PUSH_AVX2(sp, 12, "vmovdqu %%ymm12, (%0);\n\t") \
+    PUSH_AVX2(sp, 13, "vmovdqu %%ymm13, (%0);\n\t") \
+    PUSH_AVX2(sp, 14, "vmovdqu %%ymm14, (%0);\n\t") \
+    PUSH_AVX2(sp, 15, "vmovdqu %%ymm15, (%0);\n\t") \
     OUT_OF_BOUNDS()                                 \
   }
 
 #define REGISTER_POP(index, sp)                    \
   switch (index) {                                 \
-    POP_AVX2(sp, 0, "vmovdqu (%1), %%ymm0;\n\t")   \
-    POP_AVX2(sp, 1, "vmovdqu (%1), %%ymm1;\n\t")   \
-    POP_AVX2(sp, 2, "vmovdqu (%1), %%ymm2;\n\t")   \
-    POP_AVX2(sp, 3, "vmovdqu (%1), %%ymm3;\n\t")   \
-    POP_AVX2(sp, 4, "vmovdqu (%1), %%ymm4;\n\t")   \
-    POP_AVX2(sp, 5, "vmovdqu (%1), %%ymm5;\n\t")   \
-    POP_AVX2(sp, 6, "vmovdqu (%1), %%ymm6;\n\t")   \
-    POP_AVX2(sp, 7, "vmovdqu (%1), %%ymm7;\n\t")   \
-    POP_AVX2(sp, 8, "vmovdqu (%1), %%ymm8;\n\t")   \
-    POP_AVX2(sp, 9, "vmovdqu (%1), %%ymm9;\n\t")   \
-    POP_AVX2(sp, 10, "vmovdqu (%1), %%ymm10;\n\t") \
-    POP_AVX2(sp, 11, "vmovdqu (%1), %%ymm11;\n\t") \
-    POP_AVX2(sp, 12, "vmovdqu (%1), %%ymm12;\n\t") \
-    POP_AVX2(sp, 13, "vmovdqu (%1), %%ymm13;\n\t") \
-    POP_AVX2(sp, 14, "vmovdqu (%1), %%ymm14;\n\t") \
-    POP_AVX2(sp, 15, "vmovdqu (%1), %%ymm15;\n\t") \
+    POP_AVX2(sp, 0, "vmovdqu (%0), %%ymm0;\n\t")   \
+    POP_AVX2(sp, 1, "vmovdqu (%0), %%ymm1;\n\t")   \
+    POP_AVX2(sp, 2, "vmovdqu (%0), %%ymm2;\n\t")   \
+    POP_AVX2(sp, 3, "vmovdqu (%0), %%ymm3;\n\t")   \
+    POP_AVX2(sp, 4, "vmovdqu (%0), %%ymm4;\n\t")   \
+    POP_AVX2(sp, 5, "vmovdqu (%0), %%ymm5;\n\t")   \
+    POP_AVX2(sp, 6, "vmovdqu (%0), %%ymm6;\n\t")   \
+    POP_AVX2(sp, 7, "vmovdqu (%0), %%ymm7;\n\t")   \
+    POP_AVX2(sp, 8, "vmovdqu (%0), %%ymm8;\n\t")   \
+    POP_AVX2(sp, 9, "vmovdqu (%0), %%ymm9;\n\t")   \
+    POP_AVX2(sp, 10, "vmovdqu (%0), %%ymm10;\n\t") \
+    POP_AVX2(sp, 11, "vmovdqu (%0), %%ymm11;\n\t") \
+    POP_AVX2(sp, 12, "vmovdqu (%0), %%ymm12;\n\t") \
+    POP_AVX2(sp, 13, "vmovdqu (%0), %%ymm13;\n\t") \
+    POP_AVX2(sp, 14, "vmovdqu (%0), %%ymm14;\n\t") \
+    POP_AVX2(sp, 15, "vmovdqu (%0), %%ymm15;\n\t") \
     OUT_OF_BOUNDS()                                \
   }
 
@@ -282,71 +288,105 @@ uint64_t litecfi_overflow_stack_pop() { return 0; }
   }
 
 #define ONE_REG_PEEK_FN(fn, sp) \
-  void fn##_1(int reg1, int offset) { REGISTER_PEEK(reg1, sp, offset) }
+  void fn##_1(int reg1) { REGISTER_PEEK(reg1, sp, 1) }
 
-#define TWO_REG_PEEK_FN(fn, sp)                 \
-  void fn##_2(int reg1, int reg2, int offset) { \
-    REGISTER_PEEK(reg1, sp, offset)             \
-    REGISTER_PEEK(reg2, sp, offset)             \
+#define TWO_REG_PEEK_FN(fn, sp)     \
+  void fn##_2(int reg1, int reg2) { \
+    uint64_t offset = 1;            \
+    REGISTER_PEEK(reg1, sp, offset) \
+    offset = 2;                     \
+    REGISTER_PEEK(reg2, sp, offset) \
   }
 
-#define THREE_REG_PEEK_FN(fn, sp)                         \
-  void fn##_3(int reg1, int reg2, int reg3, int offset) { \
-    REGISTER_PEEK(reg1, sp, offset)                       \
-    REGISTER_PEEK(reg2, sp, offset)                       \
-    REGISTER_PEEK(reg3, sp, offset)                       \
+#define THREE_REG_PEEK_FN(fn, sp)             \
+  void fn##_3(int reg1, int reg2, int reg3) { \
+    uint64_t offset = 1;                      \
+    REGISTER_PEEK(reg1, sp, offset)           \
+    offset = 2;                               \
+    REGISTER_PEEK(reg2, sp, offset)           \
+    offset = 3;                               \
+    REGISTER_PEEK(reg3, sp, offset)           \
   }
 
-#define FOUR_REG_PEEK_FN(fn, sp)                                    \
-  void fn##_4(int reg1, int reg2, int reg3, int reg4, int offset) { \
-    REGISTER_PEEK(reg1, sp, offset)                                 \
-    REGISTER_PEEK(reg2, sp, offset)                                 \
-    REGISTER_PEEK(reg3, sp, offset)                                 \
-    REGISTER_PEEK(reg4, sp, offset)                                 \
+#define FOUR_REG_PEEK_FN(fn, sp)                        \
+  void fn##_4(int reg1, int reg2, int reg3, int reg4) { \
+    uint64_t offset = 1;                                \
+    REGISTER_PEEK(reg1, sp, offset)                     \
+    offset = 2;                                         \
+    REGISTER_PEEK(reg2, sp, offset)                     \
+    offset = 3;                                         \
+    REGISTER_PEEK(reg3, sp, offset)                     \
+    offset = 4;                                         \
+    REGISTER_PEEK(reg4, sp, offset)                     \
   }
 
-#define FIVE_REG_PEEK_FN(fn, sp)                                              \
-  void fn##_5(int reg1, int reg2, int reg3, int reg4, int reg5, int offset) { \
-    REGISTER_PEEK(reg1, sp, offset)                                           \
-    REGISTER_PEEK(reg2, sp, offset)                                           \
-    REGISTER_PEEK(reg3, sp, offset)                                           \
-    REGISTER_PEEK(reg4, sp, offset)                                           \
-    REGISTER_PEEK(reg5, sp, offset)                                           \
+#define FIVE_REG_PEEK_FN(fn, sp)                                  \
+  void fn##_5(int reg1, int reg2, int reg3, int reg4, int reg5) { \
+    uint64_t offset = 1;                                          \
+    REGISTER_PEEK(reg1, sp, offset)                               \
+    offset = 2;                                                   \
+    REGISTER_PEEK(reg2, sp, offset)                               \
+    offset = 3;                                                   \
+    REGISTER_PEEK(reg3, sp, offset)                               \
+    offset = 4;                                                   \
+    REGISTER_PEEK(reg4, sp, offset)                               \
+    offset = 5;                                                   \
+    REGISTER_PEEK(reg5, sp, offset)                               \
   }
 
-#define SIX_REG_PEEK_FN(fn, sp)                                           \
-  void fn##_6(int reg1, int reg2, int reg3, int reg4, int reg5, int reg6, \
-              int offset) {                                               \
-    REGISTER_PEEK(reg1, sp, offset)                                       \
-    REGISTER_PEEK(reg2, sp, offset)                                       \
-    REGISTER_PEEK(reg3, sp, offset)                                       \
-    REGISTER_PEEK(reg4, sp, offset)                                       \
-    REGISTER_PEEK(reg5, sp, offset)                                       \
-    REGISTER_PEEK(reg6, sp, offset)                                       \
+#define SIX_REG_PEEK_FN(fn, sp)                                             \
+  void fn##_6(int reg1, int reg2, int reg3, int reg4, int reg5, int reg6) { \
+    uint64_t offset = 1;                                                    \
+    REGISTER_PEEK(reg1, sp, offset)                                         \
+    offset = 2;                                                             \
+    REGISTER_PEEK(reg2, sp, offset)                                         \
+    offset = 3;                                                             \
+    REGISTER_PEEK(reg3, sp, offset)                                         \
+    offset = 4;                                                             \
+    REGISTER_PEEK(reg4, sp, offset)                                         \
+    offset = 5;                                                             \
+    REGISTER_PEEK(reg5, sp, offset)                                         \
+    offset = 6;                                                             \
+    REGISTER_PEEK(reg6, sp, offset)                                         \
   }
 
 #define SEVEN_REG_PEEK_FN(fn, sp)                                         \
   void fn##_7(int reg1, int reg2, int reg3, int reg4, int reg5, int reg6, \
-              int reg7, int offset) {                                     \
+              int reg7) {                                                 \
+    uint64_t offset = 1;                                                  \
     REGISTER_PEEK(reg1, sp, offset)                                       \
+    offset = 2;                                                           \
     REGISTER_PEEK(reg2, sp, offset)                                       \
+    offset = 3;                                                           \
     REGISTER_PEEK(reg3, sp, offset)                                       \
+    offset = 4;                                                           \
     REGISTER_PEEK(reg4, sp, offset)                                       \
+    offset = 5;                                                           \
     REGISTER_PEEK(reg5, sp, offset)                                       \
+    offset = 6;                                                           \
     REGISTER_PEEK(reg6, sp, offset)                                       \
+    offset = 7;                                                           \
     REGISTER_PEEK(reg7, sp, offset)                                       \
   }
 
 #define EIGHT_REG_PEEK_FN(fn, sp)                                         \
   void fn##_8(int reg1, int reg2, int reg3, int reg4, int reg5, int reg6, \
-              int reg7, int reg8, int offset) {                           \
+              int reg7, int reg8) {                                       \
+    uint64_t offset = 1;                                                  \
     REGISTER_PEEK(reg1, sp, offset)                                       \
+    offset = 2;                                                           \
     REGISTER_PEEK(reg2, sp, offset)                                       \
+    offset = 3;                                                           \
     REGISTER_PEEK(reg3, sp, offset)                                       \
+    offset = 4;                                                           \
     REGISTER_PEEK(reg4, sp, offset)                                       \
+    offset = 5;                                                           \
     REGISTER_PEEK(reg5, sp, offset)                                       \
+    offset = 6;                                                           \
     REGISTER_PEEK(reg6, sp, offset)                                       \
+    offset = 7;                                                           \
     REGISTER_PEEK(reg7, sp, offset)                                       \
+    offset = 8;                                                           \
     REGISTER_PEEK(reg8, sp, offset)                                       \
   }
 
