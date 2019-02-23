@@ -178,36 +178,38 @@ void SharedLibraryInstrumentation(
   if (collisions.size() > 0) {
     std::vector<BPatch_point*>* calls = function->findPoint(BPatch_subroutine);
 
-    // [1] Save the colliding register context
-    //
-    BPatch_funcCallExpr ctx_save = GetRegisterOperationSnippet(
-        instrumentation_fns, collisions, "ctx_save");
+    if (calls->size() > 0) {
+      // [1] Save the colliding register context
+      //
+      BPatch_funcCallExpr ctx_save = GetRegisterOperationSnippet(
+          instrumentation_fns, collisions, "ctx_save");
 
-    handle = nullptr;
-    handle = binary_edit->insertSnippet(ctx_save, *calls, BPatch_callBefore,
-                                        BPatch_firstSnippet);
-    DCHECK(handle != nullptr) << "Failed instrumenting context save.";
+      handle = nullptr;
+      handle = binary_edit->insertSnippet(ctx_save, *calls, BPatch_callBefore,
+                                          BPatch_firstSnippet);
+      DCHECK(handle != nullptr) << "Failed instrumenting context save.";
 
-    // [2] Restore the shadow stack state on AVX registers in reverse order
-    //
-    BPatch_funcCallExpr reg_peek = GetRegisterOperationSnippet(
-        instrumentation_fns, reversed, "register_peek");
+      // [2] Restore the shadow stack state on AVX registers in reverse order
+      //
+      BPatch_funcCallExpr reg_peek = GetRegisterOperationSnippet(
+          instrumentation_fns, reversed, "register_peek");
 
-    handle = nullptr;
-    handle = binary_edit->insertSnippet(reg_peek, *calls, BPatch_callBefore,
-                                        BPatch_lastSnippet, nullptr);
-    DCHECK(handle != nullptr) << "Failed instrumenting register restore.";
+      handle = nullptr;
+      handle = binary_edit->insertSnippet(reg_peek, *calls, BPatch_callBefore,
+                                          BPatch_lastSnippet, nullptr);
+      DCHECK(handle != nullptr) << "Failed instrumenting register restore.";
 
-    // [3] Restore the register context in reverse order
-    //
-    BPatch_funcCallExpr ctx_restore = GetRegisterOperationSnippet(
-        instrumentation_fns, reversed, "ctx_restore");
+      // [3] Restore the register context in reverse order
+      //
+      BPatch_funcCallExpr ctx_restore = GetRegisterOperationSnippet(
+          instrumentation_fns, reversed, "ctx_restore");
 
-    handle = nullptr;
-    handle = binary_edit->insertSnippet(ctx_restore, *calls, BPatch_callAfter,
-                                        BPatch_firstSnippet, nullptr);
+      handle = nullptr;
+      handle = binary_edit->insertSnippet(ctx_restore, *calls, BPatch_callAfter,
+                                          BPatch_firstSnippet, nullptr);
 
-    DCHECK(handle != nullptr) << "Failed instrumenting context restore.";
+      DCHECK(handle != nullptr) << "Failed instrumenting context restore.";
+    }
   }
 
   // ---------- Instrument Function Exit ----------------
@@ -300,6 +302,12 @@ void InstrumentFunction(
   DCHECK(fn) << "Function " << fn_name << " cannot be found";
 
   RegisterUsageInfo* info = fn->data;
+
+  // TODO(chamibuddhika) : This is a hack to just make things work for now. Fix
+  // this bug properly.
+  if (!info) {
+    return;
+  }
 
   // Instrument for initializing the stack in the init function
   if (is_init_function) {
@@ -486,17 +494,22 @@ void Instrument(std::string binary,
     BPatch_object* object = *it;
 
     // Skip other shared libraries for now
+    /*
     if (!FLAGS_libs && IsSharedLibrary(object)) {
       continue;
     }
+    */
 
-    // This is the main program text. Mark some functions as premain
-    // initialization functions. These function entries will be instrumentated
-    // for stack initialization.
     std::set<std::string> init_fns;
-    init_fns.insert("_start");
-    init_fns.insert("__libc_csu_init");
-    init_fns.insert("__libc_start_main");
+    if (!IsSharedLibrary(object)) {
+      // This is the main program text. Mark some functions as premain
+      // initialization functions. These function entries will be instrumentated
+      // for stack initialization.
+      init_fns.insert("_start");
+      init_fns.insert("__libc_csu_init");
+      init_fns.insert("__libc_start_main");
+    }
+
     InstrumentCodeObject(object, call_graph, parser, patcher,
                          instrumentation_fns, init_fns);
   }
