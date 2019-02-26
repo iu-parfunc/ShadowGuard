@@ -513,9 +513,11 @@ void Instrument(std::string binary, std::map<std::string, Code*>* const cache,
     BPatch_object* object = *it;
 
     // Skip other shared libraries for now
+    /*
     if (!FLAGS_libs && IsSharedLibrary(object)) {
       continue;
     }
+    */
 
     std::set<std::string> init_fns;
     if (!IsSharedLibrary(object)) {
