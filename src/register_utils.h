@@ -17,8 +17,8 @@ struct AvxRegister {
 AvxRegister GetNextUnusedAvx2Register(RegisterUsageInfo& info);
 AvxRegister GetNextUnusedAvx512Register(RegisterUsageInfo& info);
 
-std::vector<uint8_t> GetUnusedAvx2QuadWords(const RegisterUsageInfo& info);
+std::vector<uint8_t> GetUnusedAvx2QuadWords(RegisterUsageInfo& info);
 
-std::vector<uint16_t> GetUnusedAvx512QuadWords(const RegisterUsageInfo& info);
+std::vector<uint16_t> GetUnusedAvx512QuadWords(RegisterUsageInfo& info);
 
 #endif  // LITECFI_REGISTER_UTILS_H_

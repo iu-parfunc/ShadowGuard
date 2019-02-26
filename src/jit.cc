@@ -58,9 +58,10 @@ asmjit::X86Gp GetRaHolder() {
   return asmjit::x86::rsp;
 }
 
-bool HasEnoughStorage(const RegisterUsageInfo& info) {
+bool HasEnoughStorage(RegisterUsageInfo& info) {
   int n_unused_avx_regs = 0;
-  for (auto unused : info.unused_avx2_mask) {
+  const std::vector<bool>& mask = info.GetUnusedAvx2Mask();
+  for (auto unused : mask) {
     if (unused) {
       n_unused_avx_regs++;
     }

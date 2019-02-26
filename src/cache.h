@@ -5,19 +5,11 @@
 #include <set>
 #include <string>
 
-struct SharedLibrary {
-  // Fully qualified path to the shared library
-  std::string path;
-  // Register usage at each function in the shared library
-  std::map<std::string, std::set<std::string>> register_usage;
-  // If the register usage info is precise or not. It may be imprecise due to
-  // existance of unresolvable indirect calls etc.
-  bool is_precise = true;
-};
+#include "register_usage.h"
 
-std::map<std::string, SharedLibrary*>* GetRegisterAuditCache();
+std::map<std::string, Code*>* GetRegisterAnalysisCache();
 
-void FlushRegisterAuditCache(
-    const std::map<std::string, SharedLibrary*>* const cache);
+void FlushRegisterAnalysisCache(
+    const std::map<std::string, Code*>* const cache);
 
 #endif  // LITECFI_CACHE_H_

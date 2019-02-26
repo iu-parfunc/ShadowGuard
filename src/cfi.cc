@@ -1,5 +1,6 @@
 
-#include <string.h>
+#include <map>
+#include <string>
 
 #include "call_graph.h"
 #include "gflags/gflags.h"
@@ -94,12 +95,9 @@ int main(int argc, char* argv[]) {
 
   Parser parser = InitParser(binary);
 
-  LazyCallGraph<RegisterUsageInfo>* call_graph =
-      LazyCallGraph<RegisterUsageInfo>::GetCallGraph(parser);
+  std::map<std::string, Code*>* cache = AnalyseRegisterUsage(binary, parser);
 
-  AnalyseRegisterUsage(binary, call_graph, parser);
-
-  Instrument(binary, call_graph, parser);
+  Instrument(binary, cache, parser);
 
   return 0;
 }

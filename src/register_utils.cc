@@ -7,6 +7,8 @@ DECLARE_string(shadow_stack);
 
 using namespace asmjit::x86;
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wreturn-type"
 AvxRegister GetAvx2Register(uint8_t index) {
   switch (index) {
     case 0:
@@ -117,10 +119,12 @@ AvxRegister GetAvx512Register(uint8_t index) {
 
 // Get the first unused avx register
 AvxRegister GetNextUnusedAvx2Register(RegisterUsageInfo& info) {
+  std::vector<bool>& mask =
+      const_cast<std::vector<bool>&>(info.GetUnusedAvx2Mask());
   for (uint8_t i = 0; i < 16; i++) {
-    if (info.unused_avx2_mask[i]) {
-      info.unused_avx2_mask[i] = false;
-      info.unused_avx512_mask[i] = false;
+    if (mask[i]) {
+      mask[i] = false;
+      mask[i] = false;
       return GetAvx2Register(i);
     }
   }
@@ -129,23 +133,27 @@ AvxRegister GetNextUnusedAvx2Register(RegisterUsageInfo& info) {
 }
 
 AvxRegister GetNextUnusedAvx512Register(RegisterUsageInfo& info) {
+  std::vector<bool>& mask =
+      const_cast<std::vector<bool>&>(info.GetUnusedAvx512Mask());
   for (uint8_t i = 0; i < 32; i++) {
-    if (info.unused_avx512_mask[i]) {
+    if (mask[i]) {
       if (i < 16) {
-        info.unused_avx2_mask[i] = false;
+        mask[i] = false;
       }
-      info.unused_avx512_mask[i] = false;
+      mask[i] = false;
       return GetAvx512Register(i);
     }
   }
 
   DCHECK(false);
 }
+#pragma GCC diagnostic pop
 
-std::vector<uint8_t> GetUnusedAvx2QuadWords(const RegisterUsageInfo& info) {
+std::vector<uint8_t> GetUnusedAvx2QuadWords(RegisterUsageInfo& info) {
   std::vector<uint8_t> quad_words;
-  for (unsigned int i = 0; i < info.unused_avx2_mask.size(); i++) {
-    if (info.unused_avx2_mask[i]) {
+  const std::vector<bool>& mask = info.GetUnusedAvx2Mask();
+  for (unsigned int i = 0; i < mask.size(); i++) {
+    if (mask[i]) {
       for (unsigned int j = 0; j < 4; j++) {
         quad_words.push_back(4 * i + j);
       }
@@ -154,10 +162,11 @@ std::vector<uint8_t> GetUnusedAvx2QuadWords(const RegisterUsageInfo& info) {
   return quad_words;
 }
 
-std::vector<uint16_t> GetUnusedAvx512QuadWords(const RegisterUsageInfo& info) {
+std::vector<uint16_t> GetUnusedAvx512QuadWords(RegisterUsageInfo& info) {
   std::vector<uint16_t> quad_words;
-  for (unsigned int i = 0; i < info.unused_avx512_mask.size(); i++) {
-    if (info.unused_avx512_mask[i]) {
+  const std::vector<bool>& mask = info.GetUnusedAvx512Mask();
+  for (unsigned int i = 0; i < mask.size(); i++) {
+    if (mask[i]) {
       for (unsigned int j = 0; j < 8; j++) {
         quad_words.push_back(8 * i + j);
       }

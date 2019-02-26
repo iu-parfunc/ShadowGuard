@@ -94,7 +94,7 @@ int main(int argc, char* argv[]) {
       // This is the program text.
       Dyninst::ParseAPI::CodeObject* code_object =
           Dyninst::ParseAPI::convert(object);
-      code_object->parse();
+      // code_object->parse();
 
       for (auto function : code_object->funcs()) {
         if (function->name() != "_Z3bazv") {

@@ -24,11 +24,10 @@ DECLARE_bool(vv);
 
 const std::string kAuditCacheFile = ".audit_cache";
 
-std::map<std::string, SharedLibrary*>* GetRegisterAuditCache() {
+std::map<std::string, Code*>* GetRegisterAnalysisCache() {
   std::ifstream cache_file(kAuditCacheFile);
 
-  std::map<std::string, SharedLibrary*>* cache =
-      new std::map<std::string, SharedLibrary*>();
+  std::map<std::string, Code*>* cache = new std::map<std::string, Code*>();
 
   if (cache_file.fail()) {
     return cache;
@@ -37,7 +36,7 @@ std::map<std::string, SharedLibrary*>* GetRegisterAuditCache() {
   std::string line;
   while (std::getline(cache_file, line)) {
     std::vector<std::string> tokens = Split(line, ',');
-    DCHECK(tokens.size() == 2);
+    DCHECK(tokens.size() == 2) << line;
 
     std::vector<std::string> library_n_function = Split(tokens[0], '%');
 
@@ -46,20 +45,19 @@ std::map<std::string, SharedLibrary*>* GetRegisterAuditCache() {
     std::string library = library_n_function[0];
     std::string function = library_n_function[1];
 
-    SharedLibrary* lib = nullptr;
+    Code* lib = nullptr;
     auto it = cache->find(library);
     if (it != cache->end()) {
       lib = it->second;
     } else {
-      lib = new SharedLibrary();
+      lib = new Code();
       lib->path = library;
 
-      cache->insert(std::pair<std::string, SharedLibrary*>(library, lib));
+      cache->insert(std::pair<std::string, Code*>(library, lib));
 
       if (FLAGS_vv) {
         StdOut(Color::GREEN)
-            << "  >> Loading cached analysis results for library : " << library
-            << Endl;
+            << "  >> Loading cached analysis results : " << library << Endl;
       }
     }
 
@@ -67,14 +65,17 @@ std::map<std::string, SharedLibrary*>* GetRegisterAuditCache() {
     DCHECK(registers.size() > 0);
     std::set<std::string> register_set(registers.begin(), registers.end());
 
-    lib->register_usage[function] = register_set;
+    RegisterUsageInfo* info = new RegisterUsageInfo();
+    info->used_ = register_set;
+
+    lib->register_usage[function] = info;
   }
 
   return cache;
 }
 
-void FlushRegisterAuditCache(
-    const std::map<std::string, SharedLibrary*>* const cache) {
+void FlushRegisterAnalysisCache(
+    const std::map<std::string, Code*>* const cache) {
   std::ofstream cache_file(kAuditCacheFile);
 
   if (!cache_file.is_open()) {
@@ -98,11 +99,16 @@ void FlushRegisterAuditCache(
   }
 
   for (auto const& it : *cache) {
-    SharedLibrary* lib = it.second;
+    Code* lib = it.second;
 
     for (auto const& reg_iter : lib->register_usage) {
+      std::set<std::string> registers = reg_iter.second->used_;
+
+      if (registers.size() == 0) {
+        continue;
+      }
+
       std::string registers_concat = "";
-      std::set<std::string> registers = reg_iter.second;
       for (auto const& reg : registers) {
         registers_concat += (reg + ":");
       }

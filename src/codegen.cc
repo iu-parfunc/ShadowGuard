@@ -100,8 +100,6 @@ std::string Codegen(RegisterUsageInfo info) {
   std::string compile_so =
       "gcc -fpic -shared -o " + soname + " " + temp_dir + "/" + "*.S";
 
-  printf("%s\n", compile_so.c_str());
-
   if (system(compile_so.c_str()) != 0) {
     return "";
   }
