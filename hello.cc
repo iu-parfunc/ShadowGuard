@@ -1,11 +1,11 @@
 
-// #include <stdio.h>
-
-// #include "cycle.h"
-
 int bar() { return 42; }
 
-int baz() {
+void baz(int depth) {
+  if (depth == 0) {
+    return;
+  }
+
   // Use up some avx2 registers
   asm("pxor %%xmm8, %%xmm8;\n\t"
       "pxor %%xmm9, %%xmm9;\n\t"
@@ -13,32 +13,15 @@ int baz() {
       :
       :
       :);
-  return bar();
+  baz(--depth);
+  return;
 }
 
-int foo() { return baz(); }
+int foo() { baz(1); }
 
 int main() {
-  // long iters = 10000000;
   long iters = 1;
-  // ticks start = getticks();
   for (long i = 0; i < iters; i++) {
-    baz();
+    baz(30);
   }
-  // ticks end = getticks();
-
-  /*
-  printf("elapsed : %llu\n", (end - start));
-  printf("avg(cycles) : %llu\n", (end - start) / iters);
-  */
-}
-
-void _start() {
-  /* main body of program: call main(), etc */
-  main();
-
-  /* exit system call */
-  asm("movq $1,%rax;"
-      "xorq %rbx,%rbx;"
-      "int  $0x80");
 }
