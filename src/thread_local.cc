@@ -40,7 +40,6 @@ void litecfi_mem_initialize() {
   setup_memory(&ctx_save_stack, stack_size);
 }
 
-// TODO(chamibuddhika) Implement this
 void litecfi_overflow_stack_push(uint64_t value) {
   asm("movq (%0), %%rdi;\n\t"
       "addq $64, %0;\n\t"
@@ -49,7 +48,6 @@ void litecfi_overflow_stack_push(uint64_t value) {
       :);
 }
 
-// TODO(chamibuddhika) Implement this
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wreturn-type"
 uint64_t litecfi_overflow_stack_pop() {
