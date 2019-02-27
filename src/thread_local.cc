@@ -38,15 +38,28 @@ void litecfi_mem_initialize() {
   setup_memory(&overflow_stack, stack_size);
   setup_memory(&spill_stack, stack_size);
   setup_memory(&ctx_save_stack, stack_size);
-
-  // printf("SPILL STACK is at : %p\n", spill_stack);
 }
 
 // TODO(chamibuddhika) Implement this
-void litecfi_overflow_stack_push(uint64_t value) {}
+void litecfi_overflow_stack_push(uint64_t value) {
+  asm("movq (%0), %%rdi;\n\t"
+      "addq $64, %0;\n\t"
+      : "+a"(overflow_stack)
+      :
+      :);
+}
 
 // TODO(chamibuddhika) Implement this
-uint64_t litecfi_overflow_stack_pop() { return 0; }
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wreturn-type"
+uint64_t litecfi_overflow_stack_pop() {
+  asm("subq $64, %0;\n\t"
+      "movq %%rax, (%0);\n\t"
+      : "+d"(overflow_stack)
+      :
+      : "rax");
+}
+#pragma GCC diagnostic pop
 
 #define OUT_OF_BOUNDS()           \
   default:                        \
@@ -59,7 +72,7 @@ uint64_t litecfi_overflow_stack_pop() { return 0; }
     asm(ymm_spill                                 \
         "addq $256, %0;\n\t"                      \
         : "+a"(spill_stack)                       \
-        :                         \
+        :                                         \
         :);                                       \
     break;                                        \
   }
@@ -69,7 +82,7 @@ uint64_t litecfi_overflow_stack_pop() { return 0; }
     asm("subq $256, %0;\n\t"                          \
         ymm_restore                                   \
         : "+a"(spill_stack)                           \
-        :                             \
+        :                                             \
         :);                                           \
     break;                                            \
   }
@@ -77,9 +90,9 @@ uint64_t litecfi_overflow_stack_pop() { return 0; }
 #define PEEK_AVX2(spill_stack, index, offset, ymm_peek) \
   case index: {                                         \
     asm("imul $256, %0;\n\t"                            \
-        "neg %0;\n\t"\
+        "neg %0;\n\t"                                   \
         "movq %1, %%rdx;\n\t"                           \
-        "leaq (%%rdx, %%rbx, 1), %%rdx;\n\t"                           \
+        "leaq (%%rdx, %%rbx, 1), %%rdx;\n\t"            \
         ymm_peek                                        \
         :                                               \
         : "b"(offset), "a"(spill_stack)                 \
