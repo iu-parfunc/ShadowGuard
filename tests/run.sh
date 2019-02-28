@@ -6,10 +6,10 @@ declare -A tests
 #
 # FORMAT : test[$test_name]='$test_source cfi_flags...'
 #
-tests["basic test"]='basic_test.cc --instrument=shared'
+# tests["basic test"]='basic_test.cc --instrument=shared'
 tests["overflow test"]='overflow_test.cc --instrument=shared'
-tests["spill test"]='spill_test.cc --instrument=shared'
-tests["spill and overflow"]='spill_and_overflow_test.cc --instrument=shared'
+# tests["spill test"]='spill_test.cc --instrument=shared'
+# tests["spill and overflow"]='spill_and_overflow_test.cc --instrument=shared'
 
 #######################################################
 
@@ -21,9 +21,16 @@ CFI=./../bazel-out/k8-dbg/bin/src/cfi
 cleanup() {
   if ! [ -z "$1" ]; then
     rm -f $1
-  fi 
+  else  
+    rm -f *.so
+    rm -f *_cfi
+  fi
+}
+
+cleanall() {
   rm -f *.so
   rm -f *_cfi
+  rm -f *_test
 }
 
 check() {
@@ -54,8 +61,6 @@ run() {
     ./$test_binary"_cfi"
 
     check "Run " $test_binary
-
-    rm -f test_binary
   else
     echo "No test application provided." >> /dev/stderr
   fi
@@ -63,6 +68,8 @@ run() {
 
 run_tests() {
   export DYNINSTAPI_RT_LIB=../thirdparty/dyninst-10.0.0/install/lib/libdyninstAPI_RT.so
+
+  cleanall
   if [ -f libtls.so ]; then
     rm -f libtls.so
   fi

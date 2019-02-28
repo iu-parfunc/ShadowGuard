@@ -7,8 +7,11 @@
 
 int foo(int param) { return param; }
 
-int bar(int param) { return foo(param) }
+int bar(int param) { return foo(param); }
 
-int baz(int param) { return baz(param); }
+int baz(int param) { return bar(param); }
 
-int main() { baz(42); }
+int main() {
+  baz(42);
+  return 0;
+}
