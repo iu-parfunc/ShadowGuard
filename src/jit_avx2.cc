@@ -47,15 +47,18 @@ void JitAvx2StackInit(RegisterUsageInfo& info, AssemblerHolder& ah) {
 void JitAvx2StackPush(RegisterUsageInfo& info, AssemblerHolder& ah) {
   asmjit::X86Assembler* a = ah.GetAssembler();
   AvxRegister meta = GetNextUnusedAvx2Register(info);
+  AvxRegister scratch = GetNextUnusedAvx2Register(info);
+
   // Stack pointer register
   asmjit::X86Xmm sp = meta.xmm;
-  // Jump table dispatch
-  JIT_DISPATCH_PUSH(a, sp);
-
-  AvxRegister scratch = GetNextUnusedAvx2Register(info);
-  asmjit::Label end = a->newLabel();
   // Unused quadword element indices in AVX2 register file
   std::vector<uint8_t> quad_words = GetUnusedAvx2QuadWords(info);
+
+  // Jump table dispatch
+  JIT_DISPATCH_PUSH(a, sp, quad_words.size());
+
+  // Jump table
+  asmjit::Label end = a->newLabel();
   for (unsigned int i = 0; i < quad_words.size(); i++) {
     switch (quad_words[i]) {
       JIT_PUSH_AVX2(a, end, scratch, xmm0, ymm0, 0, 1, 2, 3)
@@ -78,6 +81,8 @@ void JitAvx2StackPush(RegisterUsageInfo& info, AssemblerHolder& ah) {
   }
 
   a->bind(end);
+  // Returns true to denote the push was successful
+  a->mov(rax, asmjit::imm(1));
 }
 
 #define JIT_POP_AVX2(a, end, error, scratch, xmm_reg, ymm_reg, i1, i2, i3, i4) \
@@ -111,16 +116,18 @@ void JitAvx2StackPush(RegisterUsageInfo& info, AssemblerHolder& ah) {
 void JitAvx2StackPop(RegisterUsageInfo& info, AssemblerHolder& ah) {
   asmjit::X86Assembler* a = ah.GetAssembler();
   AvxRegister meta = GetNextUnusedAvx2Register(info);
+  AvxRegister scratch = GetNextUnusedAvx2Register(info);
+
   // Stack pointer register
   asmjit::X86Xmm sp = meta.xmm;
-  // Jump table dispatch
-  JIT_DISPATCH_POP(a, sp);
-
-  AvxRegister scratch = GetNextUnusedAvx2Register(info);
-  asmjit::Label error = a->newLabel();
-  asmjit::Label end = a->newLabel();
   // Unused quadword elements in AVX2 register file
   std::vector<uint8_t> quad_words = GetUnusedAvx2QuadWords(info);
+
+  // Jump table dispatch
+  JIT_DISPATCH_POP(a, sp, quad_words.size());
+
+  asmjit::Label error = a->newLabel();
+  asmjit::Label end = a->newLabel();
   for (unsigned int i = 0; i < quad_words.size(); i++) {
     switch (quad_words[i]) {
       JIT_POP_AVX2(a, end, error, scratch, xmm0, ymm0, 0, 1, 2, 3)
@@ -144,5 +151,8 @@ void JitAvx2StackPop(RegisterUsageInfo& info, AssemblerHolder& ah) {
 
   a->bind(error);
   a->int3();
+
   a->bind(end);
+  // Returns true to denote the pop was successful
+  a->mov(rax, asmjit::imm(1));
 }

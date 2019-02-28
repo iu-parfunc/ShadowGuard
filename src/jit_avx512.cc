@@ -56,17 +56,23 @@ void JitAvx512StackInit(RegisterUsageInfo& info, AssemblerHolder& ah) {
     break;                                                               \
   }
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-but-set-variable"
 void JitAvx512StackPush(RegisterUsageInfo& info, AssemblerHolder& ah) {
   asmjit::X86Assembler* a = ah.GetAssembler();
   AvxRegister meta = GetNextUnusedAvx512Register(info);
+
+  AvxRegister scratch = GetNextUnusedAvx2Register(info);
+
   // Stack pointer register
   asmjit::X86Xmm sp = meta.xmm;
-  // Jump table dispatch
-  JIT_DISPATCH_PUSH(a, sp);
-
-  asmjit::Label end = a->newLabel();
   // Unused quadword element indices in AVX512 register file
   std::vector<uint16_t> quad_words = GetUnusedAvx512QuadWords(info);
+
+  // Jump table dispatch
+  JIT_DISPATCH_PUSH(a, sp, quad_words.size());
+
+  asmjit::Label end = a->newLabel();
   for (unsigned int i = 0; i < quad_words.size(); i++) {
     switch (quad_words[i]) {
       JIT_PUSH_AVX512(a, end, zmm0, 0, 1, 2, 3, 4, 5, 6, 7)
@@ -106,6 +112,7 @@ void JitAvx512StackPush(RegisterUsageInfo& info, AssemblerHolder& ah) {
 
   a->bind(end);
 }
+#pragma GCC diagnostic pop
 
 #define JIT_POP_AVX512(a, end, error, scratch, xmm_reg, zmm_reg, i1, i2, i3, \
                        i4, i5, i6, i7, i8)                                   \
@@ -157,16 +164,18 @@ void JitAvx512StackPush(RegisterUsageInfo& info, AssemblerHolder& ah) {
 void JitAvx512StackPop(RegisterUsageInfo& info, AssemblerHolder& ah) {
   asmjit::X86Assembler* a = ah.GetAssembler();
   AvxRegister meta = GetNextUnusedAvx2Register(info);
+  AvxRegister scratch = GetNextUnusedAvx2Register(info);
+
   // Stack pointer register
   asmjit::X86Xmm sp = meta.xmm;
-  // Jump table dispatch
-  JIT_DISPATCH_POP(a, sp);
-
-  AvxRegister scratch = GetNextUnusedAvx2Register(info);
-  asmjit::Label error = a->newLabel();
-  asmjit::Label end = a->newLabel();
   // Unused quadword elements in AVX512 register file
   std::vector<uint16_t> quad_words = GetUnusedAvx512QuadWords(info);
+
+  // Jump table dispatch
+  JIT_DISPATCH_POP(a, sp, quad_words.size());
+
+  asmjit::Label error = a->newLabel();
+  asmjit::Label end = a->newLabel();
   for (unsigned int i = 0; i < quad_words.size(); i++) {
     switch (quad_words[i]) {
       JIT_POP_AVX512(a, end, error, scratch, xmm0, zmm0, 0, 1, 2, 3, 4, 5, 6, 7)

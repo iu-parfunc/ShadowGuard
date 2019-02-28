@@ -146,24 +146,27 @@ void SharedLibraryInstrumentation(
   BPatch_Vector<BPatch_snippet*> args;
   BPatch_binaryEdit* binary_edit = ((BPatch_binaryEdit*)parser.app);
 
-  // ---------- Instrument Function Entry ----------------
+  // ---------- 1. Instrument Function Entry ----------------
 
-  // [1] Shadow stack push
+  // 1.a) Shadow stack push
   //
   // Shared library function call to shadow stack push at function entry
   BPatch_funcCallExpr stack_push(*(instrumentation_fns["push"]), args);
+  BPatch_funcCallExpr of_push(*(instrumentation_fns["overflow_push"]), args);
+
+  // Check return value to determine whether stack is overflown
+  BPatch_ifExpr push_of_check(
+      BPatch_boolExpr(BPatch_eq, stack_push, BPatch_constExpr(0)), of_push);
+
   std::vector<BPatch_point*>* entries = function->findPoint(BPatch_entry);
   BPatchSnippetHandle* handle = binary_edit->insertSnippet(
-      stack_push, *entries, BPatch_callBefore, BPatch_firstSnippet, nullptr);
+      push_of_check, *entries, BPatch_callBefore, BPatch_firstSnippet, nullptr);
   DCHECK(handle != nullptr) << "Failed instrumenting stack push.";
 
-  // [2] Spill conflicting AVX registers used in both function and shadow stack
+  // 1.b) Spill conflicting AVX registers used in both function and shadow stack
   //
   std::vector<uint8_t> collisions =
       GetRegisterCollisions(info.GetUnusedAvx2Mask());
-  // Collisions in reverse order for restoring content back from the stack
-  std::vector<uint8_t> reversed = collisions;
-  std::reverse(reversed.begin(), reversed.end());
 
   if (collisions.size() > 0) {
     BPatch_funcCallExpr reg_spill = GetRegisterOperationSnippet(
@@ -175,12 +178,16 @@ void SharedLibraryInstrumentation(
     DCHECK(handle != nullptr) << "Failed instrumenting register spill.";
   }
 
-  // ----------- Instrument Call Instructions -------------
+  // Collisions in reverse order for restoring content back from the stack
+  std::vector<uint8_t> reversed = collisions;
+  std::reverse(reversed.begin(), reversed.end());
+
+  // ----------- 2. Instrument Call Instructions -------------
   if (collisions.size() > 0) {
     std::vector<BPatch_point*>* calls = function->findPoint(BPatch_subroutine);
 
     if (calls->size() > 0) {
-      // [1] Save the colliding register context
+      // 2.a) Save the colliding register context
       //
       BPatch_funcCallExpr ctx_save = GetRegisterOperationSnippet(
           instrumentation_fns, collisions, "ctx_save");
@@ -190,7 +197,7 @@ void SharedLibraryInstrumentation(
                                           BPatch_firstSnippet);
       DCHECK(handle != nullptr) << "Failed instrumenting context save.";
 
-      // [2] Restore the shadow stack state on AVX registers in reverse order
+      // 2.b) Restore the shadow stack state on AVX registers in reverse order
       //
       BPatch_funcCallExpr reg_peek = GetRegisterOperationSnippet(
           instrumentation_fns, reversed, "register_peek");
@@ -200,7 +207,7 @@ void SharedLibraryInstrumentation(
                                           BPatch_lastSnippet, nullptr);
       DCHECK(handle != nullptr) << "Failed instrumenting register restore.";
 
-      // [3] Restore the register context in reverse order
+      // 2.c) Restore the register context in reverse order
       //
       BPatch_funcCallExpr ctx_restore = GetRegisterOperationSnippet(
           instrumentation_fns, reversed, "ctx_restore");
@@ -213,21 +220,26 @@ void SharedLibraryInstrumentation(
     }
   }
 
-  // ---------- Instrument Function Exit ----------------
+  // ---------- 3. Instrument Function Exit ----------------
 
-  // [2] Shadow stack pop
+  // 3.a) Shadow stack pop
   //
   // Shared library function call to shadow stack pop at function exit
   std::vector<BPatch_point*>* exits = function->findPoint(BPatch_exit);
   BPatch_funcCallExpr stack_pop(*(instrumentation_fns["pop"]), args);
+  BPatch_funcCallExpr of_pop(*(instrumentation_fns["overflow_pop"]), args);
+
+  // Check return value to determine whether stack is overflown
+  BPatch_ifExpr pop_of_check(
+      BPatch_boolExpr(BPatch_eq, stack_pop, BPatch_constExpr(0)), of_pop);
 
   // Some functions (like exit()) do not feature function exits. Skip them.
   if (exits != nullptr && exits->size() > 0) {
-    handle = binary_edit->insertSnippet(stack_pop, *exits);
+    handle = binary_edit->insertSnippet(pop_of_check, *exits);
     DCHECK(handle != nullptr) << "Failed instrumenting stack pop.";
   }
 
-  // [1] Restore the spilled AVX shadow stack context in reverse order
+  // 3.b) Restore any spilled AVX shadow stack context in reverse order
   //
   if (collisions.size() > 0) {
     BPatch_funcCallExpr reg_restore = GetRegisterOperationSnippet(
@@ -409,7 +421,7 @@ BPatch_function* FindFunctionByName(BPatch_image* image, std::string name) {
   return funcs[0];
 }
 
-void PopulateRegisterContextOperations(
+void PopulateRegisterStackOperations(
     BPatch_binaryEdit* binary_edit, const Parser& parser,
     std::map<std::string, BPatch_function*>& fns) {
   DCHECK(binary_edit->loadLibrary("libtls.so")) << "Failed to load tls library";
@@ -464,12 +476,23 @@ void PopulateRegisterContextOperations(
 
   std::string fn_name = "litecfi_mem_initialize";
   fns["tls_init"] = FindFunctionByName(parser.image, fn_name);
+
+  fn_name = "litecfi_overflow_stack_push";
+  fns["overflow_push"] = FindFunctionByName(parser.image, fn_name);
+
+  fn_name = "litecfi_overflow_stack_pop";
+  fns["overflow_pop"] = FindFunctionByName(parser.image, fn_name);
+
+  fns["push"] = FindFunctionByName(parser.image, kStackPushFunction);
+  fns["pop"] = FindFunctionByName(parser.image, kStackPopFunction);
 }
 
 void Instrument(std::string binary, std::map<std::string, Code*>* const cache,
                 const Parser& parser) {
   StdOut(Color::BLUE, FLAGS_vv) << "\n\nInstrumentation Pass" << Endl;
   StdOut(Color::BLUE, FLAGS_vv) << "====================" << Endl;
+
+  StdOut(Color::BLUE) << "+ Instrumenting the binary..." << Endl;
 
   std::vector<BPatch_object*> objects;
   parser.image->getObjects(objects);
@@ -481,7 +504,7 @@ void Instrument(std::string binary, std::map<std::string, Code*>* const cache,
   if (FLAGS_instrument == "shared") {
     RegisterUsageInfo info;
 
-    // Mark reserved avx2 register as unused for the purpose of shadow stack
+    // Mark reserved avx2 registers as unused for the purpose of shadow stack
     // code generation
     if (FLAGS_shadow_stack == "avx2") {
       std::vector<bool>& mask =
@@ -492,32 +515,19 @@ void Instrument(std::string binary, std::map<std::string, Code*>* const cache,
     std::string instrumentation_library =
         Codegen(const_cast<RegisterUsageInfo&>(info));
 
-    std::cout << "\n\n" << instrumentation_library << "\n";
-
     DCHECK(binary_edit->loadLibrary(instrumentation_library.c_str()))
         << "Failed to load instrumentation library";
-
-    /* Find code coverage functions in the instrumentation library */
-    BPatch_function* stack_push_fn =
-        FindFunctionByName(parser.image, kStackPushFunction);
-    BPatch_function* stack_pop_fn =
-        FindFunctionByName(parser.image, kStackPopFunction);
-
-    instrumentation_fns["push"] = stack_push_fn;
-    instrumentation_fns["pop"] = stack_pop_fn;
   }
 
-  PopulateRegisterContextOperations(binary_edit, parser, instrumentation_fns);
+  PopulateRegisterStackOperations(binary_edit, parser, instrumentation_fns);
 
   for (auto it = objects.begin(); it != objects.end(); it++) {
     BPatch_object* object = *it;
 
     // Skip other shared libraries for now
-    /*
     if (!FLAGS_libs && IsSharedLibrary(object)) {
       continue;
     }
-    */
 
     std::set<std::string> init_fns;
     if (!IsSharedLibrary(object)) {
