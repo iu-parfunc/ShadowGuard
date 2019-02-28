@@ -158,9 +158,19 @@ void SharedLibraryInstrumentation(
   BPatch_ifExpr push_of_check(
       BPatch_boolExpr(BPatch_eq, stack_push, BPatch_constExpr(0)), of_push);
 
+  // Setup the trampoline specification
+  InstSpec is;
+  is.saveRegs.push_back(Dyninst::x86_64::rax);
+  is.saveRegs.push_back(Dyninst::x86_64::rbx);
+  is.saveRegs.push_back(Dyninst::x86_64::r11);
+  is.saveRegs.push_back(Dyninst::x86_64::r10);
+  is.raLoc = Dyninst::x86_64::r10;
+  is.trampGuard = false;
+  is.redZone = false;
+
   std::vector<BPatch_point*>* entries = function->findPoint(BPatch_entry);
   BPatchSnippetHandle* handle = binary_edit->insertSnippet(
-      push_of_check, *entries, BPatch_callBefore, BPatch_firstSnippet, nullptr);
+      push_of_check, *entries, BPatch_callBefore, BPatch_firstSnippet, &is);
   DCHECK(handle != nullptr) << "Failed instrumenting stack push.";
 
   // 1.b) Spill conflicting AVX registers used in both function and shadow stack
@@ -235,7 +245,8 @@ void SharedLibraryInstrumentation(
 
   // Some functions (like exit()) do not feature function exits. Skip them.
   if (exits != nullptr && exits->size() > 0) {
-    handle = binary_edit->insertSnippet(pop_of_check, *exits);
+    handle = binary_edit->insertSnippet(pop_of_check, *exits, BPatch_callBefore,
+                                        BPatch_lastSnippet, &is);
     DCHECK(handle != nullptr) << "Failed instrumenting stack pop.";
   }
 

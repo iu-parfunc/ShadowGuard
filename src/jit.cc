@@ -51,7 +51,7 @@ DECLARE_string(instrument);
 
 asmjit::X86Gp GetRaHolder() {
   if (FLAGS_instrument == "shared") {
-    return asmjit::x86::rbp;
+    return asmjit::x86::r10;
   }
 
   // Inlined instrumentation
