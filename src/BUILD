@@ -30,6 +30,7 @@ cc_binary(
         "@com_github_gflags_gflags//:gflags",
        	"@dyninst//:dyninst",
         "@glog//:glog",
+	"//src:tls",
     ],
 )
 
