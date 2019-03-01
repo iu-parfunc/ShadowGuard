@@ -10,11 +10,9 @@ extern "C" {
 
 void litecfi_mem_initialize();
 
-// TODO(chamibuddhika) Implement this
-void litecfi_overflow_stack_push(uint64_t);
+void litecfi_overflow_stack_push();
 
-// TODO(chamibuddhika) Implement this
-uint64_t litecfi_overflow_stack_pop();
+void litecfi_overflow_stack_pop();
 
 // Vararg functions to save up to eight registers
 #define ONE_REG_ARG_FN(fn) void fn##_1(int reg1);

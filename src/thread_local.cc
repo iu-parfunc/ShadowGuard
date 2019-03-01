@@ -40,22 +40,40 @@ void litecfi_mem_initialize() {
   setup_memory(&ctx_save_stack, stack_size);
 }
 
-void litecfi_overflow_stack_push(uint64_t value) {
-  asm("movq %1, (%0);\n\t"
+void litecfi_overflow_stack_push() {
+  asm("movq (%%r10), %%r10;\n\t"
+      "movq %%r10, (%0);\n\t"
       "addq $8, %0;\n\t"
       : "+a"(overflow_stack)
-      : "D"(value)
+      :
       :);
 }
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wreturn-type"
-uint64_t litecfi_overflow_stack_pop() {
+void litecfi_overflow_stack_pop() {
+  uint64_t ret_addr;
+  asm("subq $8, %0;\n\t"
+      "movq (%0), %1;\n\t"
+      : "+d"(overflow_stack), "=b"(ret_addr)
+      :);
+  asm goto(
+      "cmp %0, (%%r10); \n\t"
+      "jz %l1; \n\t"
+      "int $3; \n\t"
+      :
+      : "b"(ret_addr)
+      : "cc"
+      : ok);
+ok:
+  return;
+  /*
   asm("subq $8, %0;\n\t"
       "movq (%0), %%rax;\n\t"
       : "+d"(overflow_stack)
       :
       : "rax");
+      */
 }
 #pragma GCC diagnostic pop
 
