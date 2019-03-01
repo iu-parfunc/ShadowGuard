@@ -499,6 +499,11 @@ void Instrument(std::string binary, std::map<std::string, Code*>* const cache,
 
   StdOut(Color::BLUE) << "+ Instrumenting the binary..." << Endl;
 
+  // Delete AVX2 register clearing instructions
+  BPatch bpatch;
+  bpatch.addDeleteInstructionOpcode(e_vzeroall);
+  bpatch.addDeleteInstructionOpcode(e_vzeroupper);
+
   std::vector<BPatch_object*> objects;
   parser.image->getObjects(objects);
 
