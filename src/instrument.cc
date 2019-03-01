@@ -177,7 +177,7 @@ void SharedLibraryInstrumentation(
 
     handle = nullptr;
     handle = binary_edit->insertSnippet(reg_spill, *entries, BPatch_callBefore,
-                                        BPatch_lastSnippet, nullptr);
+                                        BPatch_lastSnippet, &is);
     DCHECK(handle != nullptr) << "Failed instrumenting register spill.";
   }
 
@@ -255,7 +255,8 @@ void SharedLibraryInstrumentation(
       handle = binary_edit->insertSnippet(
           reg_restore, *exits, BPatch_callBefore, BPatch_firstSnippet, nullptr);
           */
-      handle = binary_edit->insertSnippet(reg_restore, *exits);
+      handle = binary_edit->insertSnippet(reg_restore, *exits, BPatch_callAfter,
+                                          BPatch_firstSnippet, &is);
       DCHECK(handle != nullptr) << "Failed instrumenting register restore.";
     }
   }
@@ -510,6 +511,17 @@ void Instrument(std::string binary, std::map<std::string, Code*>* const cache,
   is.saveRegs.push_back(Dyninst::x86_64::rdi);
   is.saveRegs.push_back(Dyninst::x86_64::r11);
   is.saveRegs.push_back(Dyninst::x86_64::r10);
+
+  // Register usage in tls methods
+  is.saveRegs.push_back(Dyninst::x86_64::rbp);
+  is.saveRegs.push_back(Dyninst::x86_64::rsp);
+  is.saveRegs.push_back(Dyninst::x86_64::rsi);
+  is.saveRegs.push_back(Dyninst::x86_64::rdx);
+  is.saveRegs.push_back(Dyninst::x86_64::rcx);
+  is.saveRegs.push_back(Dyninst::x86_64::r8);
+  is.saveRegs.push_back(Dyninst::x86_64::r9);
+  is.saveRegs.push_back(Dyninst::x86_64::fs);
+
   is.raLoc = Dyninst::x86_64::r10;
   is.trampGuard = false;
   is.redZone = false;
