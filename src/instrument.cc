@@ -19,6 +19,10 @@
 #include "parse.h"
 #include "utils.h"
 
+#include "Module.h"
+#include "Symbol.h"
+
+using namespace Dyninst;
 using namespace Dyninst::PatchAPI;
 
 DECLARE_string(instrument);
@@ -149,10 +153,26 @@ void SharedLibraryInstrumentation(
   BPatch_Vector<BPatch_snippet*> args;
   BPatch_binaryEdit* binary_edit = ((BPatch_binaryEdit*)parser.app);
 
-  // ---------- 1. Instrument Function Entry ----------------
+  std::vector<uint8_t> collisions =
+      GetRegisterCollisions(info.GetUnusedAvx2Mask());
 
-  // 1.a) Shadow stack push
-  //
+  // ---------- 1. Instrument Function Entry ----------------
+  std::vector<BPatch_point*>* entries = function->findPoint(BPatch_entry);
+  BPatchSnippetHandle* handle;
+
+  // 1.a) Restore CFI context if necessary
+  if (collisions.size() > 0) {
+    BPatch_funcCallExpr reg_spill = GetRegisterOperationSnippet(
+        instrumentation_fns, collisions, "register_restore");
+
+    handle = nullptr;
+    handle = binary_edit->insertSnippet(reg_spill, *entries, BPatch_callBefore,
+                                        BPatch_lastSnippet, &is);
+    DCHECK(handle != nullptr) << "Failed instrumenting restoring CFI context at function entry.";
+  }
+
+
+  // 1.b) Shadow stack push
   // Shared library function call to shadow stack push at function entry
   BPatch_funcCallExpr stack_push(*(instrumentation_fns["push"]), args);
   BPatch_funcCallExpr of_push(*(instrumentation_fns["overflow_push"]), args);
@@ -161,16 +181,12 @@ void SharedLibraryInstrumentation(
   BPatch_ifExpr push_of_check(
       BPatch_boolExpr(BPatch_eq, stack_push, BPatch_constExpr(0)), of_push);
 
-  std::vector<BPatch_point*>* entries = function->findPoint(BPatch_entry);
-  BPatchSnippetHandle* handle = binary_edit->insertSnippet(
-      push_of_check, *entries, BPatch_callBefore, BPatch_firstSnippet, &is);
+  handle = nullptr;
+  handle = binary_edit->insertSnippet(
+      push_of_check, *entries, BPatch_callBefore, BPatch_lastSnippet, &is);
   DCHECK(handle != nullptr) << "Failed instrumenting stack push.";
 
-  // 1.b) Spill conflicting AVX registers used in both function and shadow stack
-  //
-  std::vector<uint8_t> collisions =
-      GetRegisterCollisions(info.GetUnusedAvx2Mask());
-
+  // 1.c) Save CFI context if necessary
   if (collisions.size() > 0) {
     BPatch_funcCallExpr reg_spill = GetRegisterOperationSnippet(
         instrumentation_fns, collisions, "register_spill");
@@ -178,57 +194,77 @@ void SharedLibraryInstrumentation(
     handle = nullptr;
     handle = binary_edit->insertSnippet(reg_spill, *entries, BPatch_callBefore,
                                         BPatch_lastSnippet, &is);
-    DCHECK(handle != nullptr) << "Failed instrumenting register spill.";
+    DCHECK(handle != nullptr) << "Failed instrumenting saving CFI context at function entry.";
   }
 
-  // Collisions in reverse order for restoring content back from the stack
-  std::vector<uint8_t> reversed = collisions;
-  std::reverse(reversed.begin(), reversed.end());
+  // 1.d) Restore user context if necessary
+  if (collisions.size() > 0) {
+    BPatch_funcCallExpr reg_spill = GetRegisterOperationSnippet(
+        instrumentation_fns, collisions, "ctx_restore");
+
+    handle = nullptr;
+    handle = binary_edit->insertSnippet(reg_spill, *entries, BPatch_callBefore,
+                                        BPatch_lastSnippet, &is);
+    DCHECK(handle != nullptr) << "Failed instrumenting restoring user context at function entry.";
+  }
 
   // ----------- 2. Instrument Call Instructions -------------
   if (collisions.size() > 0) {
     std::vector<BPatch_point*>* calls = function->findPoint(BPatch_subroutine);
 
     if (calls->size() > 0) {
-      // 2.a) Save the colliding register context
+      // 2.a) Save user context before the call
       //
       BPatch_funcCallExpr ctx_save = GetRegisterOperationSnippet(
           instrumentation_fns, collisions, "ctx_save");
 
       handle = nullptr;
       handle = binary_edit->insertSnippet(ctx_save, *calls, BPatch_callBefore,
-                                          BPatch_firstSnippet);
-      DCHECK(handle != nullptr) << "Failed instrumenting context save.";
+                                          BPatch_lastSnippet);
+      DCHECK(handle != nullptr) << "Failed instrumenting saving user context before call.";
 
-      // 2.b) Restore the shadow stack state on AVX registers in reverse order
-      //
-      BPatch_funcCallExpr reg_peek = GetRegisterOperationSnippet(
-          instrumentation_fns, reversed, "register_peek");
-
-      handle = nullptr;
-      handle = binary_edit->insertSnippet(reg_peek, *calls, BPatch_callBefore,
-                                          BPatch_lastSnippet, nullptr);
-      DCHECK(handle != nullptr) << "Failed instrumenting register restore.";
-
-      // 2.c) Restore the register context in reverse order
+      // 2.b) Restore user context after the call 
       //
       BPatch_funcCallExpr ctx_restore = GetRegisterOperationSnippet(
-          instrumentation_fns, reversed, "ctx_restore");
+          instrumentation_fns, collisions, "ctx_restore");
 
       handle = nullptr;
       handle = binary_edit->insertSnippet(ctx_restore, *calls, BPatch_callAfter,
-                                          BPatch_firstSnippet, nullptr);
-
-      DCHECK(handle != nullptr) << "Failed instrumenting context restore.";
+                                          BPatch_lastSnippet, nullptr);
+      DCHECK(handle != nullptr) << "Failed instrumenting restoring user context after call.";
     }
   }
 
   // ---------- 3. Instrument Function Exit ----------------
-
-  // 3.a) Shadow stack pop
-  //
-  // Shared library function call to shadow stack pop at function exit
+  // Some functions (like exit()) do not feature function exits. Skip them.
   std::vector<BPatch_point*>* exits = function->findPoint(BPatch_exit);
+  if (exits != nullptr && exits->size() > 0) {
+      return;
+  }
+  // 3.a) Save user context if necessary
+  if (collisions.size() > 0) {
+    BPatch_funcCallExpr ctx_save = GetRegisterOperationSnippet(
+        instrumentation_fns, collisions, "ctx_save");
+
+    handle = nullptr;
+    handle = binary_edit->insertSnippet(ctx_save, *exits, BPatch_callAfter,
+                                        BPatch_lastSnippet, &is);
+    DCHECK(handle != nullptr) << "Failed instrumenting saving user context at function exit.";
+  }
+
+  // 3.b) Save restore CFI context if necessary
+  if (collisions.size() > 0) {
+    BPatch_funcCallExpr reg_restore = GetRegisterOperationSnippet(
+        instrumentation_fns, collisions, "register_restore");
+
+    handle = nullptr;
+    handle = binary_edit->insertSnippet(reg_restore, *exits, BPatch_callAfter,
+                                        BPatch_lastSnippet, &is);
+    DCHECK(handle != nullptr) << "Failed instrumenting restoring cfi context at function exit.";
+  }
+
+  // 3.c) Shadow stack pop
+  // Shared library function call to shadow stack pop at function exit
   BPatch_funcCallExpr stack_pop(*(instrumentation_fns["pop"]), args);
   BPatch_funcCallExpr of_pop(*(instrumentation_fns["overflow_pop"]), args);
 
@@ -236,29 +272,21 @@ void SharedLibraryInstrumentation(
   BPatch_ifExpr pop_of_check(
       BPatch_boolExpr(BPatch_eq, stack_pop, BPatch_constExpr(0)), of_pop);
 
-  // Some functions (like exit()) do not feature function exits. Skip them.
-  if (exits != nullptr && exits->size() > 0) {
-    handle = binary_edit->insertSnippet(pop_of_check, *exits, BPatch_callAfter,
+  handle = nullptr;
+  handle = binary_edit->insertSnippet(pop_of_check, *exits, BPatch_callAfter,
                                         BPatch_lastSnippet, &is);
-    DCHECK(handle != nullptr) << "Failed instrumenting stack pop.";
-  }
+  DCHECK(handle != nullptr) << "Failed instrumenting stack pop at function exit.";
 
-  // 3.b) Restore any spilled AVX shadow stack context in reverse order
+  // 3.d) Restore any spilled AVX shadow stack context in reverse order
   //
   if (collisions.size() > 0) {
-    BPatch_funcCallExpr reg_restore = GetRegisterOperationSnippet(
-        instrumentation_fns, reversed, "register_restore");
+    BPatch_funcCallExpr reg_save = GetRegisterOperationSnippet(
+        instrumentation_fns, collisions, "register_save");
 
     handle = nullptr;
-    if (exits != nullptr && exits->size() > 0) {
-      /*
-      handle = binary_edit->insertSnippet(
-          reg_restore, *exits, BPatch_callBefore, BPatch_firstSnippet, nullptr);
-          */
-      handle = binary_edit->insertSnippet(reg_restore, *exits, BPatch_callAfter,
-                                          BPatch_firstSnippet, &is);
-      DCHECK(handle != nullptr) << "Failed instrumenting register restore.";
-    }
+    handle = binary_edit->insertSnippet(reg_save, *exits, BPatch_callAfter,
+                                        BPatch_lastSnippet, &is);
+    DCHECK(handle != nullptr) << "Failed instrumenting register restore.";
   }
 }
 
@@ -350,6 +378,18 @@ void InstrumentFunction(
   }
 }
 
+static void GetIFUNCs(BPatch_module* module,
+                      std::set<Dyninst::Address> &addrs) {
+    SymtabAPI::Module * sym_mod = SymtabAPI::convert(module);
+    std::vector<SymtabAPI::Symbol*> ifuncs;
+
+    // Dyninst represents IFUNC as ST_INDIRECT 
+    sym_mod->getAllSymbolsByType(ifuncs, SymtabAPI::Symbol::ST_INDIRECT);
+    for (auto sit = ifuncs.begin(); sit != ifuncs.end(); ++sit) {
+        addrs.insert((Address)(*sit)->getOffset());
+    }
+}
+
 void InstrumentModule(
     BPatch_module* module, Code* const lib, const Parser& parser,
     PatchMgr::Ptr patcher,
@@ -357,6 +397,9 @@ void InstrumentModule(
     const std::set<std::string>& init_fns) {
   char funcname[2048];
   std::vector<BPatch_function*>* functions = module->getProcedures();
+
+  std::set<Dyninst::Address> ifuncAddrs;
+  GetIFUNCs(module, ifuncAddrs);
 
   for (auto it = functions->begin(); it != functions->end(); it++) {
     BPatch_function* function = *it;
@@ -369,6 +412,13 @@ void InstrumentModule(
     } else if (func == "pthread_create" || func == "main") {
       InstrumentTlsInit(function, parser, patcher, instrumentation_fns);
     } else {
+      // Ignore IFUNC
+      /*
+      Dyninst::Address funcStart = (Dyninst::Address)function->getBaseAddr();
+      if (ifuncAddrs.find(funcStart) != ifuncAddrs.end()) {
+          continue;
+      }
+      */
       // Avoid instrumenting some internal libc functions
       if ((strcmp(funcname, "memset") != 0) &&
           (strcmp(funcname, "call_gmon_start") != 0) &&
@@ -446,7 +496,7 @@ void PopulateRegisterStackOperations(
     fns[key_prefix + "_" + std::to_string(i)] =
         FindFunctionByName(parser.image, fn_name);
   }
-
+/*
   fn_prefix = "litecfi_register_peek";
   key_prefix = "register_peek";
   for (int i = 1; i <= 8; i++) {
@@ -454,7 +504,7 @@ void PopulateRegisterStackOperations(
     fns[key_prefix + "_" + std::to_string(i)] =
         FindFunctionByName(parser.image, fn_name);
   }
-
+*/
   fn_prefix = "litecfi_ctx_save";
   key_prefix = "ctx_save";
   for (int i = 1; i <= 8; i++) {
@@ -470,7 +520,7 @@ void PopulateRegisterStackOperations(
     fns[key_prefix + "_" + std::to_string(i)] =
         FindFunctionByName(parser.image, fn_name);
   }
-
+/*
   fn_prefix = "litecfi_ctx_peek";
   key_prefix = "ctx_peek";
   for (int i = 1; i <= 8; i++) {
@@ -478,7 +528,7 @@ void PopulateRegisterStackOperations(
     fns[key_prefix + "_" + std::to_string(i)] =
         FindFunctionByName(parser.image, fn_name);
   }
-
+*/
   std::string fn_name = "litecfi_mem_initialize";
   fns["tls_init"] = FindFunctionByName(parser.image, fn_name);
 
@@ -565,9 +615,10 @@ void Instrument(std::string binary, std::map<std::string, Code*>* const cache,
       // This is the main program text. Mark some functions as premain
       // initialization functions. These function entries will be instrumentated
       // for stack initialization.
+      //init_fns.insert("__libc_init_first");
       init_fns.insert("_start");
-      init_fns.insert("__libc_csu_init");
-      init_fns.insert("__libc_start_main");
+      //init_fns.insert("__libc_csu_init");
+      //init_fns.insert("__libc_start_main");
     }
 
     InstrumentCodeObject(object, cache, parser, patcher, instrumentation_fns,

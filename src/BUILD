@@ -37,7 +37,7 @@ cc_binary(
 cc_library(
     name = "tls",
     srcs = [
-        "thread_local.cc",
+        "thread_local.c",
         "thread_local.h",
     ],
 )

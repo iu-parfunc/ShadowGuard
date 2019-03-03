@@ -7,9 +7,9 @@ declare -A tests
 # FORMAT : test[$test_name]='$test_source cfi_flags...'
 #
 # tests["basic test"]='basic_test.cc --instrument=shared'
-tests["overflow test"]='overflow_test.cc --instrument=shared'
+# tests["overflow test"]='overflow_test.cc --instrument=shared'
 # tests["spill test"]='spill_test.cc --instrument=shared'
-# tests["spill and overflow"]='spill_and_overflow_test.cc --instrument=shared'
+ tests["spill and overflow"]='spill_and_overflow_test.cc --instrument=shared'
 
 #######################################################
 

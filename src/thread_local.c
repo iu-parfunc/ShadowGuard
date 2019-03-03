@@ -5,16 +5,16 @@
 #include <stdio.h>
 #include <sys/mman.h>
 #include <unistd.h>
+__thread __attribute__ ((tls_model("initial-exec"))) uint64_t  overflow_stack_space[1024];
+__thread __attribute__ ((tls_model("initial-exec"))) uint64_t* overflow_stack = NULL;
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+#define NUM_REG   16
+#define REG_SIZE  (256/64)
+#define CONTEXT_SIZE  (NUM_REG)*(REG_SIZE)
+__thread __attribute__ ((tls_model("initial-exec"))) uint64_t cfi_context[CONTEXT_SIZE];
+__thread __attribute__ ((tls_model("initial-exec"))) uint64_t user_context[CONTEXT_SIZE];
 
-thread_local uint64_t* overflow_stack = nullptr;
 
-thread_local uint64_t* spill_stack = nullptr;
-
-thread_local uint64_t* ctx_save_stack = nullptr;
 
 static void setup_memory(uint64_t** mem_ptr, long size) {
   // Add space for two guard pages at the beginning and the end of the stack
@@ -34,13 +34,13 @@ static void setup_memory(uint64_t** mem_ptr, long size) {
 
 void litecfi_mem_initialize() {
   long stack_size = pow(2, 16);  // Stack size = 2^16
-
   setup_memory(&overflow_stack, stack_size);
-  setup_memory(&spill_stack, stack_size);
-  setup_memory(&ctx_save_stack, stack_size);
 }
 
 void litecfi_overflow_stack_push() {
+  if (overflow_stack == NULL) {
+      overflow_stack = (uint64_t*)overflow_stack_space;
+  }
   asm("movq (%%r10), %%r10;\n\t"
       "movq %%r10, (%0);\n\t"
       "addq $8, %0;\n\t"
@@ -80,30 +80,28 @@ ok:
 #define OUT_OF_BOUNDS()           \
   default:                        \
     printf("Invalid register\n"); \
-    assert(false);
+    assert(0);
 
 // clang-format off
-#define PUSH_AVX2(spill_stack, index, ymm_spill)  \
+#define PUSH_AVX2(cfi_context, index, ymm_spill)  \
   case index: {                                   \
     asm(ymm_spill                                 \
-        "addq $256, %0;\n\t"                      \
-        : "+a"(spill_stack)                       \
         :                                         \
+        : "r"(&cfi_context[index*REG_SIZE])       \
         :);                                       \
     break;                                        \
   }
 
-#define POP_AVX2(spill_stack, index, ymm_restore)     \
+#define POP_AVX2(cfi_context, index, ymm_restore)     \
   case index: {                                       \
-    asm("subq $256, %0;\n\t"                          \
-        ymm_restore                                   \
-        : "+a"(spill_stack)                           \
+    asm(ymm_restore                                   \
         :                                             \
+        : "r"(&cfi_context[index*REG_SIZE])           \
         :);                                           \
     break;                                            \
   }
 
-#define PEEK_AVX2(spill_stack, index, offset, ymm_peek) \
+#define PEEK_AVX2(cfi_context, index, offset, ymm_peek) \
   case index: {                                         \
     asm("imul $256, %0;\n\t"                            \
         "neg %0;\n\t"                                   \
@@ -111,7 +109,7 @@ ok:
         "leaq (%%rdx, %%rbx, 1), %%rdx;\n\t"            \
         ymm_peek                                        \
         :                                               \
-        : "b"(offset), "a"(spill_stack)                 \
+        : "b"(offset), "a"(cfi_context)                 \
         : "rdx");                                       \
     break;                                              \
   }
@@ -420,65 +418,66 @@ ok:
   }
 
 // Register spill functions
-ONE_REG_PUSH_FN(litecfi_register_spill, spill_stack);
-TWO_REG_PUSH_FN(litecfi_register_spill, spill_stack);
-THREE_REG_PUSH_FN(litecfi_register_spill, spill_stack);
-FOUR_REG_PUSH_FN(litecfi_register_spill, spill_stack);
-FIVE_REG_PUSH_FN(litecfi_register_spill, spill_stack);
-SIX_REG_PUSH_FN(litecfi_register_spill, spill_stack);
-SEVEN_REG_PUSH_FN(litecfi_register_spill, spill_stack);
-EIGHT_REG_PUSH_FN(litecfi_register_spill, spill_stack);
+ONE_REG_PUSH_FN(litecfi_register_spill, cfi_context);
+TWO_REG_PUSH_FN(litecfi_register_spill, cfi_context);
+THREE_REG_PUSH_FN(litecfi_register_spill, cfi_context);
+FOUR_REG_PUSH_FN(litecfi_register_spill, cfi_context);
+FIVE_REG_PUSH_FN(litecfi_register_spill, cfi_context);
+SIX_REG_PUSH_FN(litecfi_register_spill, cfi_context);
+SEVEN_REG_PUSH_FN(litecfi_register_spill, cfi_context);
+EIGHT_REG_PUSH_FN(litecfi_register_spill, cfi_context);
 
 // Register restore functions
-ONE_REG_POP_FN(litecfi_register_restore, spill_stack);
-TWO_REG_POP_FN(litecfi_register_restore, spill_stack);
-THREE_REG_POP_FN(litecfi_register_restore, spill_stack);
-FOUR_REG_POP_FN(litecfi_register_restore, spill_stack);
-FIVE_REG_POP_FN(litecfi_register_restore, spill_stack);
-SIX_REG_POP_FN(litecfi_register_restore, spill_stack);
-SEVEN_REG_POP_FN(litecfi_register_restore, spill_stack);
-EIGHT_REG_POP_FN(litecfi_register_restore, spill_stack);
+ONE_REG_POP_FN(litecfi_register_restore, cfi_context);
+TWO_REG_POP_FN(litecfi_register_restore, cfi_context);
+THREE_REG_POP_FN(litecfi_register_restore, cfi_context);
+FOUR_REG_POP_FN(litecfi_register_restore, cfi_context);
+FIVE_REG_POP_FN(litecfi_register_restore, cfi_context);
+SIX_REG_POP_FN(litecfi_register_restore, cfi_context);
+SEVEN_REG_POP_FN(litecfi_register_restore, cfi_context);
+EIGHT_REG_POP_FN(litecfi_register_restore, cfi_context);
 
 // Register peek functions
-ONE_REG_PEEK_FN(litecfi_register_peek, spill_stack);
-TWO_REG_PEEK_FN(litecfi_register_peek, spill_stack);
-THREE_REG_PEEK_FN(litecfi_register_peek, spill_stack);
-FOUR_REG_PEEK_FN(litecfi_register_peek, spill_stack);
-FIVE_REG_PEEK_FN(litecfi_register_peek, spill_stack);
-SIX_REG_PEEK_FN(litecfi_register_peek, spill_stack);
-SEVEN_REG_PEEK_FN(litecfi_register_peek, spill_stack);
-EIGHT_REG_PEEK_FN(litecfi_register_peek, spill_stack);
+/*
+ONE_REG_PEEK_FN(litecfi_register_peek, cfi_context);
+TWO_REG_PEEK_FN(litecfi_register_peek, cfi_context);
+THREE_REG_PEEK_FN(litecfi_register_peek, cfi_context);
+FOUR_REG_PEEK_FN(litecfi_register_peek, cfi_context);
+FIVE_REG_PEEK_FN(litecfi_register_peek, cfi_context);
+SIX_REG_PEEK_FN(litecfi_register_peek, cfi_context);
+SEVEN_REG_PEEK_FN(litecfi_register_peek, cfi_context);
+EIGHT_REG_PEEK_FN(litecfi_register_peek, cfi_context);
+*/
 
 // Register context save functions
-ONE_REG_PUSH_FN(litecfi_ctx_save, ctx_save_stack);
-TWO_REG_PUSH_FN(litecfi_ctx_save, ctx_save_stack);
-THREE_REG_PUSH_FN(litecfi_ctx_save, ctx_save_stack);
-FOUR_REG_PUSH_FN(litecfi_ctx_save, ctx_save_stack);
-FIVE_REG_PUSH_FN(litecfi_ctx_save, ctx_save_stack);
-SIX_REG_PUSH_FN(litecfi_ctx_save, ctx_save_stack);
-SEVEN_REG_PUSH_FN(litecfi_ctx_save, ctx_save_stack);
-EIGHT_REG_PUSH_FN(litecfi_ctx_save, ctx_save_stack);
+ONE_REG_PUSH_FN(litecfi_ctx_save, user_context);
+TWO_REG_PUSH_FN(litecfi_ctx_save, user_context);
+THREE_REG_PUSH_FN(litecfi_ctx_save, user_context);
+FOUR_REG_PUSH_FN(litecfi_ctx_save, user_context);
+FIVE_REG_PUSH_FN(litecfi_ctx_save, user_context);
+SIX_REG_PUSH_FN(litecfi_ctx_save, user_context);
+SEVEN_REG_PUSH_FN(litecfi_ctx_save, user_context);
+EIGHT_REG_PUSH_FN(litecfi_ctx_save, user_context);
 
 // Register context restore functions
-ONE_REG_POP_FN(litecfi_ctx_restore, ctx_save_stack);
-TWO_REG_POP_FN(litecfi_ctx_restore, ctx_save_stack);
-THREE_REG_POP_FN(litecfi_ctx_restore, ctx_save_stack);
-FOUR_REG_POP_FN(litecfi_ctx_restore, ctx_save_stack);
-FIVE_REG_POP_FN(litecfi_ctx_restore, ctx_save_stack);
-SIX_REG_POP_FN(litecfi_ctx_restore, ctx_save_stack);
-SEVEN_REG_POP_FN(litecfi_ctx_restore, ctx_save_stack);
-EIGHT_REG_POP_FN(litecfi_ctx_restore, ctx_save_stack);
+ONE_REG_POP_FN(litecfi_ctx_restore, user_context);
+TWO_REG_POP_FN(litecfi_ctx_restore, user_context);
+THREE_REG_POP_FN(litecfi_ctx_restore, user_context);
+FOUR_REG_POP_FN(litecfi_ctx_restore, user_context);
+FIVE_REG_POP_FN(litecfi_ctx_restore, user_context);
+SIX_REG_POP_FN(litecfi_ctx_restore, user_context);
+SEVEN_REG_POP_FN(litecfi_ctx_restore, user_context);
+EIGHT_REG_POP_FN(litecfi_ctx_restore, user_context);
 
 // Register context peek functions
-ONE_REG_PEEK_FN(litecfi_ctx_peek, ctx_save_stack);
-TWO_REG_PEEK_FN(litecfi_ctx_peek, ctx_save_stack);
-THREE_REG_PEEK_FN(litecfi_ctx_peek, ctx_save_stack);
-FOUR_REG_PEEK_FN(litecfi_ctx_peek, ctx_save_stack);
-FIVE_REG_PEEK_FN(litecfi_ctx_peek, ctx_save_stack);
-SIX_REG_PEEK_FN(litecfi_ctx_peek, ctx_save_stack);
-SEVEN_REG_PEEK_FN(litecfi_ctx_peek, ctx_save_stack);
-EIGHT_REG_PEEK_FN(litecfi_ctx_peek, ctx_save_stack);
+/*
+ONE_REG_PEEK_FN(litecfi_ctx_peek, user_context);
+TWO_REG_PEEK_FN(litecfi_ctx_peek, user_context);
+THREE_REG_PEEK_FN(litecfi_ctx_peek, user_context);
+FOUR_REG_PEEK_FN(litecfi_ctx_peek, user_context);
+FIVE_REG_PEEK_FN(litecfi_ctx_peek, user_context);
+SIX_REG_PEEK_FN(litecfi_ctx_peek, user_context);
+SEVEN_REG_PEEK_FN(litecfi_ctx_peek, user_context);
+EIGHT_REG_PEEK_FN(litecfi_ctx_peek, user_context);
+*/
 
-#ifdef __cplusplus
-}
-#endif

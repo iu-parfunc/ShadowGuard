@@ -19,6 +19,15 @@ void baz(int depth) {
       :
       :);
   baz(--depth);
+
+  // Use up some avx2 registers
+  asm("pxor %%xmm8, %%xmm8;\n\t"
+      "pxor %%xmm9, %%xmm9;\n\t"
+      "pxor %%xmm10, %%xmm10;\n\t"
+      :
+      :
+      :);
+
   return;
 }
 

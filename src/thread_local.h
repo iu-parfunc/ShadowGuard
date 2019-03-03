@@ -2,10 +2,6 @@
 #ifndef LITECFI_THREAD_LOCAL_H_
 #define LITECFI_THREAD_LOCAL_H_
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 #include <stdint.h>
 
 void litecfi_mem_initialize();
@@ -81,6 +77,7 @@ SIX_REG_ARG_FN(litecfi_register_restore)
 SEVEN_REG_ARG_FN(litecfi_register_restore)
 EIGHT_REG_ARG_FN(litecfi_register_restore)
 
+/*
 ONE_REG_ARG_N_OFFSET_FN(litecfi_register_peek)
 TWO_REG_ARG_N_OFFSET_FN(litecfi_register_peek)
 THREE_REG_ARG_N_OFFSET_FN(litecfi_register_peek)
@@ -89,6 +86,7 @@ FIVE_REG_ARG_N_OFFSET_FN(litecfi_register_peek)
 SIX_REG_ARG_N_OFFSET_FN(litecfi_register_peek)
 SEVEN_REG_ARG_N_OFFSET_FN(litecfi_register_peek)
 EIGHT_REG_ARG_N_OFFSET_FN(litecfi_register_peek)
+*/
 
 ONE_REG_ARG_FN(litecfi_ctx_save)
 TWO_REG_ARG_FN(litecfi_ctx_save)
@@ -108,6 +106,7 @@ SIX_REG_ARG_FN(litecfi_ctx_restore)
 SEVEN_REG_ARG_FN(litecfi_ctx_restore)
 EIGHT_REG_ARG_FN(litecfi_ctx_restore)
 
+/*
 ONE_REG_ARG_FN(litecfi_ctx_peek)
 TWO_REG_ARG_FN(litecfi_ctx_peek)
 THREE_REG_ARG_FN(litecfi_ctx_peek)
@@ -116,9 +115,5 @@ FIVE_REG_ARG_FN(litecfi_ctx_peek)
 SIX_REG_ARG_FN(litecfi_ctx_peek)
 SEVEN_REG_ARG_FN(litecfi_ctx_peek)
 EIGHT_REG_ARG_FN(litecfi_ctx_peek)
-
-#ifdef __cplusplus
-}
-#endif
-
+*/
 #endif  // LITECFI_THREAD_LOCAL_H_
