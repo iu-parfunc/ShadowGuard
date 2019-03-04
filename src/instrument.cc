@@ -160,19 +160,7 @@ void SharedLibraryInstrumentation(
   std::vector<BPatch_point*>* entries = function->findPoint(BPatch_entry);
   BPatchSnippetHandle* handle;
 
-  // 1.a) Restore CFI context if necessary
-  if (collisions.size() > 0) {
-    BPatch_funcCallExpr reg_spill = GetRegisterOperationSnippet(
-        instrumentation_fns, collisions, "register_restore");
-
-    handle = nullptr;
-    handle = binary_edit->insertSnippet(reg_spill, *entries, BPatch_callBefore,
-                                        BPatch_lastSnippet, &is);
-    DCHECK(handle != nullptr) << "Failed instrumenting restoring CFI context at function entry.";
-  }
-
-
-  // 1.b) Shadow stack push
+  // 1.a) Shadow stack push
   // Shared library function call to shadow stack push at function entry
   BPatch_funcCallExpr stack_push(*(instrumentation_fns["push"]), args);
   BPatch_funcCallExpr of_push(*(instrumentation_fns["overflow_push"]), args);
@@ -186,7 +174,7 @@ void SharedLibraryInstrumentation(
       push_of_check, *entries, BPatch_callBefore, BPatch_lastSnippet, &is);
   DCHECK(handle != nullptr) << "Failed instrumenting stack push.";
 
-  // 1.c) Save CFI context if necessary
+  // 1.b) Save CFI context if necessary
   if (collisions.size() > 0) {
     BPatch_funcCallExpr reg_spill = GetRegisterOperationSnippet(
         instrumentation_fns, collisions, "register_spill");
@@ -197,7 +185,7 @@ void SharedLibraryInstrumentation(
     DCHECK(handle != nullptr) << "Failed instrumenting saving CFI context at function entry.";
   }
 
-  // 1.d) Restore user context if necessary
+  // 1.c) Restore user context if necessary
   if (collisions.size() > 0) {
     BPatch_funcCallExpr reg_spill = GetRegisterOperationSnippet(
         instrumentation_fns, collisions, "ctx_restore");
@@ -214,7 +202,6 @@ void SharedLibraryInstrumentation(
 
     if (calls->size() > 0) {
       // 2.a) Save user context before the call
-      //
       BPatch_funcCallExpr ctx_save = GetRegisterOperationSnippet(
           instrumentation_fns, collisions, "ctx_save");
 
@@ -223,7 +210,26 @@ void SharedLibraryInstrumentation(
                                           BPatch_lastSnippet);
       DCHECK(handle != nullptr) << "Failed instrumenting saving user context before call.";
 
-      // 2.b) Restore user context after the call 
+      // 2.b) Restore CFI context before the call
+      BPatch_funcCallExpr reg_spill = GetRegisterOperationSnippet(
+          instrumentation_fns, collisions, "register_restore");
+
+      handle = nullptr;
+      handle = binary_edit->insertSnippet(reg_spill, *calls, BPatch_callBefore,
+                                          BPatch_lastSnippet, &is);
+      DCHECK(handle != nullptr) << "Failed instrumenting restoring CFI context at function entry.";
+
+      // 2.c) Save CFI context after the call
+      BPatch_funcCallExpr reg_save = GetRegisterOperationSnippet(
+          instrumentation_fns, collisions, "register_spill");
+
+      handle = nullptr;
+      handle = binary_edit->insertSnippet(reg_save, *calls, BPatch_callAfter,
+                                          BPatch_lastSnippet, &is);
+      DCHECK(handle != nullptr) << "Failed instrumenting register restore.";
+
+
+      // 2.d) Restore user context after the call 
       //
       BPatch_funcCallExpr ctx_restore = GetRegisterOperationSnippet(
           instrumentation_fns, collisions, "ctx_restore");
@@ -238,7 +244,8 @@ void SharedLibraryInstrumentation(
   // ---------- 3. Instrument Function Exit ----------------
   // Some functions (like exit()) do not feature function exits. Skip them.
   std::vector<BPatch_point*>* exits = function->findPoint(BPatch_exit);
-  if (exits != nullptr && exits->size() > 0) {
+  if (exits == nullptr || exits->size() == 0) {
+      fprintf(stderr, "Function %s does not have exits\n", function->getName().c_str());
       return;
   }
   // 3.a) Save user context if necessary
@@ -277,17 +284,6 @@ void SharedLibraryInstrumentation(
                                         BPatch_lastSnippet, &is);
   DCHECK(handle != nullptr) << "Failed instrumenting stack pop at function exit.";
 
-  // 3.d) Restore any spilled AVX shadow stack context in reverse order
-  //
-  if (collisions.size() > 0) {
-    BPatch_funcCallExpr reg_save = GetRegisterOperationSnippet(
-        instrumentation_fns, collisions, "register_save");
-
-    handle = nullptr;
-    handle = binary_edit->insertSnippet(reg_save, *exits, BPatch_callAfter,
-                                        BPatch_lastSnippet, &is);
-    DCHECK(handle != nullptr) << "Failed instrumenting register restore.";
-  }
 }
 
 void InstrumentTlsInit(
@@ -405,20 +401,19 @@ void InstrumentModule(
     BPatch_function* function = *it;
     function->getName(funcname, 2048);
 
+    ParseAPI::Function *f = ParseAPI::convert(function);
+    if (f->retstatus() == ParseAPI::NORETURN) continue;
+
     std::string func(funcname);
     if (init_fns.find(func) != init_fns.end()) {
       InstrumentFunction(function, lib, parser, patcher, instrumentation_fns,
                          true);
-    } else if (func == "pthread_create" || func == "main") {
-      InstrumentTlsInit(function, parser, patcher, instrumentation_fns);
     } else {
       // Ignore IFUNC
-      /*
       Dyninst::Address funcStart = (Dyninst::Address)function->getBaseAddr();
       if (ifuncAddrs.find(funcStart) != ifuncAddrs.end()) {
           continue;
       }
-      */
       // Avoid instrumenting some internal libc functions
       if ((strcmp(funcname, "memset") != 0) &&
           (strcmp(funcname, "call_gmon_start") != 0) &&
@@ -616,7 +611,7 @@ void Instrument(std::string binary, std::map<std::string, Code*>* const cache,
       // initialization functions. These function entries will be instrumentated
       // for stack initialization.
       //init_fns.insert("__libc_init_first");
-      init_fns.insert("_start");
+      //init_fns.insert("_start");
       //init_fns.insert("__libc_csu_init");
       //init_fns.insert("__libc_start_main");
     }

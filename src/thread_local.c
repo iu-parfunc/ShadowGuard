@@ -5,17 +5,23 @@
 #include <stdio.h>
 #include <sys/mman.h>
 #include <unistd.h>
-__thread __attribute__ ((tls_model("initial-exec"))) uint64_t  overflow_stack_space[1024];
-__thread __attribute__ ((tls_model("initial-exec"))) uint64_t* overflow_stack = NULL;
+//__thread __attribute__ ((tls_model("initial-exec"))) uint64_t  overflow_stack_space[1024];
+//__thread __attribute__ ((tls_model("initial-exec"))) uint64_t* overflow_stack = NULL;
+
+uint64_t  overflow_stack_space[1024];
+uint64_t* overflow_stack = &overflow_stack_space[0];
 
 #define NUM_REG   16
 #define REG_SIZE  (256/64)
 #define CONTEXT_SIZE  (NUM_REG)*(REG_SIZE)
-__thread __attribute__ ((tls_model("initial-exec"))) uint64_t cfi_context[CONTEXT_SIZE];
-__thread __attribute__ ((tls_model("initial-exec"))) uint64_t user_context[CONTEXT_SIZE];
+//__thread __attribute__ ((tls_model("initial-exec"))) uint64_t cfi_context[CONTEXT_SIZE];
+//__thread __attribute__ ((tls_model("initial-exec"))) uint64_t user_context[CONTEXT_SIZE];
+
+uint64_t cfi_context[CONTEXT_SIZE];
+uint64_t user_context[CONTEXT_SIZE];
 
 
-
+/*
 static void setup_memory(uint64_t** mem_ptr, long size) {
   // Add space for two guard pages at the beginning and the end of the stack
   int page_size = getpagesize();
@@ -31,12 +37,12 @@ static void setup_memory(uint64_t** mem_ptr, long size) {
   // Skip past the guard page at the beginning
   *mem_ptr += page_size;
 }
-
+*/
 void litecfi_mem_initialize() {
-  long stack_size = pow(2, 16);  // Stack size = 2^16
-  setup_memory(&overflow_stack, stack_size);
+    return;
+  //long stack_size = pow(2, 16);  // Stack size = 2^16
+  //setup_memory(&overflow_stack, stack_size);
 }
-
 void litecfi_overflow_stack_push() {
   if (overflow_stack == NULL) {
       overflow_stack = (uint64_t*)overflow_stack_space;
