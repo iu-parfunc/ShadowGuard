@@ -21,7 +21,9 @@ DEFINE_string(
     "   * avx2 : Uses avx2 register file as backing store\n"
     "   * avx512 : Uses avx512 register file as backing store\n"
     "   * mem : Uses a memory region as backing store\n"
-    "   * xor : Uses a xor check based technique to validate the return chain."
+    "   * xor : Uses a xor check based technique to validate the return "
+    "chain.\n"
+    "   * nop : Makes shadow stack a no-op.\n"
     " Less context sensitive and precise than other techniques.\n");
 
 DEFINE_string(
@@ -55,11 +57,13 @@ DEFINE_string(
 
 static bool ValidateShadowStackFlag(const char* flagname,
                                     const std::string& value) {
-  if (value == "avx2" || value == "avx512" || value == "mem") {
+  if (value == "avx2" || value == "avx512" || value == "mem" ||
+      value == "nop") {
     return true;
   }
 
-  DCHECK(value == "avx2") << "Only avx2 mode supported yet.\n";
+  DCHECK(value == "avx2" || value == "nop")
+      << "Only avx2 or nop mode supported yet.\n";
 
   return false;
 }

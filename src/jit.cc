@@ -86,6 +86,11 @@ bool JitStackInit(RegisterUsageInfo info, AssemblerHolder& ah) {
   return true;
 }
 
+void JitNop(AssemblerHolder& ah) {
+  asmjit::X86Assembler* a = ah.GetAssembler();
+  a->int3();
+}
+
 bool JitStackPush(RegisterUsageInfo info, AssemblerHolder& ah) {
   if (!HasEnoughStorage(info)) {
     return false;
@@ -99,6 +104,8 @@ bool JitStackPush(RegisterUsageInfo info, AssemblerHolder& ah) {
   } else if (FLAGS_shadow_stack == "mem") {
     // TODO(chamibuddhika) Implement this
     // JitMemoryStackPush(info, a);
+  } else if (FLAGS_shadow_stack == "nop") {
+    JitNop(ah);
   }
 
   return true;
@@ -117,6 +124,8 @@ bool JitStackPop(RegisterUsageInfo info, AssemblerHolder& ah) {
   } else if (FLAGS_shadow_stack == "mem") {
     // TODO(chamibuddhika) Implement this
     // JitMemoryStackPop(info, a);
+  } else if (FLAGS_shadow_stack == "nop") {
+    JitNop(ah);
   }
 
   return true;

@@ -11,11 +11,11 @@
 DECLARE_string(shadow_stack);
 
 // Generates a NOP pad with byte size n
-#define NOP_PAD(a, n) \
-  int iters = n;      \
-  while (iters > 0) { \
-    a->nop();         \
-    iters--;          \
+#define NOP_PAD(a, n)                                                          \
+  int iters = n;                                                               \
+  while (iters > 0) {                                                          \
+    a->nop();                                                                  \
+    iters--;                                                                   \
   }
 
 // Jump table dispatch logic for push operation.
@@ -32,45 +32,45 @@ DECLARE_string(shadow_stack);
 //   a - asmjit::X86Assembler* instance
 //   sp - Stackpointer XMM register
 //   sz - Shadow stack size
-#define JIT_DISPATCH_PUSH(a, sp, sz)                                   \
-  a->align(0 /* code-alignment */, 32);                                \
-  /* Make jump base address to be the start of dispatch code. */       \
-  /* We deduct the size of lea instruction (7) from $rip to get it. */ \
-  a->lea(rax, ptr(rip, -7));                                           \
-  a->vpextrq(r11, sp, asmjit::imm(0));                                 \
-  a->cmp(r11d, asmjit::imm(sz));                                       \
-                                                                       \
-  {                                                                    \
-    /* Make the macro hygenic with locals in a separate scope */       \
-    asmjit::Label no_overflow = a->newLabel();                         \
-    a->jb(no_overflow);                                                \
-                                                                       \
-    /* Increment stack pointer */                                      \
-    a->vpextrq(r11, sp, asmjit::imm(0));                               \
-    a->inc(r11);                                                       \
-    a->pinsrq(sp, r11, asmjit::imm(0));                                \
-                                                                       \
-    /* Return false to indicate push operation failed */               \
-    a->mov(rax, asmjit::imm(0));                                       \
-    a->ret();                                                          \
-    a->bind(no_overflow);                                              \
-  }                                                                    \
-                                                                       \
-  /* Account for dispatch in the offset index */                       \
-  a->add(r11, 3);                                                      \
-                                                                       \
-  /* Calculate jump target */                                          \
-  a->imul(r11, asmjit::imm(32));                                       \
-  a->lea(rax, ptr(rax, r11));                                          \
-                                                                       \
-  /* Increment stack pointer */                                        \
-  a->vpextrq(r11, sp, asmjit::imm(0));                                 \
-  a->inc(r11);                                                         \
-  a->pinsrq(sp, r11, asmjit::imm(0));                                  \
-                                                                       \
-  /* Dispatch to jump table */                                         \
-  a->jmp(rax);                                                         \
-  /* Align first jump table slot to next 32 byte boundary */           \
+#define JIT_DISPATCH_PUSH(a, sp, sz)                                           \
+  a->align(0 /* code-alignment */, 32);                                        \
+  /* Make jump base address to be the start of dispatch code. */               \
+  /* We deduct the size of lea instruction (7) from $rip to get it. */         \
+  a->lea(rax, ptr(rip, -7));                                                   \
+  a->vpextrq(r11, sp, asmjit::imm(0));                                         \
+  a->cmp(r11d, asmjit::imm(sz));                                               \
+                                                                               \
+  {                                                                            \
+    /* Make the macro hygenic with locals in a separate scope */               \
+    asmjit::Label no_overflow = a->newLabel();                                 \
+    a->jb(no_overflow);                                                        \
+                                                                               \
+    /* Increment stack pointer */                                              \
+    a->vpextrq(r11, sp, asmjit::imm(0));                                       \
+    a->inc(r11);                                                               \
+    a->pinsrq(sp, r11, asmjit::imm(0));                                        \
+                                                                               \
+    /* Return false to indicate push operation failed */                       \
+    a->mov(rax, asmjit::imm(0));                                               \
+    a->ret();                                                                  \
+    a->bind(no_overflow);                                                      \
+  }                                                                            \
+                                                                               \
+  /* Account for dispatch in the offset index */                               \
+  a->add(r11, 3);                                                              \
+                                                                               \
+  /* Calculate jump target */                                                  \
+  a->imul(r11, asmjit::imm(32));                                               \
+  a->lea(rax, ptr(rax, r11));                                                  \
+                                                                               \
+  /* Increment stack pointer */                                                \
+  a->vpextrq(r11, sp, asmjit::imm(0));                                         \
+  a->inc(r11);                                                                 \
+  a->pinsrq(sp, r11, asmjit::imm(0));                                          \
+                                                                               \
+  /* Dispatch to jump table */                                                 \
+  a->jmp(rax);                                                                 \
+  /* Align first jump table slot to next 32 byte boundary */                   \
   a->align(0 /* code-alignment */, 32);
 
 // Jump table dispatch logic for pop operation
@@ -87,50 +87,50 @@ DECLARE_string(shadow_stack);
 //   a - asmjit::X86Assembler* instance
 //   sp - Stackpointer XMM register
 //   sz - Shadow stack size
-#define JIT_DISPATCH_POP(a, sp, sz)                                    \
-  a->align(0 /* code-alignment */, 32);                                \
-  /* Make jump base address to be the start of dispatch code. */       \
-  /* We deduct the size of lea instruction (7) from $rip to get it. */ \
-  a->lea(rdi, ptr(rip, -7));                                           \
-                                                                       \
-  /* Decrement stack pointer */                                        \
-  a->vpextrq(r11, sp, asmjit::imm(0));                                 \
-  a->sub(r11, asmjit::imm(1));                                         \
-  a->pinsrq(sp, r11, asmjit::imm(0));                                  \
-  a->cmp(r11d, asmjit::imm(sz));                                       \
-                                                                       \
-  {                                                                    \
-    /* Make the macro hygenic with locals in a separate scope */       \
-    asmjit::Label no_overflow = a->newLabel();                         \
-    a->jb(no_overflow);                                                \
-                                                                       \
-    /* Return false to indicate pop operation failed */                \
-    a->mov(rax, asmjit::imm(0));                                       \
-    /* Prepare the input parameter for overflow call */                \
-    a->mov(rdi, ptr(GetRaHolder()));                                   \
-    a->ret();                                                          \
-    a->bind(no_overflow);                                              \
-  }                                                                    \
-                                                                       \
-  /* Account for dispatch in the offset index */                       \
-  a->add(r11, 2);                                                      \
-                                                                       \
-  /* Calculate jump target */                                          \
-  a->imul(r11, asmjit::imm(32));                                       \
-  a->lea(rdi, ptr(rdi, r11));                                          \
-                                                                       \
-  /* Dispatch to jump table */                                         \
-  a->jmp(rdi);                                                         \
-  /* Align first jump table slot to next 64 byte boundary */           \
+#define JIT_DISPATCH_POP(a, sp, sz)                                            \
+  a->align(0 /* code-alignment */, 32);                                        \
+  /* Make jump base address to be the start of dispatch code. */               \
+  /* We deduct the size of lea instruction (7) from $rip to get it. */         \
+  a->lea(rdi, ptr(rip, -7));                                                   \
+                                                                               \
+  /* Decrement stack pointer */                                                \
+  a->vpextrq(r11, sp, asmjit::imm(0));                                         \
+  a->sub(r11, asmjit::imm(1));                                                 \
+  a->pinsrq(sp, r11, asmjit::imm(0));                                          \
+  a->cmp(r11d, asmjit::imm(sz));                                               \
+                                                                               \
+  {                                                                            \
+    /* Make the macro hygenic with locals in a separate scope */               \
+    asmjit::Label no_overflow = a->newLabel();                                 \
+    a->jb(no_overflow);                                                        \
+                                                                               \
+    /* Return false to indicate pop operation failed */                        \
+    a->mov(rax, asmjit::imm(0));                                               \
+    /* Prepare the input parameter for overflow call */                        \
+    a->mov(rdi, ptr(GetRaHolder()));                                           \
+    a->ret();                                                                  \
+    a->bind(no_overflow);                                                      \
+  }                                                                            \
+                                                                               \
+  /* Account for dispatch in the offset index */                               \
+  a->add(r11, 2);                                                              \
+                                                                               \
+  /* Calculate jump target */                                                  \
+  a->imul(r11, asmjit::imm(32));                                               \
+  a->lea(rdi, ptr(rdi, r11));                                                  \
+                                                                               \
+  /* Dispatch to jump table */                                                 \
+  a->jmp(rdi);                                                                 \
+  /* Align first jump table slot to next 64 byte boundary */                   \
   a->align(0 /* code-alignment */, 64);
 
 asmjit::X86Gp GetRaHolder();
 
 // Check and return sequence which follows a stack pop. Here we assume stack has
 // been pop'd at rdi
-#define JIT_POP_RET_SEQ(a, end, error) \
-  a->cmp(rdi, ptr(GetRaHolder()));     \
-  a->jne(error);                       \
+#define JIT_POP_RET_SEQ(a, end, error)                                         \
+  a->cmp(rdi, ptr(GetRaHolder()));                                             \
+  a->jne(error);                                                               \
   a->jmp(end);
 
 void JitAvx2StackInit(RegisterUsageInfo& info, AssemblerHolder& ah);

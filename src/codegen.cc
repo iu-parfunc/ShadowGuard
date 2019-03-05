@@ -18,9 +18,8 @@ std::string Header() {
   header += "# define ASM_TYPE_FUNCTION(symbol) .type symbol, @function\n";
   header += "# define ASM_SIZE(symbol) .size symbol, .-symbol\n";
   header += "# define ASM_SYMBOL(symbol) symbol\n";
-  header +=
-      "# define NO_EXEC_STACK_DIRECTIVE .section "
-      ".note.GNU-stack,\"\",%progbits\n\n";
+  header += "# define NO_EXEC_STACK_DIRECTIVE .section "
+            ".note.GNU-stack,\"\",%progbits\n\n";
   header += "# define CFI_DEF_CFA_OFFSET(n) .cfi_def_cfa_offset n\n";
   header += "# define CFI_STARTPROC .cfi_startproc\n";
   header += "# define CFI_ENDPROC .cfi_endproc\n";
@@ -83,6 +82,11 @@ std::string CodegenStackPop(RegisterUsageInfo info) {
 
 std::string Codegen(RegisterUsageInfo info) {
   std::string temp_dir = "/tmp/.litecfi_tmp";
+
+  // Remove any existing temporary files
+  std::string remove_temp_dir = "rm -rf " + temp_dir;
+  system(remove_temp_dir.c_str());
+
   if (mkdir(temp_dir.c_str(), 0777) != 0) {
     return "";
   }
@@ -98,14 +102,16 @@ std::string Codegen(RegisterUsageInfo info) {
   std::string soname = "libstack.so";
 
   std::string compile_so =
-      "gcc -fpic -shared -o " + soname + " " + temp_dir + "/" + "*.S";
+      "gcc -shared -o " + soname + " " + temp_dir + "/" + "*.S";
 
   if (system(compile_so.c_str()) != 0) {
     return "";
   }
 
+  /*
   std::string remove_temp_dir = "rm -r " + temp_dir;
   system(remove_temp_dir.c_str());
+  */
 
   return soname;
 }
