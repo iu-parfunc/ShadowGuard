@@ -436,6 +436,14 @@ void InstrumentModule(
     if (f->retstatus() == ParseAPI::NORETURN)
       continue;
 
+    // We should only instrument functions in .text
+    ParseAPI::CodeRegion * codereg = f->region();
+    ParseAPI::SymtabCodeRegion * symRegion = dynamic_cast<ParseAPI::SymtabCodeRegion*>(codereg);
+    assert(symRegion);
+    SymtabAPI::Region* symR = symRegion->symRegion();
+    if (symR->getRegionName() != ".text") 
+      continue;
+
     std::string func(funcname);
     if (init_fns.find(func) != init_fns.end()) {
       InstrumentFunction(function, lib, parser, patcher, instrumentation_fns,
