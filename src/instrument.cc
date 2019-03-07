@@ -33,7 +33,34 @@ DECLARE_bool(vv);
 static std::vector<bool> reserved;
 
 // Trampoline specification
-static InstSpec is;
+static InstSpec is[9];
+
+void SetupInstrumentationSpec() {
+  // Setup the trampoline specification
+  is[0].saveRegs.push_back(Dyninst::x86_64::rax);
+  is[0].saveRegs.push_back(Dyninst::x86_64::rdx);
+  is[0].saveRegs.push_back(Dyninst::x86_64::rdi);
+  is[0].saveRegs.push_back(Dyninst::x86_64::r11);
+  is[0].saveRegs.push_back(Dyninst::x86_64::r10);
+
+  is[0].raLoc = Dyninst::x86_64::r10;
+  is[0].trampGuard = false;
+  is[0].redZone = false;
+
+  is[1] = is[0];
+  is[2] = is[1];
+  is[2].saveRegs.push_back(Dyninst::x86_64::rsi);
+  is[3] = is[2];
+  is[3].saveRegs.push_back(Dyninst::x86_64::rdx);
+  is[4] = is[3];
+  is[4].saveRegs.push_back(Dyninst::x86_64::rcx);
+  is[5] = is[4];
+  is[5].saveRegs.push_back(Dyninst::x86_64::r8);
+  is[6] = is[5];
+  is[6].saveRegs.push_back(Dyninst::x86_64::r9);
+  is[7] = is[6];
+  is[8] = is[7];
+}
 
 class StackOpSnippet : public Dyninst::PatchAPI::Snippet {
  public:
@@ -159,7 +186,7 @@ void SharedLibraryInstrumentation(
 
     BPatch_funcCallExpr nop_push(*(instrumentation_fns["push"]), args);
     handle = binary_edit->insertSnippet(nop_push, *entries, BPatch_callBefore,
-                                        BPatch_lastSnippet, &is);
+                                        BPatch_lastSnippet, &is[8]);
     DCHECK(handle != nullptr)
         << "Failed instrumenting nop entry instrumentation.";
 
@@ -172,7 +199,7 @@ void SharedLibraryInstrumentation(
 
     BPatch_funcCallExpr nop_pop(*(instrumentation_fns["pop"]), args);
     handle = binary_edit->insertSnippet(nop_pop, *entries, BPatch_callAfter,
-                                        BPatch_lastSnippet, &is);
+                                        BPatch_lastSnippet, &is[8]);
     DCHECK(handle != nullptr)
         << "Failed instrumenting nop entry instrumentation.";
     return;
@@ -180,6 +207,7 @@ void SharedLibraryInstrumentation(
 
   std::vector<uint8_t> collisions =
       GetRegisterCollisions(info.GetUnusedAvx2Mask());
+  InstSpec *isPtr = &is[collisions.size()];
 
   // ---------- 1. Instrument Function Entry ----------------
   std::vector<BPatch_point*>* entries = function->findPoint(BPatch_entry);
@@ -195,7 +223,7 @@ void SharedLibraryInstrumentation(
 
   handle = nullptr;
   handle = binary_edit->insertSnippet(
-      push_of_check, *entries, BPatch_callBefore, BPatch_lastSnippet, &is);
+      push_of_check, *entries, BPatch_callBefore, BPatch_lastSnippet, isPtr);
   DCHECK(handle != nullptr) << "Failed instrumenting stack push.";
 
   // 1.b) Save CFI context if necessary
@@ -205,7 +233,7 @@ void SharedLibraryInstrumentation(
 
     handle = nullptr;
     handle = binary_edit->insertSnippet(reg_spill, *entries, BPatch_callBefore,
-                                        BPatch_lastSnippet, &is);
+                                        BPatch_lastSnippet, isPtr);
     DCHECK(handle != nullptr)
         << "Failed instrumenting saving CFI context at function entry.";
   }
@@ -217,7 +245,7 @@ void SharedLibraryInstrumentation(
 
     handle = nullptr;
     handle = binary_edit->insertSnippet(reg_spill, *entries, BPatch_callBefore,
-                                        BPatch_lastSnippet, &is);
+                                        BPatch_lastSnippet, isPtr);
     DCHECK(handle != nullptr)
         << "Failed instrumenting restoring user context at function entry.";
   }
@@ -243,7 +271,7 @@ void SharedLibraryInstrumentation(
 
       handle = nullptr;
       handle = binary_edit->insertSnippet(reg_spill, *calls, BPatch_callBefore,
-                                          BPatch_lastSnippet, &is);
+                                          BPatch_lastSnippet, isPtr);
       DCHECK(handle != nullptr)
           << "Failed instrumenting restoring CFI context at function entry.";
 
@@ -253,7 +281,7 @@ void SharedLibraryInstrumentation(
 
       handle = nullptr;
       handle = binary_edit->insertSnippet(reg_save, *calls, BPatch_callAfter,
-                                          BPatch_lastSnippet, &is);
+                                          BPatch_lastSnippet, isPtr);
       DCHECK(handle != nullptr) << "Failed instrumenting register restore.";
 
       // 2.d) Restore user context after the call
@@ -263,7 +291,7 @@ void SharedLibraryInstrumentation(
 
       handle = nullptr;
       handle = binary_edit->insertSnippet(ctx_restore, *calls, BPatch_callAfter,
-                                          BPatch_lastSnippet, nullptr);
+                                          BPatch_lastSnippet, isPtr);
       DCHECK(handle != nullptr)
           << "Failed instrumenting restoring user context after call.";
     }
@@ -284,7 +312,7 @@ void SharedLibraryInstrumentation(
 
     handle = nullptr;
     handle = binary_edit->insertSnippet(ctx_save, *exits, BPatch_callAfter,
-                                        BPatch_lastSnippet, &is);
+                                        BPatch_lastSnippet, isPtr);
     DCHECK(handle != nullptr)
         << "Failed instrumenting saving user context at function exit.";
   }
@@ -296,7 +324,7 @@ void SharedLibraryInstrumentation(
 
     handle = nullptr;
     handle = binary_edit->insertSnippet(reg_restore, *exits, BPatch_callAfter,
-                                        BPatch_lastSnippet, &is);
+                                        BPatch_lastSnippet, isPtr);
     DCHECK(handle != nullptr)
         << "Failed instrumenting restoring cfi context at function exit.";
   }
@@ -312,7 +340,7 @@ void SharedLibraryInstrumentation(
 
   handle = nullptr;
   handle = binary_edit->insertSnippet(pop_of_check, *exits, BPatch_callAfter,
-                                      BPatch_lastSnippet, &is);
+                                      BPatch_lastSnippet, isPtr);
   DCHECK(handle != nullptr)
       << "Failed instrumenting stack pop at function exit.";
 }
@@ -595,26 +623,7 @@ void Instrument(std::string binary, std::map<std::string, Code*>* const cache,
   PatchMgr::Ptr patcher = Dyninst::PatchAPI::convert(parser.app);
   BPatch_binaryEdit* binary_edit = ((BPatch_binaryEdit*)parser.app);
 
-  // Setup the trampoline specification
-  is.saveRegs.push_back(Dyninst::x86_64::rax);
-  is.saveRegs.push_back(Dyninst::x86_64::rbx);
-  is.saveRegs.push_back(Dyninst::x86_64::rdi);
-  is.saveRegs.push_back(Dyninst::x86_64::r11);
-  is.saveRegs.push_back(Dyninst::x86_64::r10);
-
-  // Register usage in tls methods
-  is.saveRegs.push_back(Dyninst::x86_64::rbp);
-  is.saveRegs.push_back(Dyninst::x86_64::rsp);
-  is.saveRegs.push_back(Dyninst::x86_64::rsi);
-  is.saveRegs.push_back(Dyninst::x86_64::rdx);
-  is.saveRegs.push_back(Dyninst::x86_64::rcx);
-  is.saveRegs.push_back(Dyninst::x86_64::r8);
-  is.saveRegs.push_back(Dyninst::x86_64::r9);
-  is.saveRegs.push_back(Dyninst::x86_64::fs);
-
-  is.raLoc = Dyninst::x86_64::r10;
-  is.trampGuard = false;
-  is.redZone = false;
+  SetupInstrumentationSpec();
 
   std::map<std::string, BPatch_function*> instrumentation_fns;
   if (FLAGS_instrument == "shared") {
