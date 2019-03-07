@@ -198,7 +198,7 @@ void SharedLibraryInstrumentation(
     }
 
     BPatch_funcCallExpr nop_pop(*(instrumentation_fns["pop"]), args);
-    handle = binary_edit->insertSnippet(nop_pop, *entries, BPatch_callAfter,
+    handle = binary_edit->insertSnippet(nop_pop, *exits, BPatch_callAfter,
                                         BPatch_lastSnippet, &is[8]);
     DCHECK(handle != nullptr)
         << "Failed instrumenting nop entry instrumentation.";
@@ -207,7 +207,7 @@ void SharedLibraryInstrumentation(
 
   std::vector<uint8_t> collisions =
       GetRegisterCollisions(info.GetUnusedAvx2Mask());
-  InstSpec *isPtr = &is[collisions.size()];
+  InstSpec* isPtr = &is[collisions.size()];
 
   // ---------- 1. Instrument Function Entry ----------------
   std::vector<BPatch_point*>* entries = function->findPoint(BPatch_entry);
@@ -465,11 +465,12 @@ void InstrumentModule(
       continue;
 
     // We should only instrument functions in .text
-    ParseAPI::CodeRegion * codereg = f->region();
-    ParseAPI::SymtabCodeRegion * symRegion = dynamic_cast<ParseAPI::SymtabCodeRegion*>(codereg);
+    ParseAPI::CodeRegion* codereg = f->region();
+    ParseAPI::SymtabCodeRegion* symRegion =
+        dynamic_cast<ParseAPI::SymtabCodeRegion*>(codereg);
     assert(symRegion);
     SymtabAPI::Region* symR = symRegion->symRegion();
-    if (symR->getRegionName() != ".text") 
+    if (symR->getRegionName() != ".text")
       continue;
 
     std::string func(funcname);
@@ -631,7 +632,7 @@ void Instrument(std::string binary, std::map<std::string, Code*>* const cache,
 
     // Mark reserved avx2 registers as unused for the purpose of shadow stack
     // code generation
-    if (FLAGS_shadow_stack == "avx2") {
+    if (FLAGS_shadow_stack == "avx2" || FLAGS_shadow_stack == "nop") {
       std::vector<bool>& mask =
           const_cast<std::vector<bool>&>(info.GetUnusedAvx2Mask());
       mask = GetReservedAvxMask();
