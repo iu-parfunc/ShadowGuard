@@ -43,33 +43,34 @@ void JitNopInit(RegisterUsageInfo& info, AssemblerHolder& ah) {
   a->cmp(r11d, asmjit::imm(sz));                                               \
   {                                                                            \
     /* Make the macro hygenic with locals in a separate scope */               \
-    asmjit::Label no_overflow = a->newLabel();                                 \
-    a->jb(no_overflow);                                                        \
+    asmjit::Label overflow = a->newLabel();                                    \
+    a->jg(overflow);                                                           \
+                                                                               \
+    /* Account for dispatch in the offset index */                             \
+    a->add(r11, 3);                                                            \
+                                                                               \
+    /* Calculate jump target */                                                \
+    a->imul(r11, asmjit::imm(32));                                             \
+    a->lea(rax, ptr(rax, r11));                                                \
                                                                                \
     /* Increment stack pointer */                                              \
     a->vpextrq(r11, sp, asmjit::imm(0));                                       \
     a->inc(r11);                                                               \
     a->pinsrq(sp, r11, asmjit::imm(0));                                        \
                                                                                \
-    /* Return false to indicate push operation failed */                       \
-    a->mov(rax, asmjit::imm(0));                                               \
+    /* Dispatch to jump table */                                               \
+    a->nop();                                                                  \
     a->ret();                                                                  \
-    a->bind(no_overflow);                                                      \
+    a->bind(overflow);                                                         \
   }                                                                            \
-  /* Account for dispatch in the offset index */                               \
-  a->add(r11, 3);                                                              \
-                                                                               \
-  /* Calculate jump target */                                                  \
-  a->imul(r11, asmjit::imm(32));                                               \
-  a->lea(rax, ptr(rax, r11));                                                  \
-                                                                               \
   /* Increment stack pointer */                                                \
   a->vpextrq(r11, sp, asmjit::imm(0));                                         \
   a->inc(r11);                                                                 \
   a->pinsrq(sp, r11, asmjit::imm(0));                                          \
                                                                                \
-  /* Dispatch to jump table */                                                 \
-  a->nop();                                                                    \
+  /* Return false to indicate push operation failed */                         \
+  a->mov(rax, asmjit::imm(0));                                                 \
+  a->ret();                                                                    \
   /* Align first jump table slot to next 32 byte boundary */                   \
   a->align(0 /* code-alignment */, 32);
 
@@ -169,26 +170,27 @@ void JitNopPush(RegisterUsageInfo& info, AssemblerHolder& ah) {
                                                                                \
   {                                                                            \
     /* Make the macro hygenic with locals in a separate scope */               \
-    asmjit::Label no_overflow = a->newLabel();                                 \
-    a->jb(no_overflow);                                                        \
+    asmjit::Label overflow = a->newLabel();                                    \
+    a->jg(overflow);                                                           \
                                                                                \
-    /* Return false to indicate pop operation failed */                        \
-    a->mov(rax, asmjit::imm(0));                                               \
-    /* Prepare the input parameter for overflow call */                        \
-    a->mov(rdi, ptr(GetRaHolder()));                                           \
+    /* Account for dispatch in the offset index */                             \
+    a->add(r11, 2);                                                            \
+                                                                               \
+    /* Calculate jump target */                                                \
+    a->imul(r11, asmjit::imm(32));                                             \
+    a->lea(rdi, ptr(rdi, r11));                                                \
+                                                                               \
+    /* Dispatch to jump table */                                               \
+    a->nop();                                                                  \
     a->ret();                                                                  \
-    a->bind(no_overflow);                                                      \
+    a->bind(overflow);                                                         \
   }                                                                            \
+  /* Return false to indicate pop operation failed */                          \
+  a->mov(rax, asmjit::imm(0));                                                 \
+  /* Prepare the input parameter for overflow call */                          \
+  a->mov(rdi, ptr(GetRaHolder()));                                             \
+  a->ret();                                                                    \
                                                                                \
-  /* Account for dispatch in the offset index */                               \
-  a->add(r11, 2);                                                              \
-                                                                               \
-  /* Calculate jump target */                                                  \
-  a->imul(r11, asmjit::imm(32));                                               \
-  a->lea(rdi, ptr(rdi, r11));                                                  \
-                                                                               \
-  /* Dispatch to jump table */                                                 \
-  a->nop();                                                                    \
   /* Align first jump table slot to next 64 byte boundary */                   \
   a->align(0 /* code-alignment */, 64);
 
