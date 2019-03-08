@@ -26,6 +26,7 @@ DEFINE_string(
     "   * xor : Uses a xor check based technique to validate the return "
     "chain.\n"
     "   * nop : Makes shadow stack a no-op.\n"
+    "   * reloc : Only perform relocation.\n"
     " Less context sensitive and precise than other techniques.\n");
 
 DEFINE_string(
@@ -60,11 +61,11 @@ DEFINE_string(
 static bool ValidateShadowStackFlag(const char* flagname,
                                     const std::string& value) {
   if (value == "avx2" || value == "avx512" || value == "mem" ||
-      value == "nop") {
+      value == "nop" || value == "reloc") {
     return true;
   }
 
-  DCHECK(value == "avx2" || value == "nop")
+  DCHECK(value == "avx2" || value == "nop" || value == "reloc")
       << "Only avx2 or nop mode supported yet.\n";
 
   return false;
