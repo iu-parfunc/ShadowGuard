@@ -7,7 +7,6 @@
 #include "BPatch_object.h"
 #include "CodeObject.h"
 #include "cache.h"
-#include "call_graph.h"
 #include "gflags/gflags.h"
 #include "glog/logging.h"
 #include "parse.h"

@@ -16,6 +16,7 @@ cc_binary(
 	"jit_avx2.cc",
 	"jit_avx512.cc",
 	"jit_internal.h",
+	"jit_nop.cc",
 	"parse.cc",
 	"parse.h",
         "register_usage.cc",

@@ -141,6 +141,10 @@ void JitAvx512StackInit(RegisterUsageInfo& info, AssemblerHolder& ah);
 void JitAvx512StackPush(RegisterUsageInfo& info, AssemblerHolder& ah);
 void JitAvx512StackPop(RegisterUsageInfo& info, AssemblerHolder& ah);
 
+void JitNopInit(RegisterUsageInfo& info, AssemblerHolder& ah);
+void JitNopPush(RegisterUsageInfo& info, AssemblerHolder& ah);
+void JitNopPop(RegisterUsageInfo& info, AssemblerHolder& ah);
+
 void JitMemoryStackPush(RegisterUsageInfo& info, AssemblerHolder& ah);
 void JitMemoryStackPop(RegisterUsageInfo& info, AssemblerHolder& ah);
 

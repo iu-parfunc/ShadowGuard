@@ -85,23 +85,10 @@ bool JitStackInit(RegisterUsageInfo info, AssemblerHolder& ah) {
   } else if (FLAGS_shadow_stack == "mem") {
     // TODO(chamibuddhika) Implement this
     // JitMemoryStackPush(info, a);
+  } else if (FLAGS_shadow_stack == "nop") {
+    JitNopInit(info, ah);
   }
   return true;
-}
-
-#define DUMMY_DISPATCH(a)                                                      \
-  a->align(0 /* code-alignment */, 32);                                        \
-  /* Make jump base address to be the start of dispatch code. */               \
-  /* We deduct the size of lea instruction (7) from $rip to get it. */         \
-  a->lea(rax, ptr(rip, -7));                                                   \
-  a->add(rax, 64);                                                             \
-  a->jmp(rax);                                                                 \
-  a->align(0 /* code-alignment */, 64);
-
-void JitNopDispatch(RegisterUsageInfo info, AssemblerHolder& ah) {
-  asmjit::X86Assembler* a = ah.GetAssembler();
-  // Jump table dispatch
-  DUMMY_DISPATCH(a);
 }
 
 bool JitStackPush(RegisterUsageInfo info, AssemblerHolder& ah) {
@@ -118,7 +105,7 @@ bool JitStackPush(RegisterUsageInfo info, AssemblerHolder& ah) {
     // TODO(chamibuddhika) Implement this
     // JitMemoryStackPush(info, a);
   } else if (FLAGS_shadow_stack == "nop") {
-    JitNopDispatch(info, ah);
+    JitNopPush(info, ah);
   }
 
   return true;
@@ -138,7 +125,7 @@ bool JitStackPop(RegisterUsageInfo info, AssemblerHolder& ah) {
     // TODO(chamibuddhika) Implement this
     // JitMemoryStackPop(info, a);
   } else if (FLAGS_shadow_stack == "nop") {
-    JitNopDispatch(info, ah);
+    JitNopPop(info, ah);
   }
 
   return true;

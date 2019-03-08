@@ -12,6 +12,8 @@
 
 DEFINE_bool(vv, false, "Log verbose output.");
 
+DEFINE_bool(skip, false, "Skip codegen.");
+
 DEFINE_bool(libs, false, "Protect shared libraries as well.");
 
 DEFINE_string(

@@ -28,6 +28,7 @@ using namespace Dyninst::PatchAPI;
 DECLARE_string(instrument);
 DECLARE_bool(libs);
 DECLARE_string(shadow_stack);
+DECLARE_bool(skip);
 DECLARE_bool(vv);
 
 static std::vector<bool> reserved;
@@ -638,8 +639,11 @@ void Instrument(std::string binary, std::map<std::string, Code*>* const cache,
       mask = GetReservedAvxMask();
     }
 
-    std::string instrumentation_library =
-        Codegen(const_cast<RegisterUsageInfo&>(info));
+    std::string instrumentation_library = "libstack.so";
+
+    if (!FLAGS_skip) {
+      instrumentation_library = Codegen(const_cast<RegisterUsageInfo&>(info));
+    }
 
     DCHECK(binary_edit->loadLibrary(instrumentation_library.c_str()))
         << "Failed to load instrumentation library";
