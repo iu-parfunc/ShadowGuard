@@ -121,7 +121,7 @@ AvxRegister GetAvx512Register(uint8_t index) {
 AvxRegister GetNextUnusedAvx2Register(RegisterUsageInfo& info) {
   std::vector<bool>& mask =
       const_cast<std::vector<bool>&>(info.GetUnusedAvx2Mask());
-  for (uint8_t i = 15; i >= 0; i++) {
+  for (uint8_t i = 15; i >= 0; i--) {
     if (mask[i]) {
       mask[i] = false;
       return GetAvx2Register(i);
@@ -134,7 +134,7 @@ AvxRegister GetNextUnusedAvx2Register(RegisterUsageInfo& info) {
 AvxRegister GetNextUnusedAvx512Register(RegisterUsageInfo& info) {
   std::vector<bool>& mask =
       const_cast<std::vector<bool>&>(info.GetUnusedAvx512Mask());
-  for (uint8_t i = 31; i >= 0; i++) {
+  for (uint8_t i = 31; i >= 0; i--) {
     if (mask[i]) {
       if (i < 16) {
         mask[i] = false;
