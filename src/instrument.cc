@@ -182,10 +182,10 @@ void SharedLibraryInstrumentation(
   BPatch_binaryEdit* binary_edit = ((BPatch_binaryEdit*)parser.app);
   BPatchSnippetHandle* handle;
   if (FLAGS_shadow_stack == "reloc") {
-      function->relocateFunction();
-      return;
+    function->relocateFunction();
+    return;
   }
-  if (FLAGS_shadow_stack == "nop") {
+  if (FLAGS_shadow_stack == "dispatch" || FLAGS_shadow_stack == "empty") {
     // Noop instrumentation
     std::vector<BPatch_point*>* entries = function->findPoint(BPatch_entry);
 
@@ -650,11 +650,11 @@ void Instrument(std::string binary, std::map<std::string, Code*>* const cache,
     }
 
     if (FLAGS_shadow_stack != "reloc")
-    DCHECK(binary_edit->loadLibrary(instrumentation_library.c_str()))
-        << "Failed to load instrumentation library";
+      DCHECK(binary_edit->loadLibrary(instrumentation_library.c_str()))
+          << "Failed to load instrumentation library";
   }
   if (FLAGS_shadow_stack != "reloc")
-  PopulateRegisterStackOperations(binary_edit, parser, instrumentation_fns);
+    PopulateRegisterStackOperations(binary_edit, parser, instrumentation_fns);
 
   for (auto it = objects.begin(); it != objects.end(); it++) {
     BPatch_object* object = *it;

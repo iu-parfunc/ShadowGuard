@@ -85,10 +85,15 @@ bool JitStackInit(RegisterUsageInfo info, AssemblerHolder& ah) {
   } else if (FLAGS_shadow_stack == "mem") {
     // TODO(chamibuddhika) Implement this
     // JitMemoryStackPush(info, a);
-  } else if (FLAGS_shadow_stack == "nop") {
+  } else if (FLAGS_shadow_stack == "dispatch") {
     JitNopInit(info, ah);
   }
   return true;
+}
+
+void JitEmpty(AssemblerHolder& ah) {
+  asmjit::X86Assembler* a = ah.GetAssembler();
+  a->nop();
 }
 
 bool JitStackPush(RegisterUsageInfo info, AssemblerHolder& ah) {
@@ -104,8 +109,10 @@ bool JitStackPush(RegisterUsageInfo info, AssemblerHolder& ah) {
   } else if (FLAGS_shadow_stack == "mem") {
     // TODO(chamibuddhika) Implement this
     // JitMemoryStackPush(info, a);
-  } else if (FLAGS_shadow_stack == "nop") {
+  } else if (FLAGS_shadow_stack == "dispatch") {
     JitNopPush(info, ah);
+  } else if (FLAGS_shadow_stack == "empty") {
+    JitEmpty(ah);
   }
 
   return true;
@@ -124,8 +131,10 @@ bool JitStackPop(RegisterUsageInfo info, AssemblerHolder& ah) {
   } else if (FLAGS_shadow_stack == "mem") {
     // TODO(chamibuddhika) Implement this
     // JitMemoryStackPop(info, a);
-  } else if (FLAGS_shadow_stack == "nop") {
+  } else if (FLAGS_shadow_stack == "dispatch") {
     JitNopPop(info, ah);
+  } else if (FLAGS_shadow_stack == "empty") {
+    JitEmpty(ah);
   }
 
   return true;
