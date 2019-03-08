@@ -102,7 +102,7 @@ std::string Codegen(RegisterUsageInfo info) {
   std::string soname = "libstack.so";
 
   std::string compile_so =
-      "gcc -shared -o " + soname + " " + temp_dir + "/" + "*.S";
+      "gcc -fpic -shared -o " + soname + " " + temp_dir + "/" + "*.S";
 
   if (system(compile_so.c_str()) != 0) {
     return "";

@@ -186,7 +186,7 @@ void SharedLibraryInstrumentation(
 
     BPatch_funcCallExpr nop_push(*(instrumentation_fns["push"]), args);
     handle = binary_edit->insertSnippet(nop_push, *entries, BPatch_callBefore,
-                                        BPatch_lastSnippet, &is[8]);
+                                        BPatch_lastSnippet, &is[0]);
     DCHECK(handle != nullptr)
         << "Failed instrumenting nop entry instrumentation.";
 
@@ -199,7 +199,7 @@ void SharedLibraryInstrumentation(
 
     BPatch_funcCallExpr nop_pop(*(instrumentation_fns["pop"]), args);
     handle = binary_edit->insertSnippet(nop_pop, *exits, BPatch_callAfter,
-                                        BPatch_lastSnippet, &is[8]);
+                                        BPatch_lastSnippet, &is[0]);
     DCHECK(handle != nullptr)
         << "Failed instrumenting nop entry instrumentation.";
     return;
@@ -632,7 +632,7 @@ void Instrument(std::string binary, std::map<std::string, Code*>* const cache,
 
     // Mark reserved avx2 registers as unused for the purpose of shadow stack
     // code generation
-    if (FLAGS_shadow_stack == "avx2" || FLAGS_shadow_stack == "nop") {
+    if (FLAGS_shadow_stack == "avx2") {
       std::vector<bool>& mask =
           const_cast<std::vector<bool>&>(info.GetUnusedAvx2Mask());
       mask = GetReservedAvxMask();
