@@ -151,9 +151,9 @@ AvxRegister GetNextUnusedAvx512Register(RegisterUsageInfo& info) {
 std::vector<uint8_t> GetUnusedAvx2QuadWords(RegisterUsageInfo& info) {
   std::vector<uint8_t> quad_words;
   const std::vector<bool>& mask = info.GetUnusedAvx2Mask();
-  for (unsigned int i = 0; i < mask.size(); i++) {
+  for (int i = (int)mask.size() - 1; i >= 0; i--) {
     if (mask[i]) {
-      for (unsigned int j = 0; j < 4; j++) {
+      for (unsigned int j = 0; j < 2; j++) {
         quad_words.push_back(4 * i + j);
       }
     }
@@ -164,7 +164,7 @@ std::vector<uint8_t> GetUnusedAvx2QuadWords(RegisterUsageInfo& info) {
 std::vector<uint16_t> GetUnusedAvx512QuadWords(RegisterUsageInfo& info) {
   std::vector<uint16_t> quad_words;
   const std::vector<bool>& mask = info.GetUnusedAvx512Mask();
-  for (unsigned int i = 0; i < mask.size(); i++) {
+  for (int i = (int)mask.size() - 1; i >= 0; i--) {
     if (mask[i]) {
       for (unsigned int j = 0; j < 8; j++) {
         quad_words.push_back(8 * i + j);

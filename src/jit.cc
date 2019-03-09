@@ -93,6 +93,7 @@ bool JitStackInit(RegisterUsageInfo info, AssemblerHolder& ah) {
 
 void JitEmpty(AssemblerHolder& ah) {
   asmjit::X86Assembler* a = ah.GetAssembler();
+  a->mov(rax, asmjit::imm(1));
   a->nop();
 }
 
