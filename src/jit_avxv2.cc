@@ -81,8 +81,6 @@ void JitAvxV2StackPush(RegisterUsageInfo& info, AssemblerHolder& ah) {
   // Jump table dispatch
   // JIT_DISPATCH_PUSH(a, sp, quad_words.size());
 
-  // Jump table
-  asmjit::Label end = a->newLabel();
   // If this is the first jump table slot
   bool first = false;
   for (unsigned int i = 0; i < quad_words.size(); i++) {
@@ -108,10 +106,6 @@ void JitAvxV2StackPush(RegisterUsageInfo& info, AssemblerHolder& ah) {
       JIT_PUSH_AVX2(a, sp, first, scratch, xmm15, ymm15, 60, 61, 62, 63)
     }
   }
-
-  a->bind(end);
-  // Returns true to denote the push was successful
-  a->mov(rax, asmjit::imm(1));
 }
 
 #define JIT_POP_AVX2(a, sp, first, error, scratch, xmm_reg, ymm_reg, i1, i2,   \
@@ -156,13 +150,14 @@ void JitAvxV2StackPop(RegisterUsageInfo& info, AssemblerHolder& ah) {
   // Jump table dispatch
   // JIT_DISPATCH_POP(a, sp, quad_words.size());
 
-  asmjit::Label error = a->newLabel();
   // If this is the first slot
   bool first = false;
   for (unsigned int i = 0; i < quad_words.size(); i++) {
     if (i == 0) {
       first = true;
     }
+
+    asmjit::Label error = a->newLabel();
     switch (quad_words[i]) {
       JIT_POP_AVX2(a, sp, first, error, scratch, xmm0, ymm0, 0, 1, 2, 3)
       JIT_POP_AVX2(a, sp, first, error, scratch, xmm1, ymm1, 4, 5, 6, 7)
@@ -182,7 +177,4 @@ void JitAvxV2StackPop(RegisterUsageInfo& info, AssemblerHolder& ah) {
       JIT_POP_AVX2(a, sp, first, error, scratch, xmm15, ymm15, 60, 61, 62, 63)
     }
   }
-
-  a->bind(error);
-  a->int3();
 }

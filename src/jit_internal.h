@@ -29,8 +29,7 @@ DECLARE_string(shadow_stack);
 // it by 3 to skip over the dispatch code.
 //
 // Parameters :
-//   a - asmjit::X86Assembler* instance
-//   sp - Stackpointer XMM register
+//   a - asmjit::X86Assembler* instance //   sp - Stackpointer XMM register
 //   sz - Shadow stack size
 #define JIT_DISPATCH_PUSH(a, sp, sz)                                           \
   a->align(0 /* code-alignment */, 32);                                        \
@@ -140,7 +139,9 @@ asmjit::X86Gp GetRaHolder();
   a->pinsrq(sp, rax, asmjit::imm(1));                                          \
   a->cmp(rdi, ptr(GetRaHolder()));                                             \
   a->jne(error);                                                               \
-  a->ret();
+  a->ret();                                                                    \
+  a->bind(error);                                                              \
+  a->int3();
 
 void JitAvx2StackInit(RegisterUsageInfo& info, AssemblerHolder& ah);
 void JitAvx2StackPush(RegisterUsageInfo& info, AssemblerHolder& ah);

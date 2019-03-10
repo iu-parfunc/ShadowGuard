@@ -53,7 +53,8 @@ std::string FunctionEpilog(std::string name) {
 
 std::string GenerateFunction(std::string fn_name, RegisterUsageInfo& info,
                              bool (*codegen)(RegisterUsageInfo,
-                                             AssemblerHolder&)) {
+                                             AssemblerHolder&),
+                             std::string overflow_slot = "") {
   std::string prolog = FunctionProlog(fn_name);
 
   /* Generate function body */
@@ -65,7 +66,7 @@ std::string GenerateFunction(std::string fn_name, RegisterUsageInfo& info,
 
   std::string epilog = FunctionEpilog(fn_name);
 
-  return prolog + code + epilog;
+  return prolog + code + overflow_slot + epilog;
 }
 
 std::string CodegenStackInit(RegisterUsageInfo info) {
@@ -73,10 +74,15 @@ std::string CodegenStackInit(RegisterUsageInfo info) {
 }
 
 std::string CodegenStackPush(RegisterUsageInfo info) {
-  return GenerateFunction(kStackPushFunction, info, JitStackPush);
+  std::string overflow_slot = "";
+  overflow_slot += "call litecfi_overflow_stack_push@plt\n";
+  return GenerateFunction(kStackPushFunction, info, JitStackPush,
+                          overflow_slot);
 }
 
 std::string CodegenStackPop(RegisterUsageInfo info) {
+  std::string overflow_slot = "";
+  overflow_slot += "call litecfi_overflow_stack_pop@plt\n";
   return GenerateFunction(kStackPopFunction, info, JitStackPop);
 }
 
