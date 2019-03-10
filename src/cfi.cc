@@ -28,6 +28,7 @@ DEFINE_string(
     "   * dispatch : Makes shadow stack with only a dispatch to a jump table.\n"
     "   * empty : Makes an empty shadow stack.\n"
     "   * reloc : Only perform relocation.\n"
+    "   * savegpr: Relocation + saving & restoring GPRs\n"
     " Less context sensitive and precise than other techniques.\n");
 
 DEFINE_string(
@@ -62,7 +63,8 @@ DEFINE_string(
 static bool ValidateShadowStackFlag(const char* flagname,
                                     const std::string& value) {
   if (value == "avx2" || value == "avx512" || value == "mem" ||
-      value == "dispatch" || value == "reloc" || value == "empty") {
+      value == "dispatch" || value == "reloc" || value == "empty" ||
+      value == "savegpr") {
     return true;
   }
 

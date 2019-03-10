@@ -185,6 +185,30 @@ void SharedLibraryInstrumentation(
     function->relocateFunction();
     return;
   }
+  if (FLAGS_shadow_stack == "savegpr") {
+    // Noop instrumentation
+    std::vector<BPatch_point*>* entries = function->findPoint(BPatch_entry);
+    BPatch_nullExpr snippet;
+    handle = nullptr;
+    handle = binary_edit->insertSnippet(snippet, *entries, BPatch_callBefore,
+                                        BPatch_lastSnippet, &is[0]);
+    DCHECK(handle != nullptr)
+        << "Failed instrumenting nop entry instrumentation.";
+
+    std::vector<BPatch_point*>* exits = function->findPoint(BPatch_exit);
+    if (exits == nullptr || exits->size() == 0) {
+      fprintf(stderr, "Function %s does not have exits\n",
+              function->getName().c_str());
+      return;
+    }
+    handle = nullptr;
+    handle = binary_edit->insertSnippet(snippet, *exits, BPatch_callAfter,
+                                        BPatch_lastSnippet, &is[0]);
+    DCHECK(handle != nullptr)
+        << "Failed instrumenting nop entry instrumentation.";
+    return;
+  }
+
   if (FLAGS_shadow_stack == "dispatch" || FLAGS_shadow_stack == "empty") {
     // Noop instrumentation
     std::vector<BPatch_point*>* entries = function->findPoint(BPatch_entry);
@@ -649,11 +673,11 @@ void Instrument(std::string binary, std::map<std::string, Code*>* const cache,
       instrumentation_library = Codegen(const_cast<RegisterUsageInfo&>(info));
     }
 
-    if (FLAGS_shadow_stack != "reloc")
+    if (FLAGS_shadow_stack != "reloc" && FLAGS_shadow_stack != "savegpr")
       DCHECK(binary_edit->loadLibrary(instrumentation_library.c_str()))
           << "Failed to load instrumentation library";
   }
-  if (FLAGS_shadow_stack != "reloc")
+  if (FLAGS_shadow_stack != "reloc" && FLAGS_shadow_stack != "savegpr")
     PopulateRegisterStackOperations(binary_edit, parser, instrumentation_fns);
 
   for (auto it = objects.begin(); it != objects.end(); it++) {
