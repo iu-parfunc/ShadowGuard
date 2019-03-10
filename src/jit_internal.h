@@ -133,9 +133,22 @@ asmjit::X86Gp GetRaHolder();
   a->jne(error);                                                               \
   a->jmp(end);
 
+#define JIT_POP_RET_SEQ_V2(a, error, first)                                    \
+  if (!first) {                                                                \
+    a->sub(rax, 64);                                                           \
+  }                                                                            \
+  a->pinsrq(sp, rax, asmjit::imm(1));                                          \
+  a->cmp(rdi, ptr(GetRaHolder()));                                             \
+  a->jne(error);                                                               \
+  a->ret();
+
 void JitAvx2StackInit(RegisterUsageInfo& info, AssemblerHolder& ah);
 void JitAvx2StackPush(RegisterUsageInfo& info, AssemblerHolder& ah);
 void JitAvx2StackPop(RegisterUsageInfo& info, AssemblerHolder& ah);
+
+void JitAvxV2StackInit(RegisterUsageInfo& info, AssemblerHolder& ah);
+void JitAvxV2StackPush(RegisterUsageInfo& info, AssemblerHolder& ah);
+void JitAvxV2StackPop(RegisterUsageInfo& info, AssemblerHolder& ah);
 
 void JitAvx512StackInit(RegisterUsageInfo& info, AssemblerHolder& ah);
 void JitAvx512StackPush(RegisterUsageInfo& info, AssemblerHolder& ah);
