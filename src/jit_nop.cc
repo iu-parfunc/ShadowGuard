@@ -37,7 +37,7 @@ void JitNopInit(RegisterUsageInfo& info, AssemblerHolder& ah) {
   a->pxor(xmm15, xmm15);
 }
 
-#define JIT_NOP_DISPATCH_PUSH(a, sp, sz)                                       \
+#define JIT_NOP_DISPATCH_PUSH(a, sp, sz, scratch, xmm_reg, ymm_reg)            \
   a->align(0 /* code-alignment */, 32);                                        \
   a->vpextrq(r11, sp, asmjit::imm(0));                                         \
   a->cmp(r11d, asmjit::imm(sz));                                               \
@@ -59,7 +59,9 @@ void JitNopInit(RegisterUsageInfo& info, AssemblerHolder& ah) {
     a->pinsrq(sp, r11, asmjit::imm(0));                                        \
                                                                                \
     /* Dispatch to jump table */                                               \
-    a->nop();                                                                  \
+    a->vmovq(scratch.xmm, ptr(GetRaHolder()));                                 \
+    a->vinserti128(scratch.ymm, ymm_reg, scratch.xmm, asmjit::imm(1));         \
+    a->vpblendd(ymm_reg, ymm_reg, scratch.ymm, asmjit::imm(48));               \
     a->ret();                                                                  \
     a->bind(overflow);                                                         \
   }                                                                            \
@@ -124,7 +126,7 @@ void JitNopPush(RegisterUsageInfo& info, AssemblerHolder& ah) {
 
   // Dummy Jump table dispatch. Only calculates and update the stack pointer.
   // Does not jump.
-  JIT_NOP_DISPATCH_PUSH(a, sp, 24);
+  JIT_NOP_DISPATCH_PUSH(a, sp, 24, scratch, reg_xmm, reg_ymm);
 
   /*
   // Jump table
@@ -156,7 +158,7 @@ void JitNopPush(RegisterUsageInfo& info, AssemblerHolder& ah) {
   a->mov(rax, asmjit::imm(1));
 }
 
-#define JIT_NOP_DISPATCH_POP(a, sp, sz)                                        \
+#define JIT_NOP_DISPATCH_POP(a, sp, sz, scratch, xmm_reg, ymm_reg)             \
   a->align(0 /* code-alignment */, 32);                                        \
   /* Make jump base address to be the start of dispatch code. */               \
   /* We deduct the size of lea instruction (7) from $rip to get it. */         \
@@ -181,7 +183,8 @@ void JitNopPush(RegisterUsageInfo& info, AssemblerHolder& ah) {
     a->lea(rdi, ptr(rdi, r11));                                                \
                                                                                \
     /* Dispatch to jump table */                                               \
-    a->nop();                                                                  \
+    a->vextracti128(scratch.xmm, ymm_reg, asmjit::imm(1));                     \
+    a->vpextrq(rdi, scratch.xmm, asmjit::imm(1));                              \
     a->ret();                                                                  \
     a->bind(overflow);                                                         \
   }                                                                            \
@@ -238,7 +241,7 @@ void JitNopPop(RegisterUsageInfo& info, AssemblerHolder& ah) {
 
   // Dummy Jump table dispatch. Only calculates and update the stack pointer.
   // Does not jump.
-  JIT_NOP_DISPATCH_POP(a, sp, 24);
+  JIT_NOP_DISPATCH_POP(a, sp, 24, scratch, reg_xmm, reg_ymm);
 
   /*
   asmjit::Label error = a->newLabel();
