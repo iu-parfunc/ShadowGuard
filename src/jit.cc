@@ -76,9 +76,23 @@ bool HasEnoughStorage(RegisterUsageInfo& info) {
   return true;
 }
 
-bool JitStackInit(RegisterUsageInfo info, AssemblerHolder& ah) {
+void JitCallStackPush(RegisterUsageInfo info, AssemblerHolder& ah) {
+  if (FLAGS_shadow_stack == "avx_v2") {
+    JitAvxV2CallStackPush(info, ah);
+  }
+}
+
+void JitCallStackPop(RegisterUsageInfo info, AssemblerHolder& ah) {
+  if (FLAGS_shadow_stack == "avx_v2") {
+    JitAvxV2CallStackPop(info, ah);
+  }
+}
+
+void JitStackInit(RegisterUsageInfo info, AssemblerHolder& ah) {
   if (FLAGS_shadow_stack == "avx2") {
     JitAvx2StackInit(info, ah);
+  } else if (FLAGS_shadow_stack == "avx_v2") {
+    JitAvxV2StackInit(info, ah);
   } else if (FLAGS_shadow_stack == "avx512") {
     // TODO(chamibuddhika) Test this
     JitAvx512StackInit(info, ah);
@@ -88,7 +102,6 @@ bool JitStackInit(RegisterUsageInfo info, AssemblerHolder& ah) {
   } else if (FLAGS_shadow_stack == "dispatch") {
     JitNopInit(info, ah);
   }
-  return true;
 }
 
 void JitEmpty(AssemblerHolder& ah) {
@@ -97,13 +110,15 @@ void JitEmpty(AssemblerHolder& ah) {
   a->nop();
 }
 
-bool JitStackPush(RegisterUsageInfo info, AssemblerHolder& ah) {
+void JitStackPush(RegisterUsageInfo info, AssemblerHolder& ah) {
   if (!HasEnoughStorage(info)) {
-    return false;
+    return;
   }
 
   if (FLAGS_shadow_stack == "avx2") {
     JitAvx2StackPush(info, ah);
+  } else if (FLAGS_shadow_stack == "avx_v2") {
+    JitAvxV2StackPush(info, ah);
   } else if (FLAGS_shadow_stack == "avx512") {
     // TODO(chamibuddhika) Test this
     JitAvx512StackPush(info, ah);
@@ -115,17 +130,17 @@ bool JitStackPush(RegisterUsageInfo info, AssemblerHolder& ah) {
   } else if (FLAGS_shadow_stack == "empty") {
     JitEmpty(ah);
   }
-
-  return true;
 }
 
-bool JitStackPop(RegisterUsageInfo info, AssemblerHolder& ah) {
+void JitStackPop(RegisterUsageInfo info, AssemblerHolder& ah) {
   if (!HasEnoughStorage(info)) {
-    return false;
+    return;
   }
 
   if (FLAGS_shadow_stack == "avx2") {
     JitAvx2StackPop(info, ah);
+  } else if (FLAGS_shadow_stack == "avx_v2") {
+    JitAvxV2StackPop(info, ah);
   } else if (FLAGS_shadow_stack == "avx512") {
     // TODO(chamibuddhika) Test this
     JitAvx512StackPop(info, ah);
@@ -137,6 +152,4 @@ bool JitStackPop(RegisterUsageInfo info, AssemblerHolder& ah) {
   } else if (FLAGS_shadow_stack == "empty") {
     JitEmpty(ah);
   }
-
-  return true;
 }

@@ -80,7 +80,7 @@ class StackOpSnippet : public Dyninst::PatchAPI::Snippet {
   }
 
  protected:
-  bool (*jit_fn_)(RegisterUsageInfo, AssemblerHolder&);
+  void (*jit_fn_)(RegisterUsageInfo, AssemblerHolder&);
 
  private:
   RegisterUsageInfo info_;
@@ -104,6 +104,20 @@ class StackPopSnippet : public StackOpSnippet {
  public:
   explicit StackPopSnippet(RegisterUsageInfo info) : StackOpSnippet(info) {
     jit_fn_ = JitStackPop;
+  }
+};
+
+class CallStackPushSnippet : public StackOpSnippet {
+ public:
+  explicit CallStackPushSnippet(RegisterUsageInfo info) : StackOpSnippet(info) {
+    jit_fn_ = JitCallStackPush;
+  }
+};
+
+class CallStackPopSnippet : public StackOpSnippet {
+ public:
+  explicit CallStackPopSnippet(RegisterUsageInfo info) : StackOpSnippet(info) {
+    jit_fn_ = JitCallStackPop;
   }
 };
 
@@ -172,6 +186,18 @@ BPatch_funcCallExpr GetRegisterOperationSnippet(
   }
 
   return BPatch_funcCallExpr(*fn, args);
+}
+
+void InsertInstrumentation(BPatch_function* function, Point::Type location,
+                           Snippet::Ptr snippet, PatchMgr::Ptr patcher) {
+  std::vector<Point*> points;
+  patcher->findPoints(Scope(Dyninst::PatchAPI::convert(function)), location,
+                      back_inserter(points));
+
+  for (auto it = points.begin(); it != points.end(); ++it) {
+    Point* point = *it;
+    point->pushBack(snippet);
+  }
 }
 
 void SharedLibraryInstrumentation(
@@ -243,17 +269,28 @@ void SharedLibraryInstrumentation(
 
   // 1.a) Shadow stack push
   // Shared library function call to shadow stack push at function entry
-  BPatch_funcCallExpr stack_push(*(instrumentation_fns["push"]), args);
-  BPatch_funcCallExpr of_push(*(instrumentation_fns["overflow_push"]), args);
+  if (FLAGS_shadow_stack == "avx2") {
+    BPatch_funcCallExpr stack_push(*(instrumentation_fns["push"]), args);
+    BPatch_funcCallExpr of_push(*(instrumentation_fns["overflow_push"]), args);
 
-  // Check return value to determine whether stack is overflown
-  BPatch_ifExpr push_of_check(
-      BPatch_boolExpr(BPatch_eq, stack_push, BPatch_constExpr(0)), of_push);
+    // Check return value to determine whether stack is overflown
+    BPatch_ifExpr push_of_check(
+        BPatch_boolExpr(BPatch_eq, stack_push, BPatch_constExpr(0)), of_push);
 
-  handle = nullptr;
-  handle = binary_edit->insertSnippet(
-      push_of_check, *entries, BPatch_callBefore, BPatch_lastSnippet, isPtr);
-  DCHECK(handle != nullptr) << "Failed instrumenting stack push.";
+    handle = nullptr;
+    handle = binary_edit->insertSnippet(
+        push_of_check, *entries, BPatch_callBefore, BPatch_lastSnippet, isPtr);
+    DCHECK(handle != nullptr) << "Failed instrumenting stack push.";
+  } else if (FLAGS_shadow_stack == "avx_v2") {
+    RegisterUsageInfo unused;
+    std::vector<bool>& mask =
+        const_cast<std::vector<bool>&>(unused.GetUnusedAvx2Mask());
+    mask = GetReservedAvxMask();
+
+    Snippet::Ptr call_stack_push =
+        CallStackPushSnippet::create(new CallStackPushSnippet(unused));
+    InsertInstrumentation(function, Point::FuncEntry, call_stack_push, patcher);
+  }
 
   // 1.b) Save CFI context if necessary
   if (collisions.size() > 0) {
@@ -360,18 +397,29 @@ void SharedLibraryInstrumentation(
 
   // 3.c) Shadow stack pop
   // Shared library function call to shadow stack pop at function exit
-  BPatch_funcCallExpr stack_pop(*(instrumentation_fns["pop"]), args);
-  BPatch_funcCallExpr of_pop(*(instrumentation_fns["overflow_pop"]), args);
+  if (FLAGS_shadow_stack == "avx2") {
+    BPatch_funcCallExpr stack_pop(*(instrumentation_fns["pop"]), args);
+    BPatch_funcCallExpr of_pop(*(instrumentation_fns["overflow_pop"]), args);
 
-  // Check return value to determine whether stack is overflown
-  BPatch_ifExpr pop_of_check(
-      BPatch_boolExpr(BPatch_eq, stack_pop, BPatch_constExpr(0)), of_pop);
+    // Check return value to determine whether stack is overflown
+    BPatch_ifExpr pop_of_check(
+        BPatch_boolExpr(BPatch_eq, stack_pop, BPatch_constExpr(0)), of_pop);
 
-  handle = nullptr;
-  handle = binary_edit->insertSnippet(pop_of_check, *exits, BPatch_callAfter,
-                                      BPatch_lastSnippet, isPtr);
-  DCHECK(handle != nullptr)
-      << "Failed instrumenting stack pop at function exit.";
+    handle = nullptr;
+    handle = binary_edit->insertSnippet(pop_of_check, *exits, BPatch_callAfter,
+                                        BPatch_lastSnippet, isPtr);
+    DCHECK(handle != nullptr)
+        << "Failed instrumenting stack pop at function exit.";
+  } else if (FLAGS_shadow_stack == "avx_v2") {
+    RegisterUsageInfo unused;
+    std::vector<bool>& mask =
+        const_cast<std::vector<bool>&>(unused.GetUnusedAvx2Mask());
+    mask = GetReservedAvxMask();
+
+    Snippet::Ptr call_stack_push =
+        CallStackPushSnippet::create(new CallStackPushSnippet(unused));
+    InsertInstrumentation(function, Point::FuncEntry, call_stack_push, patcher);
+  }
 }
 
 void InstrumentTlsInit(
@@ -385,18 +433,6 @@ void InstrumentTlsInit(
 
   BPatchSnippetHandle* handle = binary_edit->insertSnippet(tls_init, *entries);
   DCHECK(handle != nullptr) << "Failed instrumenting tls initialization.";
-}
-
-void InsertInstrumentation(BPatch_function* function, Point::Type location,
-                           Snippet::Ptr snippet, PatchMgr::Ptr patcher) {
-  std::vector<Point*> points;
-  patcher->findPoints(Scope(Dyninst::PatchAPI::convert(function)), location,
-                      back_inserter(points));
-
-  for (auto it = points.begin(); it != points.end(); ++it) {
-    Point* point = *it;
-    point->pushBack(snippet);
-  }
 }
 
 void InlinedInstrumentation(BPatch_function* function,

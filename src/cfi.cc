@@ -21,6 +21,8 @@ DEFINE_string(
     "\n Shadow stack implementation mechanism for backward-edge protection.\n"
     "\n Valid values are\n"
     "   * avx2 : Uses avx2 register file as backing store\n"
+    "   * avx_v2 : Uses avx2 register file as backing store (new "
+    "implementation)\n"
     "   * avx512 : Uses avx512 register file as backing store\n"
     "   * mem : Uses a memory region as backing store\n"
     "   * xor : Uses a xor check based technique to validate the return "
@@ -64,7 +66,7 @@ static bool ValidateShadowStackFlag(const char* flagname,
                                     const std::string& value) {
   if (value == "avx2" || value == "avx512" || value == "mem" ||
       value == "dispatch" || value == "reloc" || value == "empty" ||
-      value == "savegpr") {
+      value == "savegpr" || value == "avx_v2") {
     return true;
   }
 

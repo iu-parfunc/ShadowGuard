@@ -147,6 +147,8 @@ void JitAvx2StackInit(RegisterUsageInfo& info, AssemblerHolder& ah);
 void JitAvx2StackPush(RegisterUsageInfo& info, AssemblerHolder& ah);
 void JitAvx2StackPop(RegisterUsageInfo& info, AssemblerHolder& ah);
 
+void JitAvxV2CallStackPush(RegisterUsageInfo& info, AssemblerHolder& ah);
+void JitAvxV2CallStackPop(RegisterUsageInfo& info, AssemblerHolder& ah);
 void JitAvxV2StackInit(RegisterUsageInfo& info, AssemblerHolder& ah);
 void JitAvxV2StackPush(RegisterUsageInfo& info, AssemblerHolder& ah);
 void JitAvxV2StackPop(RegisterUsageInfo& info, AssemblerHolder& ah);

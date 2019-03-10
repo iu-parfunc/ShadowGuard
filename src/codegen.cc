@@ -52,16 +52,15 @@ std::string FunctionEpilog(std::string name) {
 }
 
 std::string GenerateFunction(std::string fn_name, RegisterUsageInfo& info,
-                             bool (*codegen)(RegisterUsageInfo,
+                             void (*codegen)(RegisterUsageInfo,
                                              AssemblerHolder&),
                              std::string overflow_slot = "") {
   std::string prolog = FunctionProlog(fn_name);
 
   /* Generate function body */
   AssemblerHolder ah;
-  if (!codegen(info, ah)) {
-    return "";
-  }
+  codegen(info, ah);
+
   std::string code(ah.GetStringLogger()->getString());
 
   std::string epilog = FunctionEpilog(fn_name);

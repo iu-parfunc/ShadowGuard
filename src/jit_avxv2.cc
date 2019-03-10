@@ -8,6 +8,24 @@
 
 using namespace asmjit::x86;
 
+void JitAvxV2CallStackPush(RegisterUsageInfo& info, AssemblerHolder& ah) {
+  asmjit::X86Assembler* a = ah.GetAssembler();
+  AvxRegister meta = GetNextUnusedAvx2Register(info);
+  // Stack pointer register
+  asmjit::X86Xmm sp = meta.xmm;
+  a->vpextrq(r10, sp, asmjit::imm(0));
+  a->jmp(r10);
+}
+
+void JitAvxV2CallStackPop(RegisterUsageInfo& info, AssemblerHolder& ah) {
+  asmjit::X86Assembler* a = ah.GetAssembler();
+  AvxRegister meta = GetNextUnusedAvx2Register(info);
+  // Stack pointer register
+  asmjit::X86Xmm sp = meta.xmm;
+  a->vpextrq(r10, sp, asmjit::imm(1));
+  a->jmp(r10);
+}
+
 void JitAvxV2StackInit(RegisterUsageInfo& info, AssemblerHolder& ah) {
   asmjit::X86Assembler* a = ah.GetAssembler();
   AvxRegister meta = GetNextUnusedAvx2Register(info);
