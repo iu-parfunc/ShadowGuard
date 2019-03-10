@@ -14,7 +14,7 @@ void JitAvxV2CallStackPush(RegisterUsageInfo& info, AssemblerHolder& ah) {
   // Stack pointer register
   asmjit::X86Xmm sp = meta.xmm;
   a->vpextrq(r10, sp, asmjit::imm(0));
-  a->jmp(r10);
+  a->call(r10);
 }
 
 void JitAvxV2CallStackPop(RegisterUsageInfo& info, AssemblerHolder& ah) {
@@ -23,7 +23,7 @@ void JitAvxV2CallStackPop(RegisterUsageInfo& info, AssemblerHolder& ah) {
   // Stack pointer register
   asmjit::X86Xmm sp = meta.xmm;
   a->vpextrq(r10, sp, asmjit::imm(1));
-  a->jmp(r10);
+  a->call(r10);
 }
 
 void JitAvxV2StackInit(RegisterUsageInfo& info, AssemblerHolder& ah) {
