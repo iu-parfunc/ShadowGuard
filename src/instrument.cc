@@ -129,7 +129,7 @@ std::vector<bool> GetReservedAvxMask() {
   int n_regs = 0;
   int reserved_from = 0;
 
-  if (FLAGS_shadow_stack == "avx2") {
+  if (FLAGS_shadow_stack == "avx2" || FLAGS_shadow_stack == "avx_v2") {
     n_regs = 16;
     reserved_from = 8;
   } else if (FLAGS_shadow_stack == "avx512") {
@@ -152,7 +152,7 @@ std::vector<uint8_t> GetRegisterCollisions(const std::vector<bool>& unused) {
   std::vector<bool> reserved = GetReservedAvxMask();
 
   int n_regs = 0;
-  if (FLAGS_shadow_stack == "avx2") {
+  if (FLAGS_shadow_stack == "avx2" || FLAGS_shadow_stack == "avx_v2") {
     n_regs = 16;
   } else if (FLAGS_shadow_stack == "avx512") {
     n_regs = 32;
@@ -525,6 +525,14 @@ void InstrumentModule(
     BPatch_function* function = *it;
     function->getName(funcname, 2048);
 
+    std::string func(funcname);
+    if (init_fns.find(func) != init_fns.end()) {
+      InstrumentFunction(function, lib, parser, patcher, instrumentation_fns,
+                         true);
+      continue;
+    }
+
+
     ParseAPI::Function* f = ParseAPI::convert(function);
     if (f->retstatus() == ParseAPI::NORETURN)
       continue;
@@ -538,23 +546,17 @@ void InstrumentModule(
     if (symR->getRegionName() != ".text")
       continue;
 
-    std::string func(funcname);
-    if (init_fns.find(func) != init_fns.end()) {
-      InstrumentFunction(function, lib, parser, patcher, instrumentation_fns,
-                         true);
-    } else {
-      // Ignore IFUNC
-      Dyninst::Address funcStart = (Dyninst::Address)function->getBaseAddr();
-      if (ifuncAddrs.find(funcStart) != ifuncAddrs.end()) {
-        continue;
-      }
-      // Avoid instrumenting some internal libc functions
-      if ((strcmp(funcname, "memset") != 0) &&
-          (strcmp(funcname, "call_gmon_start") != 0) &&
-          (strcmp(funcname, "frame_dummy") != 0) && funcname[0] != '_') {
+    // Ignore IFUNC
+    Dyninst::Address funcStart = (Dyninst::Address)function->getBaseAddr();
+    if (ifuncAddrs.find(funcStart) != ifuncAddrs.end()) {
+      continue;
+    }
+    // Avoid instrumenting some internal libc functions
+    if ((strcmp(funcname, "memset") != 0) &&
+        (strcmp(funcname, "call_gmon_start") != 0) &&
+        (strcmp(funcname, "frame_dummy") != 0) && funcname[0] != '_') {
         InstrumentFunction(function, lib, parser, patcher, instrumentation_fns,
-                           false);
-      }
+                         false);
     }
   }
 }
@@ -697,7 +699,7 @@ void Instrument(std::string binary, std::map<std::string, Code*>* const cache,
 
     // Mark reserved avx2 registers as unused for the purpose of shadow stack
     // code generation
-    if (FLAGS_shadow_stack == "avx2") {
+    if (FLAGS_shadow_stack == "avx2" || FLAGS_shadow_stack == "avx_v2") {
       std::vector<bool>& mask =
           const_cast<std::vector<bool>&>(info.GetUnusedAvx2Mask());
       mask = GetReservedAvxMask();
@@ -730,7 +732,7 @@ void Instrument(std::string binary, std::map<std::string, Code*>* const cache,
       // initialization functions. These function entries will be instrumentated
       // for stack initialization.
       // init_fns.insert("__libc_init_first");
-      // init_fns.insert("_start");
+      init_fns.insert("_start");
       // init_fns.insert("__libc_csu_init");
       // init_fns.insert("__libc_start_main");
     }
