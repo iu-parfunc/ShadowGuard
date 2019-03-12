@@ -76,80 +76,91 @@ bool HasEnoughStorage(RegisterUsageInfo& info) {
   return true;
 }
 
-void JitCallStackPush(RegisterUsageInfo info, AssemblerHolder& ah) {
+std::string JitCallStackPush(RegisterUsageInfo info, AssemblerHolder& ah) {
   if (FLAGS_shadow_stack == "avx_v2") {
-    JitAvxV2CallStackPush(info, ah);
+    return JitAvxV2CallStackPush(info, ah);
   }
+
+  return "";
 }
 
-void JitCallStackPop(RegisterUsageInfo info, AssemblerHolder& ah) {
+std::string JitCallStackPop(RegisterUsageInfo info, AssemblerHolder& ah) {
   if (FLAGS_shadow_stack == "avx_v2") {
-    JitAvxV2CallStackPop(info, ah);
+    return JitAvxV2CallStackPop(info, ah);
   }
+
+  return "";
 }
 
-void JitStackInit(RegisterUsageInfo info, AssemblerHolder& ah) {
+std::string JitStackInit(RegisterUsageInfo info, AssemblerHolder& ah) {
   if (FLAGS_shadow_stack == "avx2") {
-    JitAvx2StackInit(info, ah);
+    return JitAvx2StackInit(info, ah);
   } else if (FLAGS_shadow_stack == "avx_v2") {
-    JitAvxV2StackInit(info, ah);
+    return JitAvxV2StackInit(info, ah);
   } else if (FLAGS_shadow_stack == "avx512") {
     // TODO(chamibuddhika) Test this
-    JitAvx512StackInit(info, ah);
+    return JitAvx512StackInit(info, ah);
   } else if (FLAGS_shadow_stack == "mem") {
     // TODO(chamibuddhika) Implement this
     // JitMemoryStackPush(info, a);
   } else if (FLAGS_shadow_stack == "dispatch") {
-    JitNopInit(info, ah);
+    return JitNopInit(info, ah);
   }
+  return "";
 }
 
-void JitEmpty(AssemblerHolder& ah) {
+std::string JitEmpty(AssemblerHolder& ah) {
   asmjit::X86Assembler* a = ah.GetAssembler();
   a->mov(rax, asmjit::imm(1));
   a->nop();
+
+  return ah.GetStringLogger()->getString();
 }
 
-void JitStackPush(RegisterUsageInfo info, AssemblerHolder& ah) {
+std::string JitStackPush(RegisterUsageInfo info, AssemblerHolder& ah) {
   if (!HasEnoughStorage(info)) {
-    return;
+    return "";
   }
 
   if (FLAGS_shadow_stack == "avx2") {
-    JitAvx2StackPush(info, ah);
+    return JitAvx2StackPush(info, ah);
   } else if (FLAGS_shadow_stack == "avx_v2") {
-    JitAvxV2StackPush(info, ah);
+    return JitAvxV2StackPush(info, ah);
   } else if (FLAGS_shadow_stack == "avx512") {
     // TODO(chamibuddhika) Test this
-    JitAvx512StackPush(info, ah);
+    return JitAvx512StackPush(info, ah);
   } else if (FLAGS_shadow_stack == "mem") {
     // TODO(chamibuddhika) Implement this
     // JitMemoryStackPush(info, a);
   } else if (FLAGS_shadow_stack == "dispatch") {
-    JitNopPush(info, ah);
+    return JitNopPush(info, ah);
   } else if (FLAGS_shadow_stack == "empty") {
-    JitEmpty(ah);
+    return JitEmpty(ah);
   }
+
+  return "";
 }
 
-void JitStackPop(RegisterUsageInfo info, AssemblerHolder& ah) {
+std::string JitStackPop(RegisterUsageInfo info, AssemblerHolder& ah) {
   if (!HasEnoughStorage(info)) {
-    return;
+    return "";
   }
 
   if (FLAGS_shadow_stack == "avx2") {
-    JitAvx2StackPop(info, ah);
+    return JitAvx2StackPop(info, ah);
   } else if (FLAGS_shadow_stack == "avx_v2") {
-    JitAvxV2StackPop(info, ah);
+    return JitAvxV2StackPop(info, ah);
   } else if (FLAGS_shadow_stack == "avx512") {
     // TODO(chamibuddhika) Test this
-    JitAvx512StackPop(info, ah);
+    return JitAvx512StackPop(info, ah);
   } else if (FLAGS_shadow_stack == "mem") {
     // TODO(chamibuddhika) Implement this
     // JitMemoryStackPop(info, a);
   } else if (FLAGS_shadow_stack == "dispatch") {
-    JitNopPop(info, ah);
+    return JitNopPop(info, ah);
   } else if (FLAGS_shadow_stack == "empty") {
-    JitEmpty(ah);
+    return JitEmpty(ah);
   }
+
+  return "";
 }

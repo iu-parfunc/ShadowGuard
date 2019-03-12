@@ -14,6 +14,8 @@ struct AvxRegister {
   asmjit::X86Zmm zmm;
 };
 
+std::string GetAvx2Register(asmjit::X86Xmm reg);
+
 AvxRegister GetNextUnusedAvx2Register(RegisterUsageInfo& info);
 AvxRegister GetNextUnusedAvx512Register(RegisterUsageInfo& info);
 

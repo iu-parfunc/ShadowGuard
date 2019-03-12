@@ -2,6 +2,8 @@
 #ifndef LITECFI_JIT_INTERNAL_H_
 #define LITECFI_JIT_INTERNAL_H_
 
+#include <string>
+
 #include "asmjit/asmjit.h"
 #include "gflags/gflags.h"
 #include "jit.h"
@@ -143,28 +145,28 @@ asmjit::X86Gp GetRaHolder();
   a->bind(error);                                                              \
   a->int3();
 
-void JitAvx2StackInit(RegisterUsageInfo& info, AssemblerHolder& ah);
-void JitAvx2StackPush(RegisterUsageInfo& info, AssemblerHolder& ah);
-void JitAvx2StackPop(RegisterUsageInfo& info, AssemblerHolder& ah);
+std::string JitAvx2StackInit(RegisterUsageInfo& info, AssemblerHolder& ah);
+std::string JitAvx2StackPush(RegisterUsageInfo& info, AssemblerHolder& ah);
+std::string JitAvx2StackPop(RegisterUsageInfo& info, AssemblerHolder& ah);
 
-void JitAvxV2CallStackPush(RegisterUsageInfo& info, AssemblerHolder& ah);
-void JitAvxV2CallStackPop(RegisterUsageInfo& info, AssemblerHolder& ah);
-void JitAvxV2StackInit(RegisterUsageInfo& info, AssemblerHolder& ah);
-void JitAvxV2StackPush(RegisterUsageInfo& info, AssemblerHolder& ah);
-void JitAvxV2StackPop(RegisterUsageInfo& info, AssemblerHolder& ah);
+std::string JitAvxV2StackInit(RegisterUsageInfo& info, AssemblerHolder& ah);
+std::string JitAvxV2StackPush(RegisterUsageInfo& info, AssemblerHolder& ah);
+std::string JitAvxV2StackPop(RegisterUsageInfo& info, AssemblerHolder& ah);
+std::string JitAvxV2CallStackPush(RegisterUsageInfo& info, AssemblerHolder& ah);
+std::string JitAvxV2CallStackPop(RegisterUsageInfo& info, AssemblerHolder& ah);
 
-void JitAvx512StackInit(RegisterUsageInfo& info, AssemblerHolder& ah);
-void JitAvx512StackPush(RegisterUsageInfo& info, AssemblerHolder& ah);
-void JitAvx512StackPop(RegisterUsageInfo& info, AssemblerHolder& ah);
+std::string JitAvx512StackInit(RegisterUsageInfo& info, AssemblerHolder& ah);
+std::string JitAvx512StackPush(RegisterUsageInfo& info, AssemblerHolder& ah);
+std::string JitAvx512StackPop(RegisterUsageInfo& info, AssemblerHolder& ah);
 
-void JitNopInit(RegisterUsageInfo& info, AssemblerHolder& ah);
-void JitNopPush(RegisterUsageInfo& info, AssemblerHolder& ah);
-void JitNopPop(RegisterUsageInfo& info, AssemblerHolder& ah);
+std::string JitNopInit(RegisterUsageInfo& info, AssemblerHolder& ah);
+std::string JitNopPush(RegisterUsageInfo& info, AssemblerHolder& ah);
+std::string JitNopPop(RegisterUsageInfo& info, AssemblerHolder& ah);
 
-void JitMemoryStackPush(RegisterUsageInfo& info, AssemblerHolder& ah);
-void JitMemoryStackPop(RegisterUsageInfo& info, AssemblerHolder& ah);
+std::string JitMemoryStackPush(RegisterUsageInfo& info, AssemblerHolder& ah);
+std::string JitMemoryStackPop(RegisterUsageInfo& info, AssemblerHolder& ah);
 
-void JitXorProlog(RegisterUsageInfo& info, AssemblerHolder& ah);
-void JitXorEpilog(RegisterUsageInfo& info, AssemblerHolder& ah);
+std::string JitXorProlog(RegisterUsageInfo& info, AssemblerHolder& ah);
+std::string JitXorEpilog(RegisterUsageInfo& info, AssemblerHolder& ah);
 
 #endif  // LITECFI_JIT_INTERNAL_H_

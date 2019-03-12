@@ -1,11 +1,17 @@
 
-#include "register_utils.h"
+#include <string>
+
 #include "glog/logging.h"
+#include "register_utils.h"
 
 // Shadow stack implementation flag
 DECLARE_string(shadow_stack);
 
 using namespace asmjit::x86;
+
+std::string GetAvx2Register(asmjit::X86Xmm reg) {
+  return "xmm" + std::to_string(reg.getId());
+}
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wreturn-type"

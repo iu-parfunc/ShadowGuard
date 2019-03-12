@@ -31,10 +31,12 @@ static std::vector<bool> GetReservedAvxMask() {
   return reserved;
 }
 
-void JitNopInit(RegisterUsageInfo& info, AssemblerHolder& ah) {
+std::string JitNopInit(RegisterUsageInfo& info, AssemblerHolder& ah) {
   asmjit::X86Assembler* a = ah.GetAssembler();
   a->pxor(xmm14, xmm14);
   a->pxor(xmm15, xmm15);
+
+  return ah.GetStringLogger()->getString();
 }
 
 #define JIT_NOP_DISPATCH_PUSH(a, sp, sz, scratch, xmm_reg, ymm_reg)            \
@@ -106,7 +108,7 @@ void JitNopInit(RegisterUsageInfo& info, AssemblerHolder& ah) {
     break;                                                                     \
   }
 
-void JitNopPush(RegisterUsageInfo& info, AssemblerHolder& ah) {
+std::string JitNopPush(RegisterUsageInfo& info, AssemblerHolder& ah) {
   asmjit::X86Assembler* a = ah.GetAssembler();
 
   // Stack pointer register
@@ -156,6 +158,8 @@ void JitNopPush(RegisterUsageInfo& info, AssemblerHolder& ah) {
   */
   // Returns true to denote the push was successful
   a->mov(rax, asmjit::imm(1));
+
+  return ah.GetStringLogger()->getString();
 }
 
 #define JIT_NOP_DISPATCH_POP(a, sp, sz, scratch, xmm_reg, ymm_reg)             \
@@ -221,7 +225,7 @@ void JitNopPush(RegisterUsageInfo& info, AssemblerHolder& ah) {
     break;                                                                     \
   }
 
-void JitNopPop(RegisterUsageInfo& info, AssemblerHolder& ah) {
+std::string JitNopPop(RegisterUsageInfo& info, AssemblerHolder& ah) {
   asmjit::X86Assembler* a = ah.GetAssembler();
 
   // Stack pointer register
@@ -274,4 +278,6 @@ void JitNopPop(RegisterUsageInfo& info, AssemblerHolder& ah) {
   */
   // Returns true to denote the pop was successful
   a->mov(rax, asmjit::imm(1));
+
+  return ah.GetStringLogger()->getString();
 }

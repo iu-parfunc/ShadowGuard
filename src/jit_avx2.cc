@@ -8,43 +8,45 @@
 
 using namespace asmjit::x86;
 
-void JitAvx2StackInit(RegisterUsageInfo& info, AssemblerHolder& ah) {
+std::string JitAvx2StackInit(RegisterUsageInfo& info, AssemblerHolder& ah) {
   asmjit::X86Assembler* a = ah.GetAssembler();
   AvxRegister meta = GetNextUnusedAvx2Register(info);
   a->pxor(meta.xmm, meta.xmm);
+
+  return ah.GetStringLogger()->getString();
 }
 
-#define JIT_PUSH_AVX2(a, end, scratch, xmm_reg, ymm_reg, i1, i2, i3, i4) \
-  case i1: {                                                             \
-    a->align(0 /* code-alignment */, 32);                                \
-    a->pinsrq(xmm_reg, ptr(GetRaHolder()), asmjit::imm(0));              \
-    a->jmp(end);                                                         \
-    break;                                                               \
-  }                                                                      \
-  case i2: {                                                             \
-    a->align(0 /* code-alignment */, 32);                                \
-    a->pinsrq(xmm_reg, ptr(GetRaHolder()), asmjit::imm(1));              \
-    a->jmp(end);                                                         \
-    break;                                                               \
-  }                                                                      \
-  case i3: {                                                             \
-    a->align(0 /* code-alignment */, 32);                                \
-    a->vmovq(scratch.xmm, ptr(GetRaHolder()));                           \
-    a->vinserti128(scratch.ymm, ymm_reg, scratch.xmm, asmjit::imm(1));   \
-    a->vpblendd(ymm_reg, ymm_reg, scratch.ymm, asmjit::imm(48));         \
-    a->jmp(end);                                                         \
-    break;                                                               \
-  }                                                                      \
-  case i4: {                                                             \
-    a->align(0 /* code-alignment */, 32);                                \
-    a->vmovq(scratch.xmm, ptr(GetRaHolder()));                           \
-    a->vpbroadcastq(scratch.ymm, scratch.xmm);                           \
-    a->vpblendd(ymm_reg, ymm_reg, scratch.ymm, asmjit::imm(192));        \
-    a->jmp(end);                                                         \
-    break;                                                               \
+#define JIT_PUSH_AVX2(a, end, scratch, xmm_reg, ymm_reg, i1, i2, i3, i4)       \
+  case i1: {                                                                   \
+    a->align(0 /* code-alignment */, 32);                                      \
+    a->pinsrq(xmm_reg, ptr(GetRaHolder()), asmjit::imm(0));                    \
+    a->jmp(end);                                                               \
+    break;                                                                     \
+  }                                                                            \
+  case i2: {                                                                   \
+    a->align(0 /* code-alignment */, 32);                                      \
+    a->pinsrq(xmm_reg, ptr(GetRaHolder()), asmjit::imm(1));                    \
+    a->jmp(end);                                                               \
+    break;                                                                     \
+  }                                                                            \
+  case i3: {                                                                   \
+    a->align(0 /* code-alignment */, 32);                                      \
+    a->vmovq(scratch.xmm, ptr(GetRaHolder()));                                 \
+    a->vinserti128(scratch.ymm, ymm_reg, scratch.xmm, asmjit::imm(1));         \
+    a->vpblendd(ymm_reg, ymm_reg, scratch.ymm, asmjit::imm(48));               \
+    a->jmp(end);                                                               \
+    break;                                                                     \
+  }                                                                            \
+  case i4: {                                                                   \
+    a->align(0 /* code-alignment */, 32);                                      \
+    a->vmovq(scratch.xmm, ptr(GetRaHolder()));                                 \
+    a->vpbroadcastq(scratch.ymm, scratch.xmm);                                 \
+    a->vpblendd(ymm_reg, ymm_reg, scratch.ymm, asmjit::imm(192));              \
+    a->jmp(end);                                                               \
+    break;                                                                     \
   }
 
-void JitAvx2StackPush(RegisterUsageInfo& info, AssemblerHolder& ah) {
+std::string JitAvx2StackPush(RegisterUsageInfo& info, AssemblerHolder& ah) {
   asmjit::X86Assembler* a = ah.GetAssembler();
   AvxRegister meta = GetNextUnusedAvx2Register(info);
   AvxRegister scratch = GetNextUnusedAvx2Register(info);
@@ -83,6 +85,8 @@ void JitAvx2StackPush(RegisterUsageInfo& info, AssemblerHolder& ah) {
   a->bind(end);
   // Returns true to denote the push was successful
   a->mov(rax, asmjit::imm(1));
+
+  return ah.GetStringLogger()->getString();
 }
 
 #define JIT_POP_AVX2(a, end, error, scratch, xmm_reg, ymm_reg, i1, i2, i3, i4) \
@@ -113,7 +117,7 @@ void JitAvx2StackPush(RegisterUsageInfo& info, AssemblerHolder& ah) {
     break;                                                                     \
   }
 
-void JitAvx2StackPop(RegisterUsageInfo& info, AssemblerHolder& ah) {
+std::string JitAvx2StackPop(RegisterUsageInfo& info, AssemblerHolder& ah) {
   asmjit::X86Assembler* a = ah.GetAssembler();
   AvxRegister meta = GetNextUnusedAvx2Register(info);
   AvxRegister scratch = GetNextUnusedAvx2Register(info);
@@ -155,4 +159,6 @@ void JitAvx2StackPop(RegisterUsageInfo& info, AssemblerHolder& ah) {
   a->bind(end);
   // Returns true to denote the pop was successful
   a->mov(rax, asmjit::imm(1));
+
+  return ah.GetStringLogger()->getString();
 }

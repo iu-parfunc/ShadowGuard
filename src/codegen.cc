@@ -7,7 +7,10 @@
 #include <fstream>
 
 #include "jit.h"
+#include "jit_internal.h"
 #include "utils.h"
+
+DECLARE_string(shadow_stack);
 
 std::string Header() {
   std::string header = "";
@@ -52,16 +55,14 @@ std::string FunctionEpilog(std::string name) {
 }
 
 std::string GenerateFunction(std::string fn_name, RegisterUsageInfo& info,
-                             void (*codegen)(RegisterUsageInfo,
-                                             AssemblerHolder&),
+                             std::string (*codegen)(RegisterUsageInfo,
+                                                    AssemblerHolder&),
                              std::string overflow_slot = "") {
   std::string prolog = FunctionProlog(fn_name);
 
   /* Generate function body */
   AssemblerHolder ah;
-  codegen(info, ah);
-
-  std::string code(ah.GetStringLogger()->getString());
+  std::string code = codegen(info, ah);
 
   std::string epilog = FunctionEpilog(fn_name);
 
@@ -82,7 +83,7 @@ std::string CodegenStackPush(RegisterUsageInfo info) {
 std::string CodegenStackPop(RegisterUsageInfo info) {
   std::string overflow_slot = "";
   overflow_slot += "call litecfi_overflow_stack_pop@plt\n";
-  return GenerateFunction(kStackPopFunction, info, JitStackPop);
+  return GenerateFunction(kStackPopFunction, info, JitStackPop, overflow_slot);
 }
 
 std::string Codegen(RegisterUsageInfo info) {

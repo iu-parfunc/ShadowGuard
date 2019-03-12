@@ -9,56 +9,58 @@
 
 using namespace asmjit::x86;
 
-void JitAvx512StackInit(RegisterUsageInfo& info, AssemblerHolder& ah) {
+std::string JitAvx512StackInit(RegisterUsageInfo& info, AssemblerHolder& ah) {
   asmjit::X86Assembler* a = ah.GetAssembler();
   AvxRegister meta = GetNextUnusedAvx512Register(info);
   a->pxor(meta.xmm, meta.xmm);
+
+  return ah.GetStringLogger()->getString();
 }
 
-#define JIT_MOV_RA_TO_ZMM(a, zmm_reg, end, write_mask) \
-  a->mov(rax, asmjit::imm(write_mask));                \
-  a->kmovb(k5, rax);                                   \
-  a->k(k5).vpbroadcastq(zmm_reg, ptr(rsp));            \
-  a->jmp(end);                                         \
+#define JIT_MOV_RA_TO_ZMM(a, zmm_reg, end, write_mask)                         \
+  a->mov(rax, asmjit::imm(write_mask));                                        \
+  a->kmovb(k5, rax);                                                           \
+  a->k(k5).vpbroadcastq(zmm_reg, ptr(rsp));                                    \
+  a->jmp(end);                                                                 \
   NOP_PAD(a, 19)
 
-#define JIT_PUSH_AVX512(a, end, zmm_reg, i1, i2, i3, i4, i5, i6, i7, i8) \
-  case i1: {                                                             \
-    JIT_MOV_RA_TO_ZMM(a, zmm_reg, end, 1);                               \
-    break;                                                               \
-  }                                                                      \
-  case i2: {                                                             \
-    JIT_MOV_RA_TO_ZMM(a, zmm_reg, end, 2);                               \
-    break;                                                               \
-  }                                                                      \
-  case i3: {                                                             \
-    JIT_MOV_RA_TO_ZMM(a, zmm_reg, end, 4);                               \
-    break;                                                               \
-  }                                                                      \
-  case i4: {                                                             \
-    JIT_MOV_RA_TO_ZMM(a, zmm_reg, end, 8);                               \
-    break;                                                               \
-  }                                                                      \
-  case i5: {                                                             \
-    JIT_MOV_RA_TO_ZMM(a, zmm_reg, end, 16);                              \
-    break;                                                               \
-  }                                                                      \
-  case i6: {                                                             \
-    JIT_MOV_RA_TO_ZMM(a, zmm_reg, end, 32);                              \
-    break;                                                               \
-  }                                                                      \
-  case i7: {                                                             \
-    JIT_MOV_RA_TO_ZMM(a, zmm_reg, end, 64);                              \
-    break;                                                               \
-  }                                                                      \
-  case i8: {                                                             \
-    JIT_MOV_RA_TO_ZMM(a, zmm_reg, end, 128);                             \
-    break;                                                               \
+#define JIT_PUSH_AVX512(a, end, zmm_reg, i1, i2, i3, i4, i5, i6, i7, i8)       \
+  case i1: {                                                                   \
+    JIT_MOV_RA_TO_ZMM(a, zmm_reg, end, 1);                                     \
+    break;                                                                     \
+  }                                                                            \
+  case i2: {                                                                   \
+    JIT_MOV_RA_TO_ZMM(a, zmm_reg, end, 2);                                     \
+    break;                                                                     \
+  }                                                                            \
+  case i3: {                                                                   \
+    JIT_MOV_RA_TO_ZMM(a, zmm_reg, end, 4);                                     \
+    break;                                                                     \
+  }                                                                            \
+  case i4: {                                                                   \
+    JIT_MOV_RA_TO_ZMM(a, zmm_reg, end, 8);                                     \
+    break;                                                                     \
+  }                                                                            \
+  case i5: {                                                                   \
+    JIT_MOV_RA_TO_ZMM(a, zmm_reg, end, 16);                                    \
+    break;                                                                     \
+  }                                                                            \
+  case i6: {                                                                   \
+    JIT_MOV_RA_TO_ZMM(a, zmm_reg, end, 32);                                    \
+    break;                                                                     \
+  }                                                                            \
+  case i7: {                                                                   \
+    JIT_MOV_RA_TO_ZMM(a, zmm_reg, end, 64);                                    \
+    break;                                                                     \
+  }                                                                            \
+  case i8: {                                                                   \
+    JIT_MOV_RA_TO_ZMM(a, zmm_reg, end, 128);                                   \
+    break;                                                                     \
   }
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-but-set-variable"
-void JitAvx512StackPush(RegisterUsageInfo& info, AssemblerHolder& ah) {
+std::string JitAvx512StackPush(RegisterUsageInfo& info, AssemblerHolder& ah) {
   asmjit::X86Assembler* a = ah.GetAssembler();
   AvxRegister meta = GetNextUnusedAvx512Register(info);
 
@@ -111,57 +113,59 @@ void JitAvx512StackPush(RegisterUsageInfo& info, AssemblerHolder& ah) {
   }
 
   a->bind(end);
+
+  return ah.GetStringLogger()->getString();
 }
 #pragma GCC diagnostic pop
 
-#define JIT_POP_AVX512(a, end, error, scratch, xmm_reg, zmm_reg, i1, i2, i3, \
-                       i4, i5, i6, i7, i8)                                   \
-  case i1: {                                                                 \
-    a->vpextrq(rdi, xmm_reg, asmjit::imm(0));                                \
-    JIT_POP_RET_SEQ(a, end, error)                                           \
-    break;                                                                   \
-  }                                                                          \
-  case i2: {                                                                 \
-    a->vpextrq(rdi, xmm_reg, asmjit::imm(1));                                \
-    JIT_POP_RET_SEQ(a, end, error)                                           \
-    break;                                                                   \
-  }                                                                          \
-  case i3: {                                                                 \
-    a->vextracti64x2(scratch.xmm, zmm_reg, asmjit::imm(1));                  \
-    a->vpextrq(rdi, scratch.xmm, asmjit::imm(0));                            \
-    JIT_POP_RET_SEQ(a, end, error)                                           \
-    break;                                                                   \
-  }                                                                          \
-  case i4: {                                                                 \
-    a->vextracti64x2(scratch.xmm, zmm_reg, asmjit::imm(1));                  \
-    a->vpextrq(rdi, scratch.xmm, asmjit::imm(1));                            \
-    JIT_POP_RET_SEQ(a, end, error)                                           \
-    break;                                                                   \
-  }                                                                          \
-  case i5: {                                                                 \
-    a->vextracti64x2(scratch.xmm, zmm_reg, asmjit::imm(2));                  \
-    a->vpextrq(rdi, scratch.xmm, asmjit::imm(0));                            \
-    JIT_POP_RET_SEQ(a, end, error)                                           \
-  }                                                                          \
-  case i6: {                                                                 \
-    a->vextracti64x2(scratch.xmm, zmm_reg, asmjit::imm(2));                  \
-    a->vpextrq(rdi, scratch.xmm, asmjit::imm(1));                            \
-    JIT_POP_RET_SEQ(a, end, error)                                           \
-    break;                                                                   \
-  }                                                                          \
-  case i7: {                                                                 \
-    a->vextracti64x2(scratch.xmm, zmm_reg, asmjit::imm(3));                  \
-    a->vpextrq(rdi, scratch.xmm, asmjit::imm(0));                            \
-    JIT_POP_RET_SEQ(a, end, error)                                           \
-  }                                                                          \
-  case i8: {                                                                 \
-    a->vextracti64x2(scratch.xmm, zmm_reg, asmjit::imm(3));                  \
-    a->vpextrq(rdi, scratch.xmm, asmjit::imm(1));                            \
-    JIT_POP_RET_SEQ(a, end, error)                                           \
-    break;                                                                   \
+#define JIT_POP_AVX512(a, end, error, scratch, xmm_reg, zmm_reg, i1, i2, i3,   \
+                       i4, i5, i6, i7, i8)                                     \
+  case i1: {                                                                   \
+    a->vpextrq(rdi, xmm_reg, asmjit::imm(0));                                  \
+    JIT_POP_RET_SEQ(a, end, error)                                             \
+    break;                                                                     \
+  }                                                                            \
+  case i2: {                                                                   \
+    a->vpextrq(rdi, xmm_reg, asmjit::imm(1));                                  \
+    JIT_POP_RET_SEQ(a, end, error)                                             \
+    break;                                                                     \
+  }                                                                            \
+  case i3: {                                                                   \
+    a->vextracti64x2(scratch.xmm, zmm_reg, asmjit::imm(1));                    \
+    a->vpextrq(rdi, scratch.xmm, asmjit::imm(0));                              \
+    JIT_POP_RET_SEQ(a, end, error)                                             \
+    break;                                                                     \
+  }                                                                            \
+  case i4: {                                                                   \
+    a->vextracti64x2(scratch.xmm, zmm_reg, asmjit::imm(1));                    \
+    a->vpextrq(rdi, scratch.xmm, asmjit::imm(1));                              \
+    JIT_POP_RET_SEQ(a, end, error)                                             \
+    break;                                                                     \
+  }                                                                            \
+  case i5: {                                                                   \
+    a->vextracti64x2(scratch.xmm, zmm_reg, asmjit::imm(2));                    \
+    a->vpextrq(rdi, scratch.xmm, asmjit::imm(0));                              \
+    JIT_POP_RET_SEQ(a, end, error)                                             \
+  }                                                                            \
+  case i6: {                                                                   \
+    a->vextracti64x2(scratch.xmm, zmm_reg, asmjit::imm(2));                    \
+    a->vpextrq(rdi, scratch.xmm, asmjit::imm(1));                              \
+    JIT_POP_RET_SEQ(a, end, error)                                             \
+    break;                                                                     \
+  }                                                                            \
+  case i7: {                                                                   \
+    a->vextracti64x2(scratch.xmm, zmm_reg, asmjit::imm(3));                    \
+    a->vpextrq(rdi, scratch.xmm, asmjit::imm(0));                              \
+    JIT_POP_RET_SEQ(a, end, error)                                             \
+  }                                                                            \
+  case i8: {                                                                   \
+    a->vextracti64x2(scratch.xmm, zmm_reg, asmjit::imm(3));                    \
+    a->vpextrq(rdi, scratch.xmm, asmjit::imm(1));                              \
+    JIT_POP_RET_SEQ(a, end, error)                                             \
+    break;                                                                     \
   }
 
-void JitAvx512StackPop(RegisterUsageInfo& info, AssemblerHolder& ah) {
+std::string JitAvx512StackPop(RegisterUsageInfo& info, AssemblerHolder& ah) {
   asmjit::X86Assembler* a = ah.GetAssembler();
   AvxRegister meta = GetNextUnusedAvx2Register(info);
   AvxRegister scratch = GetNextUnusedAvx2Register(info);
@@ -248,4 +252,6 @@ void JitAvx512StackPop(RegisterUsageInfo& info, AssemblerHolder& ah) {
   a->bind(error);
   a->int3();
   a->bind(end);
+
+  return ah.GetStringLogger()->getString();
 }

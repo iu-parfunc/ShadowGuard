@@ -34,14 +34,14 @@ class AssemblerHolder {
   asmjit::StringLogger* logger_;
 };
 
-void JitCallStackPush(RegisterUsageInfo info, AssemblerHolder& ah);
+std::string JitCallStackPush(RegisterUsageInfo info, AssemblerHolder& ah);
 
-void JitCallStackPop(RegisterUsageInfo info, AssemblerHolder& ah);
+std::string JitCallStackPop(RegisterUsageInfo info, AssemblerHolder& ah);
 
-void JitStackInit(RegisterUsageInfo info, AssemblerHolder& ah);
+std::string JitStackInit(RegisterUsageInfo info, AssemblerHolder& ah);
 
-void JitStackPush(RegisterUsageInfo info, AssemblerHolder& ah);
+std::string JitStackPush(RegisterUsageInfo info, AssemblerHolder& ah);
 
-void JitStackPop(RegisterUsageInfo info, AssemblerHolder& ah);
+std::string JitStackPop(RegisterUsageInfo info, AssemblerHolder& ah);
 
 #endif  // LITECFI_JIT_H_

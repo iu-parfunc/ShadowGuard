@@ -8,28 +8,39 @@
 
 using namespace asmjit::x86;
 
-void JitAvxV2CallStackPush(RegisterUsageInfo& info, AssemblerHolder& ah) {
+std::string JitAvxV2CallStackPush(RegisterUsageInfo& info,
+                                  AssemblerHolder& ah) {
   asmjit::X86Assembler* a = ah.GetAssembler();
   AvxRegister meta = GetNextUnusedAvx2Register(info);
   // Stack pointer register
   asmjit::X86Xmm sp = meta.xmm;
   a->vpextrq(r10, sp, asmjit::imm(0));
   a->call(r10);
+  return "";
 }
 
-void JitAvxV2CallStackPop(RegisterUsageInfo& info, AssemblerHolder& ah) {
+std::string JitAvxV2CallStackPop(RegisterUsageInfo& info, AssemblerHolder& ah) {
   asmjit::X86Assembler* a = ah.GetAssembler();
   AvxRegister meta = GetNextUnusedAvx2Register(info);
   // Stack pointer register
   asmjit::X86Xmm sp = meta.xmm;
   a->vpextrq(r10, sp, asmjit::imm(1));
   a->call(r10);
+  return "";
 }
 
-void JitAvxV2StackInit(RegisterUsageInfo& info, AssemblerHolder& ah) {
-  asmjit::X86Assembler* a = ah.GetAssembler();
+std::string JitAvxV2StackInit(RegisterUsageInfo& info, AssemblerHolder& ah) {
   AvxRegister meta = GetNextUnusedAvx2Register(info);
-  a->pxor(meta.xmm, meta.xmm);
+  // Stack pointer register
+  asmjit::X86Xmm sp = meta.xmm;
+
+  std::string stack_init = "";
+  stack_init += "lea r10, " + kStackPushFunction + "[rip]\n";
+  stack_init += "pinsrq " + GetAvx2Register(sp) + ", r10, 0\n";
+  stack_init += "lea r10, " + kStackPopFunction + "[rip]\n";
+  stack_init += "pinsrq " + GetAvx2Register(sp) + ", r10, 1\n";
+
+  return stack_init;
 }
 
 #define JIT_PUSH_AVX2(a, sp, first, scratch, xmm_reg, ymm_reg, i1, i2, i3, i4) \
@@ -86,7 +97,7 @@ void JitAvxV2StackInit(RegisterUsageInfo& info, AssemblerHolder& ah) {
     break;                                                                     \
   }
 
-void JitAvxV2StackPush(RegisterUsageInfo& info, AssemblerHolder& ah) {
+std::string JitAvxV2StackPush(RegisterUsageInfo& info, AssemblerHolder& ah) {
   asmjit::X86Assembler* a = ah.GetAssembler();
   AvxRegister meta = GetNextUnusedAvx2Register(info);
   AvxRegister scratch = GetNextUnusedAvx2Register(info);
@@ -124,6 +135,8 @@ void JitAvxV2StackPush(RegisterUsageInfo& info, AssemblerHolder& ah) {
       JIT_PUSH_AVX2(a, sp, first, scratch, xmm15, ymm15, 60, 61, 62, 63)
     }
   }
+
+  return ah.GetStringLogger()->getString();
 }
 
 #define JIT_POP_AVX2(a, sp, first, error, scratch, xmm_reg, ymm_reg, i1, i2,   \
@@ -155,7 +168,7 @@ void JitAvxV2StackPush(RegisterUsageInfo& info, AssemblerHolder& ah) {
     break;                                                                     \
   }
 
-void JitAvxV2StackPop(RegisterUsageInfo& info, AssemblerHolder& ah) {
+std::string JitAvxV2StackPop(RegisterUsageInfo& info, AssemblerHolder& ah) {
   asmjit::X86Assembler* a = ah.GetAssembler();
   AvxRegister meta = GetNextUnusedAvx2Register(info);
   AvxRegister scratch = GetNextUnusedAvx2Register(info);
@@ -195,4 +208,6 @@ void JitAvxV2StackPop(RegisterUsageInfo& info, AssemblerHolder& ah) {
       JIT_POP_AVX2(a, sp, first, error, scratch, xmm15, ymm15, 60, 61, 62, 63)
     }
   }
+
+  return ah.GetStringLogger()->getString();
 }

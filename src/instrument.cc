@@ -80,7 +80,7 @@ class StackOpSnippet : public Dyninst::PatchAPI::Snippet {
   }
 
  protected:
-  void (*jit_fn_)(RegisterUsageInfo, AssemblerHolder&);
+  std::string (*jit_fn_)(RegisterUsageInfo, AssemblerHolder&);
 
  private:
   RegisterUsageInfo info_;
@@ -417,8 +417,8 @@ void SharedLibraryInstrumentation(
     mask = GetReservedAvxMask();
 
     Snippet::Ptr call_stack_push =
-        CallStackPushSnippet::create(new CallStackPushSnippet(unused));
-    InsertInstrumentation(function, Point::FuncEntry, call_stack_push, patcher);
+        CallStackPopSnippet::create(new CallStackPopSnippet(unused));
+    InsertInstrumentation(function, Point::FuncExit, call_stack_push, patcher);
   }
 }
 
