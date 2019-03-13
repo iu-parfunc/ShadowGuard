@@ -35,9 +35,12 @@ std::string Header() {
 
 std::string Footer() { return "NO_EXEC_STACK_DIRECTIVE"; }
 
-std::string FunctionProlog(std::string name) {
+std::string FunctionProlog(std::string name, bool global) {
   std::string prolog = "";
-  prolog += "  .globl ASM_SYMBOL(" + name + ")\n";
+  if (global)
+      prolog += "  .globl ASM_SYMBOL(" + name + ")\n";
+  else
+      prolog += "  ASM_HIDDEN(" + name + ")\n";
   prolog += "  ASM_TYPE_FUNCTION(" + name + ")\n";
   prolog += "ASM_SYMBOL(" + name + "):\n";
   prolog += "CFI_STARTPROC\n";
@@ -57,8 +60,9 @@ std::string FunctionEpilog(std::string name) {
 std::string GenerateFunction(std::string fn_name, RegisterUsageInfo& info,
                              std::string (*codegen)(RegisterUsageInfo,
                                                     AssemblerHolder&),
-                             std::string overflow_slot = "") {
-  std::string prolog = FunctionProlog(fn_name);
+                             std::string overflow_slot = "",
+                             bool global = true) {
+  std::string prolog = FunctionProlog(fn_name, global);
 
   /* Generate function body */
   AssemblerHolder ah;
@@ -77,13 +81,13 @@ std::string CodegenStackPush(RegisterUsageInfo info) {
   std::string overflow_slot = "";
   overflow_slot += "call litecfi_overflow_stack_push@plt\n";
   return GenerateFunction(kStackPushFunction, info, JitStackPush,
-                          overflow_slot);
+                          overflow_slot, false);
 }
 
 std::string CodegenStackPop(RegisterUsageInfo info) {
   std::string overflow_slot = "";
   overflow_slot += "call litecfi_overflow_stack_pop@plt\n";
-  return GenerateFunction(kStackPopFunction, info, JitStackPop, overflow_slot);
+  return GenerateFunction(kStackPopFunction, info, JitStackPop, overflow_slot, false);
 }
 
 std::string Codegen(RegisterUsageInfo info) {
@@ -97,6 +101,7 @@ std::string Codegen(RegisterUsageInfo info) {
     return "";
   }
 
+  /*
   std::string stack_init = Header() + CodegenStackInit(info) + Footer();
   std::ofstream init(temp_dir + "/" + "__litecfi_stack_init_x86_64.S");
   init << stack_init;
@@ -108,6 +113,14 @@ std::string Codegen(RegisterUsageInfo info) {
   std::string stack_pop = Header() + CodegenStackPop(info) + Footer();
   std::ofstream pop(temp_dir + "/" + "__litecfi_stack_pop_x86_64.S");
   pop << stack_pop;
+  */
+
+  // Put init, push and pop functions in one .S file,
+  // so that we can reference push & pop function with
+  // pc-relative addressing 
+  std::string libstack = Header() + CodegenStackInit(info) + CodegenStackPush(info) + CodegenStackPop(info) + Footer();
+  std::ofstream libstack_stream(temp_dir + "/" + "__litecfi_stack_x86_64.S");
+  libstack_stream << libstack;
 
   std::string soname = "libstack.so";
 

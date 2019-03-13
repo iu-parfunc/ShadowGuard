@@ -35,9 +35,9 @@ std::string JitAvxV2StackInit(RegisterUsageInfo& info, AssemblerHolder& ah) {
   asmjit::X86Xmm sp = meta.xmm;
 
   std::string stack_init = "";
-  stack_init += "lea r10, " + kStackPushFunction + "@plt\n";
+  stack_init += "lea r10, " + kStackPushFunction + "[rip]\n";
   stack_init += "pinsrq " + GetAvx2Register(sp) + ", r10, 0\n";
-  stack_init += "lea r10, " + kStackPopFunction + "@plt\n";
+  stack_init += "lea r10, " + kStackPopFunction + "[rip]\n";
   stack_init += "pinsrq " + GetAvx2Register(sp) + ", r10, 1\n";
 
   return stack_init;
