@@ -97,6 +97,10 @@ std::string Codegen(RegisterUsageInfo info) {
     return "";
   }
 
+  std::string stack_init = Header() + CodegenStackInit(info) + Footer();
+  std::ofstream init(temp_dir + "/" + "__litecfi_stack_init_x86_64.S");
+  init << stack_init;
+
   std::string stack_push = Header() + CodegenStackPush(info) + Footer();
   std::ofstream push(temp_dir + "/" + "__litecfi_stack_push_x86_64.S");
   push << stack_push;
