@@ -34,9 +34,12 @@ DECLARE_bool(vv);
 static std::vector<bool> reserved;
 
 // Trampoline specification
+static InstSpec is_init;
 static InstSpec is[9];
 
 void SetupInstrumentationSpec() {
+  is_init.trampGuard = false;
+  is_init.redZone = false;
   // Setup the trampoline specification
   is[0].saveRegs.push_back(Dyninst::x86_64::rax);
   is[0].saveRegs.push_back(Dyninst::x86_64::rdx);
@@ -475,6 +478,16 @@ void InstrumentFunction(
 
   // Instrument for initializing the stack in the init function
   if (is_init_function) {
+    if (FLAGS_shadow_stack == "avx_v2") {
+      BPatch_binaryEdit* binary_edit = ((BPatch_binaryEdit*)parser.app);
+      BPatch_Vector<BPatch_snippet*> args;
+      BPatch_funcCallExpr stack_init(*(instrumentation_fns["stack_init"]), args);
+      std::vector<BPatch_point*>* entries = function->findPoint(BPatch_entry);
+      BPatchSnippetHandle* handle = nullptr;
+      handle = binary_edit->insertSnippet(stack_init, *entries, BPatch_callBefore,
+                                          BPatch_lastSnippet, &is_init);
+      return;
+    }
     RegisterUsageInfo reserved;
     std::vector<bool>& mask =
         const_cast<std::vector<bool>&>(reserved.GetUnusedAvx2Mask());
@@ -675,6 +688,8 @@ void PopulateRegisterStackOperations(
   if (FLAGS_shadow_stack != "avx_v2") {
     fns["push"] = FindFunctionByName(parser.image, kStackPushFunction);
     fns["pop"] = FindFunctionByName(parser.image, kStackPopFunction);
+  } else {
+    fns["stack_init"] = FindFunctionByName(parser.image, "litecfi_avx2_stack_init");
   }
 }
 
