@@ -47,7 +47,15 @@ void litecfi_overflow_stack_push() {
   if (overflow_stack == NULL) {
       overflow_stack = (uint64_t*)overflow_stack_space;
   }
-  asm("movq (%%r10), %%r10;\n\t"
+  if (overflow_stack == (uint64_t*)overflow_stack_space) {
+      asm("vpextrq $1, %%xmm15, %%r11 \n\t"
+          "lea 64(%%r11), %%r11 \n\t"
+          "pinsrq $1, %%r11, %%xmm15 \n\t"
+          :
+          : 
+          :);
+  }
+  asm("movq (%%rdi), %%r10;\n\t"
       "movq %%r10, (%0);\n\t"
       "addq $8, %0;\n\t"
       : "+a"(overflow_stack)
@@ -64,7 +72,7 @@ void litecfi_overflow_stack_pop() {
       : "+d"(overflow_stack), "=b"(ret_addr)
       :);
   asm goto(
-      "cmp %0, (%%r10); \n\t"
+      "cmp %0, (%%rdi); \n\t"
       "jz %l1; \n\t"
       "int $3; \n\t"
       :
@@ -72,6 +80,15 @@ void litecfi_overflow_stack_pop() {
       : "cc"
       : ok);
 ok:
+  if (overflow_stack == (uint64_t*)overflow_stack_space) {
+      asm("vpextrq $1,%%xmm15, %%r11 \n\t"
+          "lea -64(%%r11), %%r11 \n\t"
+          "pinsrq $1, %%r11, %%xmm15\n\t"
+          :
+          : 
+          :);
+  }
+
   return;
   /*
   asm("subq $8, %0;\n\t"

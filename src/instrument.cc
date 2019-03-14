@@ -38,6 +38,8 @@ static InstSpec is_init;
 static InstSpec is[9];
 
 void SetupInstrumentationSpec() {
+  // Suppose we instrument a call to stack init at entry of A;
+  // If A does not use r11, we dont need to save r11 (_start does not)
   is_init.trampGuard = false;
   is_init.redZone = false;
   // Setup the trampoline specification
@@ -116,6 +118,12 @@ class CallStackPushSnippet : public StackOpSnippet {
     jit_fn_ = JitCallStackPush;
   }
 };
+class CallStackPushSnippet2 : public StackOpSnippet {
+ public:
+  explicit CallStackPushSnippet2(RegisterUsageInfo info) : StackOpSnippet(info) {
+    jit_fn_ = JitCallStackPush2;
+  }
+};
 
 class CallStackPopSnippet : public StackOpSnippet {
  public:
@@ -123,6 +131,14 @@ class CallStackPopSnippet : public StackOpSnippet {
     jit_fn_ = JitCallStackPop;
   }
 };
+
+class CallStackPopSnippet2 : public StackOpSnippet {
+ public:
+  explicit CallStackPopSnippet2(RegisterUsageInfo info) : StackOpSnippet(info) {
+    jit_fn_ = JitCallStackPop2;
+  }
+};
+
 
 std::vector<bool> GetReservedAvxMask() {
   if (reserved.size() > 0) {
@@ -290,9 +306,15 @@ void SharedLibraryInstrumentation(
         const_cast<std::vector<bool>&>(unused.GetUnusedAvx2Mask());
     mask = GetReservedAvxMask();
 
-    Snippet::Ptr call_stack_push =
-        CallStackPushSnippet::create(new CallStackPushSnippet(unused));
-    InsertInstrumentation(function, Point::FuncEntry, call_stack_push, patcher);
+    if (collisions.empty()) {
+      Snippet::Ptr call_stack_push =
+          CallStackPushSnippet::create(new CallStackPushSnippet(unused));
+      InsertInstrumentation(function, Point::FuncEntry, call_stack_push, patcher);
+    } else {
+      Snippet::Ptr call_stack_push =
+          CallStackPushSnippet2::create(new CallStackPushSnippet2(unused));
+      InsertInstrumentation(function, Point::FuncEntry, call_stack_push, patcher);
+    }
   }
 
   // 1.b) Save CFI context if necessary
@@ -418,10 +440,16 @@ void SharedLibraryInstrumentation(
     std::vector<bool>& mask =
         const_cast<std::vector<bool>&>(unused.GetUnusedAvx2Mask());
     mask = GetReservedAvxMask();
+    if (collisions.empty()) {
+      Snippet::Ptr call_stack_push =
+          CallStackPopSnippet::create(new CallStackPopSnippet(unused));
+      InsertInstrumentation(function, Point::FuncExit, call_stack_push, patcher);
+    } else {
+      Snippet::Ptr call_stack_push =
+          CallStackPopSnippet2::create(new CallStackPopSnippet2(unused));
+      InsertInstrumentation(function, Point::FuncExit, call_stack_push, patcher);
 
-    Snippet::Ptr call_stack_push =
-        CallStackPopSnippet::create(new CallStackPopSnippet(unused));
-    InsertInstrumentation(function, Point::FuncExit, call_stack_push, patcher);
+    }
   }
 }
 

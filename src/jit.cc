@@ -56,7 +56,6 @@ asmjit::X86Gp GetRaHolder() {
   if (FLAGS_instrument == "shared") {
     return asmjit::x86::r10;
   }
-
   // Inlined instrumentation
   return asmjit::x86::rsp;
 }
@@ -84,9 +83,26 @@ std::string JitCallStackPush(RegisterUsageInfo info, AssemblerHolder& ah) {
   return "";
 }
 
+std::string JitCallStackPush2(RegisterUsageInfo info, AssemblerHolder& ah) {
+  if (FLAGS_shadow_stack == "avx_v2") {
+    return JitAvxV2CallStackPush2(info, ah);
+  }
+
+  return "";
+}
+
+
 std::string JitCallStackPop(RegisterUsageInfo info, AssemblerHolder& ah) {
   if (FLAGS_shadow_stack == "avx_v2") {
     return JitAvxV2CallStackPop(info, ah);
+  }
+
+  return "";
+}
+
+std::string JitCallStackPop2(RegisterUsageInfo info, AssemblerHolder& ah) {
+  if (FLAGS_shadow_stack == "avx_v2") {
+    return JitAvxV2CallStackPop2(info, ah);
   }
 
   return "";

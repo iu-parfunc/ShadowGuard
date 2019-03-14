@@ -35,8 +35,11 @@ class AssemblerHolder {
 };
 
 std::string JitCallStackPush(RegisterUsageInfo info, AssemblerHolder& ah);
+std::string JitCallStackPush2(RegisterUsageInfo info, AssemblerHolder& ah);
 
 std::string JitCallStackPop(RegisterUsageInfo info, AssemblerHolder& ah);
+std::string JitCallStackPop2(RegisterUsageInfo info, AssemblerHolder& ah);
+
 
 std::string JitStackInit(RegisterUsageInfo info, AssemblerHolder& ah);
 

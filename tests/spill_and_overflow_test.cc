@@ -18,9 +18,9 @@ void baz(int depth) {
   for (i = 0; i < depth; ++i) buffer[i] = depth * i;
 
   // Use up some avx2 registers
-  asm("pxor %%xmm8, %%xmm8;\n\t"
-      "pxor %%xmm9, %%xmm9;\n\t"
-      "pxor %%xmm10, %%xmm10;\n\t"
+  asm("pxor %%xmm15, %%xmm15;\n\t"
+      "pxor %%xmm13, %%xmm13;\n\t"
+      "pxor %%xmm12, %%xmm12;\n\t"
       :
       :
       :);
@@ -29,12 +29,13 @@ void baz(int depth) {
   fprintf(stderr, "baz after depth %d\n", depth);
 
   // Use up some avx2 registers
-  asm("pxor %%xmm8, %%xmm8;\n\t"
-      "pxor %%xmm9, %%xmm9;\n\t"
-      "pxor %%xmm10, %%xmm10;\n\t"
+  asm("pxor %%xmm15, %%xmm15;\n\t"
+      "pxor %%xmm13, %%xmm13;\n\t"
+      "pxor %%xmm12, %%xmm12;\n\t"
       :
       :
       :);
+
   free(buffer);
   return;
 }
