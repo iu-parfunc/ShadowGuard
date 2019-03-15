@@ -30,6 +30,7 @@ DECLARE_bool(libs);
 DECLARE_string(shadow_stack);
 DECLARE_bool(skip);
 DECLARE_bool(vv);
+DECLARE_string(threat_model);
 
 static std::vector<bool> reserved;
 
@@ -222,7 +223,8 @@ void InsertInstrumentation(BPatch_function* function, Point::Type location,
 void SharedLibraryInstrumentation(
     BPatch_function* function, RegisterUsageInfo& info, const Parser& parser,
     PatchMgr::Ptr patcher,
-    std::map<std::string, BPatch_function*>& instrumentation_fns) {
+    std::map<std::string, BPatch_function*>& instrumentation_fns,
+    bool isSystemCode) {
   BPatch_Vector<BPatch_snippet*> args;
   BPatch_binaryEdit* binary_edit = ((BPatch_binaryEdit*)parser.app);
   BPatchSnippetHandle* handle;
@@ -281,6 +283,9 @@ void SharedLibraryInstrumentation(
 
   std::vector<uint8_t> collisions =
       GetRegisterCollisions(info.GetUnusedAvx2Mask());
+
+  if (FLAGS_threat_model == "trust_system" && isSystemCode && collisions.empty()) return;
+
   InstSpec* isPtr = &is[collisions.size()];
 
   // ---------- 1. Instrument Function Entry ----------------
@@ -288,6 +293,8 @@ void SharedLibraryInstrumentation(
 
   // 1.a) Shadow stack push
   // Shared library function call to shadow stack push at function entry
+  if (FLAGS_threat_model != "trust_system" || !isSystemCode) {
+
   if (FLAGS_shadow_stack == "avx2") {
     BPatch_funcCallExpr stack_push(*(instrumentation_fns["push"]), args);
     BPatch_funcCallExpr of_push(*(instrumentation_fns["overflow_push"]), args);
@@ -315,6 +322,8 @@ void SharedLibraryInstrumentation(
           CallStackPushSnippet2::create(new CallStackPushSnippet2(unused));
       InsertInstrumentation(function, Point::FuncEntry, call_stack_push, patcher);
     }
+  }
+
   }
 
   // 1.b) Save CFI context if necessary
@@ -422,6 +431,8 @@ void SharedLibraryInstrumentation(
 
   // 3.c) Shadow stack pop
   // Shared library function call to shadow stack pop at function exit
+  if (FLAGS_threat_model != "trust_system" || !isSystemCode) {
+
   if (FLAGS_shadow_stack == "avx2") {
     BPatch_funcCallExpr stack_pop(*(instrumentation_fns["pop"]), args);
     BPatch_funcCallExpr of_pop(*(instrumentation_fns["overflow_pop"]), args);
@@ -450,6 +461,8 @@ void SharedLibraryInstrumentation(
       InsertInstrumentation(function, Point::FuncExit, call_stack_push, patcher);
 
     }
+  }
+
   }
 }
 
@@ -491,7 +504,8 @@ void InstrumentFunction(
     BPatch_function* function, Code* lib, const Parser& parser,
     PatchMgr::Ptr patcher,
     std::map<std::string, BPatch_function*>& instrumentation_fns,
-    bool is_init_function) {
+    bool is_init_function,
+    bool isSystemCode) {
   // Gets the function name in ParseAPI function instance
   std::string fn_name = Dyninst::PatchAPI::convert(function)->name();
   auto it = lib->register_usage.find(fn_name);
@@ -534,7 +548,7 @@ void InstrumentFunction(
 
   if (FLAGS_instrument == "shared") {
     SharedLibraryInstrumentation(function, *info, parser, patcher,
-                                 instrumentation_fns);
+                                 instrumentation_fns, isSystemCode);
     return;
   }
 }
@@ -555,7 +569,8 @@ void InstrumentModule(
     BPatch_module* module, Code* const lib, const Parser& parser,
     PatchMgr::Ptr patcher,
     std::map<std::string, BPatch_function*>& instrumentation_fns,
-    const std::set<std::string>& init_fns) {
+    const std::set<std::string>& init_fns,
+    bool isSystemCode) {
   char funcname[2048];
   std::vector<BPatch_function*>* functions = module->getProcedures();
 
@@ -569,7 +584,7 @@ void InstrumentModule(
     std::string func(funcname);
     if (init_fns.find(func) != init_fns.end()) {
       InstrumentFunction(function, lib, parser, patcher, instrumentation_fns,
-                         true);
+                         true, isSystemCode);
       continue;
     }
 
@@ -597,7 +612,7 @@ void InstrumentModule(
         (strcmp(funcname, "call_gmon_start") != 0) &&
         (strcmp(funcname, "frame_dummy") != 0) && funcname[0] != '_') {
         InstrumentFunction(function, lib, parser, patcher, instrumentation_fns,
-                         false);
+                         false, isSystemCode);
     }
   }
 }
@@ -622,7 +637,7 @@ void InstrumentCodeObject(
   }
 
   DCHECK(lib) << "Couldn't find code object for : " << object->pathName();
-
+  bool isSystemCode = IsSystemCode(object);
   std::vector<BPatch_module*> modules;
   object->modules(modules);
 
@@ -632,7 +647,7 @@ void InstrumentCodeObject(
     module->getName(modname, 2048);
 
     InstrumentModule(module, lib, parser, patcher, instrumentation_fns,
-                     init_fns);
+                     init_fns, isSystemCode);
   }
 }
 
@@ -668,15 +683,7 @@ void PopulateRegisterStackOperations(
     fns[key_prefix + "_" + std::to_string(i)] =
         FindFunctionByName(parser.image, fn_name);
   }
-  /*
-    fn_prefix = "litecfi_register_peek";
-    key_prefix = "register_peek";
-    for (int i = 1; i <= 8; i++) {
-      std::string fn_name = fn_prefix + "_" + std::to_string(i);
-      fns[key_prefix + "_" + std::to_string(i)] =
-          FindFunctionByName(parser.image, fn_name);
-    }
-  */
+
   fn_prefix = "litecfi_ctx_save";
   key_prefix = "ctx_save";
   for (int i = 1; i <= 8; i++) {
@@ -692,15 +699,7 @@ void PopulateRegisterStackOperations(
     fns[key_prefix + "_" + std::to_string(i)] =
         FindFunctionByName(parser.image, fn_name);
   }
-  /*
-    fn_prefix = "litecfi_ctx_peek";
-    key_prefix = "ctx_peek";
-    for (int i = 1; i <= 8; i++) {
-      std::string fn_name = fn_prefix + "_" + std::to_string(i);
-      fns[key_prefix + "_" + std::to_string(i)] =
-          FindFunctionByName(parser.image, fn_name);
-    }
-  */
+
   std::string fn_name = "litecfi_mem_initialize";
   fns["tls_init"] = FindFunctionByName(parser.image, fn_name);
 

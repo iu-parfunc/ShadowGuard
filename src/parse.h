@@ -16,5 +16,6 @@ struct Parser {
 Parser InitParser(std::string binary);
 
 bool IsSharedLibrary(BPatch_object* object);
+bool IsSystemCode(BPatch_object *object);
 
 #endif  // LITECFI_PARSE_H_

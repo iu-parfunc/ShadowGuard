@@ -53,6 +53,14 @@ DEFINE_string(shadow_stack_protection, "sfi",
               "   * mpx : Use mpx bound checking\n"
               "   * none : Use no protection\n");
 
+DEFINE_string(threat_model, "trust_system",
+    "\n The threat model for instrumentation.\n"
+    "\n Valid values are\n"
+    "   * trust_system : Trust the loader and system libraries (libc) to be free from stack overflow"
+    " So, only instrument system code for context switch, no CFI checks\n"
+    "   * trust_none : Instrument all code for CFI checks\n");
+
+
 DEFINE_string(cache, "./libs/",
               "\n Path to the cache of hardened shared libraries."
               " Once a shared library dependency is encountered the tool will"
