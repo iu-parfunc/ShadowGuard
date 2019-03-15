@@ -151,7 +151,7 @@ std::vector<bool> GetReservedAvxMask() {
 
   if (FLAGS_shadow_stack == "avx2" || FLAGS_shadow_stack == "avx_v2") {
     n_regs = 16;
-    reserved_from = 8;
+    reserved_from = 12;
   } else if (FLAGS_shadow_stack == "avx512") {
     n_regs = 32;
     reserved_from = 16;
