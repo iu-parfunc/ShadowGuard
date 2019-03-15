@@ -602,18 +602,8 @@ void InstrumentModule(
     if (symR->getRegionName() != ".text")
       continue;
 
-    // Ignore IFUNC
-    Dyninst::Address funcStart = (Dyninst::Address)function->getBaseAddr();
-    if (ifuncAddrs.find(funcStart) != ifuncAddrs.end()) {
-      continue;
-    }
-    // Avoid instrumenting some internal libc functions
-    if ((strcmp(funcname, "memset") != 0) &&
-        (strcmp(funcname, "call_gmon_start") != 0) &&
-        (strcmp(funcname, "frame_dummy") != 0) && funcname[0] != '_') {
-        InstrumentFunction(function, lib, parser, patcher, instrumentation_fns,
-                         false, isSystemCode);
-    }
+    InstrumentFunction(function, lib, parser, patcher, instrumentation_fns,
+                       false, isSystemCode);
   }
 }
 
@@ -728,9 +718,8 @@ void Instrument(std::string binary, std::map<std::string, Code*>* const cache,
   StdOut(Color::BLUE) << "+ Instrumenting the binary..." << Endl;
 
   // Delete AVX2 register clearing instructions
-  BPatch bpatch;
-  bpatch.addDeleteInstructionOpcode(e_vzeroall);
-  bpatch.addDeleteInstructionOpcode(e_vzeroupper);
+  BPatch::bpatch->addDeleteInstructionOpcode(e_vzeroall);
+  BPatch::bpatch->addDeleteInstructionOpcode(e_vzeroupper);
 
   std::vector<BPatch_object*> objects;
   parser.image->getObjects(objects);
