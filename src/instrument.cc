@@ -31,6 +31,7 @@ DECLARE_string(shadow_stack);
 DECLARE_bool(skip);
 DECLARE_bool(vv);
 DECLARE_string(threat_model);
+DECLARE_int32(reserved_from);
 
 static std::vector<bool> reserved;
 
@@ -151,10 +152,10 @@ std::vector<bool> GetReservedAvxMask() {
 
   if (FLAGS_shadow_stack == "avx2" || FLAGS_shadow_stack == "avx_v2") {
     n_regs = 16;
-    reserved_from = 12;
+    reserved_from = FLAGS_reserved_from;
   } else if (FLAGS_shadow_stack == "avx512") {
     n_regs = 32;
-    reserved_from = 16;
+    reserved_from = FLAGS_reserved_from;
   }
 
   for (int i = 0; i < n_regs; i++) {
@@ -719,7 +720,7 @@ void Instrument(std::string binary, std::map<std::string, Code*>* const cache,
 
   // Delete AVX2 register clearing instructions
   BPatch::bpatch->addDeleteInstructionOpcode(e_vzeroall);
-  BPatch::bpatch->addDeleteInstructionOpcode(e_vzeroupper);
+  //BPatch::bpatch->addDeleteInstructionOpcode(e_vzeroupper);
 
   std::vector<BPatch_object*> objects;
   parser.image->getObjects(objects);

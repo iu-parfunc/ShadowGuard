@@ -68,7 +68,9 @@ DEFINE_string(cache, "./libs/",
 
 DEFINE_string(
     install, "./bin/",
-    "\n Installation path of the hardened binary and its dependencies.");
+    "\n Installation path of the hardened binary and its dependencies.\n");
+
+DEFINE_int32(reserved_from, 8, "\n The register number starting to be reserved for CFI\n");
 
 static bool ValidateShadowStackFlag(const char* flagname,
                                     const std::string& value) {
