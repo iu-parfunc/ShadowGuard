@@ -30,7 +30,9 @@ bool IsSharedLibrary(BPatch_object* object) {
 
 bool IsSystemCode(BPatch_object *object) {
   std::string name = std::string(object->pathName());
+  if (name.find("libm.so.6") != std::string::npos) return true;
   if (name.find("libc.so.6") != std::string::npos) return true;
+  if (name.find("libpthread.so.0") != std::string::npos) return true;
   if (name.find("ld-linux-x86-64.so.2") != std::string::npos) return true;
   return false;
 }

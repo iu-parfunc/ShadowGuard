@@ -315,6 +315,10 @@ void SharedLibraryInstrumentation(
     mask = GetReservedAvxMask();
 
     if (collisions.empty()) {
+      BPatch_nullExpr snippet;
+      handle = nullptr;
+      handle = binary_edit->insertSnippet(snippet, *entries, BPatch_callBefore,
+                                          BPatch_lastSnippet, &is_init);
       Snippet::Ptr call_stack_push =
           CallStackPushSnippet::create(new CallStackPushSnippet(unused));
       InsertInstrumentation(function, Point::FuncEntry, call_stack_push, patcher);
@@ -453,6 +457,10 @@ void SharedLibraryInstrumentation(
         const_cast<std::vector<bool>&>(unused.GetUnusedAvx2Mask());
     mask = GetReservedAvxMask();
     if (collisions.empty()) {
+      BPatch_nullExpr snippet;
+      handle = nullptr;
+      handle = binary_edit->insertSnippet(snippet, *entries, BPatch_callBefore,
+                                          BPatch_lastSnippet, &is_init);
       Snippet::Ptr call_stack_push =
           CallStackPopSnippet::create(new CallStackPopSnippet(unused));
       InsertInstrumentation(function, Point::FuncExit, call_stack_push, patcher);

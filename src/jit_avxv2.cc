@@ -15,9 +15,13 @@ std::string JitAvxV2CallStackPush(RegisterUsageInfo& info,
   AvxRegister meta = GetNextUnusedAvx2Register(info);
   // Stack pointer register
   asmjit::X86Xmm sp = meta.xmm;
-  a->lea(r10, ptr(rsp));
+  a->push(r10);
+  a->push(r11);
+  a->lea(r10, ptr(rsp, 16));
   a->vpextrq(r11, sp, asmjit::imm(0));
   a->call(r11);
+  a->pop(r11);
+  a->pop(r10);
   return "";
 }
 
@@ -39,9 +43,13 @@ std::string JitAvxV2CallStackPop(RegisterUsageInfo& info, AssemblerHolder& ah) {
   AvxRegister meta = GetNextUnusedAvx2Register(info);
   // Stack pointer register
   asmjit::X86Xmm sp = meta.xmm;
-  a->lea(r10, ptr(rsp));
+  a->push(r10);
+  a->push(r11);
+  a->lea(r10, ptr(rsp, 16));
   a->vpextrq(r11, sp, asmjit::imm(1));
   a->call(r11);
+  a->pop(r11);
+  a->pop(r10);
   return "";
 }
 
