@@ -459,7 +459,7 @@ void SharedLibraryInstrumentation(
     if (collisions.empty()) {
       BPatch_nullExpr snippet;
       handle = nullptr;
-      handle = binary_edit->insertSnippet(snippet, *entries, BPatch_callBefore,
+      handle = binary_edit->insertSnippet(snippet, *exits, BPatch_callAfter,
                                           BPatch_lastSnippet, &is_init);
       Snippet::Ptr call_stack_push =
           CallStackPopSnippet::create(new CallStackPopSnippet(unused));
