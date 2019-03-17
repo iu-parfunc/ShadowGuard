@@ -83,7 +83,7 @@ std::string JitAvxV2StackInit(RegisterUsageInfo& info, AssemblerHolder& ah) {
     a->pinsrq(sp, r11, asmjit::imm(0));                              \
     a->pinsrq(xmm_reg, ptr(GetRaHolder()), asmjit::imm(0));                    \
     if (!first) {                                                              \
-      a->vpextrq(r11, sp, asmjit::imm(1)); \
+      a->pextrq(r11, sp, asmjit::imm(1)); \
       a->lea(r11, ptr(r11, A)); \
       a->pinsrq(sp, r11, asmjit::imm(1)); \
     }\
@@ -96,7 +96,7 @@ std::string JitAvxV2StackInit(RegisterUsageInfo& info, AssemblerHolder& ah) {
     a->pinsrq(sp, r11, asmjit::imm(0));                              \
     a->pinsrq(xmm_reg, ptr(GetRaHolder()), asmjit::imm(1));                    \
     if (!first) {                                                              \
-      a->vpextrq(r11, sp, asmjit::imm(1)); \
+      a->pextrq(r11, sp, asmjit::imm(1)); \
       a->lea(r11, ptr(r11, A)); \
       a->pinsrq(sp, r11, asmjit::imm(1)); \
     }                                                                          \
@@ -184,10 +184,10 @@ std::string JitAvxV2StackPush(RegisterUsageInfo& info, AssemblerHolder& ah) {
       a->lea(r11, ptr(r11, -A)); \
       a->pinsrq(sp, r11, asmjit::imm(1));\
     }\
-    a->vpextrq(r11, sp, asmjit::imm(0)); \
+    a->pextrq(r11, sp, asmjit::imm(0)); \
     a->lea(r11, ptr(r11, -A)); \
     a->pinsrq(sp, r11, asmjit::imm(0)); \
-    a->vpextrq(r11, xmm_reg, asmjit::imm(0));                                  \
+    a->pextrq(r11, xmm_reg, asmjit::imm(0));                                  \
     JIT_POP_RET_SEQ_V2(a, error, first)                                        \
     a->align(0 /* code-alignment */, A);                                      \
     break;                                                                     \
@@ -197,10 +197,10 @@ std::string JitAvxV2StackPush(RegisterUsageInfo& info, AssemblerHolder& ah) {
       a->lea(r11, ptr(r11, -A)); \
       a->pinsrq(sp, r11, asmjit::imm(1));\
     }\
-    a->vpextrq(r11, sp, asmjit::imm(0)); \
+    a->pextrq(r11, sp, asmjit::imm(0)); \
     a->lea(r11, ptr(r11, -A)); \
     a->pinsrq(sp, r11, asmjit::imm(0)); \
-    a->vpextrq(r11, xmm_reg, asmjit::imm(1));                                  \
+    a->pextrq(r11, xmm_reg, asmjit::imm(1));                                  \
     JIT_POP_RET_SEQ_V2(a, error, first)                                        \
     a->align(0 /* code-alignment */, A);                                      \
     break;                                                                     \
