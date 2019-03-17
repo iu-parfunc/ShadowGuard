@@ -18,7 +18,7 @@ std::string JitAvxV2CallStackPush(RegisterUsageInfo& info,
   a->push(r10);
   a->push(r11);
   a->lea(r10, ptr(rsp, 16));
-  a->vpextrq(r11, sp, asmjit::imm(0));
+  a->pextrq(r11, sp, asmjit::imm(0));
   a->call(r11);
   a->pop(r11);
   a->pop(r10);
@@ -31,7 +31,7 @@ std::string JitAvxV2CallStackPush2(RegisterUsageInfo& info,
   AvxRegister meta = GetNextUnusedAvx2Register(info);
   // Stack pointer register
   asmjit::X86Xmm sp = meta.xmm;
-  a->vpextrq(r11, sp, asmjit::imm(0));
+  a->pextrq(r11, sp, asmjit::imm(0));
   a->call(r11);
   return "";
 }
@@ -46,7 +46,7 @@ std::string JitAvxV2CallStackPop(RegisterUsageInfo& info, AssemblerHolder& ah) {
   a->push(r10);
   a->push(r11);
   a->lea(r10, ptr(rsp, 16));
-  a->vpextrq(r11, sp, asmjit::imm(1));
+  a->pextrq(r11, sp, asmjit::imm(1));
   a->call(r11);
   a->pop(r11);
   a->pop(r10);
@@ -58,7 +58,7 @@ std::string JitAvxV2CallStackPop2(RegisterUsageInfo& info, AssemblerHolder& ah) 
   AvxRegister meta = GetNextUnusedAvx2Register(info);
   // Stack pointer register
   asmjit::X86Xmm sp = meta.xmm;
-  a->vpextrq(r11, sp, asmjit::imm(1));
+  a->pextrq(r11, sp, asmjit::imm(1));
   a->call(r11);
   return "";
 }
