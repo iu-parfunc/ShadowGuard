@@ -67,6 +67,7 @@ FIVE_REG_ARG_FN(litecfi_register_spill)
 SIX_REG_ARG_FN(litecfi_register_spill)
 SEVEN_REG_ARG_FN(litecfi_register_spill)
 EIGHT_REG_ARG_FN(litecfi_register_spill)
+void litecfi_register_spill(unsigned);
 
 ONE_REG_ARG_FN(litecfi_register_restore)
 TWO_REG_ARG_FN(litecfi_register_restore)
@@ -76,6 +77,7 @@ FIVE_REG_ARG_FN(litecfi_register_restore)
 SIX_REG_ARG_FN(litecfi_register_restore)
 SEVEN_REG_ARG_FN(litecfi_register_restore)
 EIGHT_REG_ARG_FN(litecfi_register_restore)
+void litecfi_register_restore(unsigned);
 
 /*
 ONE_REG_ARG_N_OFFSET_FN(litecfi_register_peek)
@@ -96,6 +98,7 @@ FIVE_REG_ARG_FN(litecfi_ctx_save)
 SIX_REG_ARG_FN(litecfi_ctx_save)
 SEVEN_REG_ARG_FN(litecfi_ctx_save)
 EIGHT_REG_ARG_FN(litecfi_ctx_save)
+void litecfi_ctx_save(unsigned);
 
 ONE_REG_ARG_FN(litecfi_ctx_restore)
 TWO_REG_ARG_FN(litecfi_ctx_restore)
@@ -105,6 +108,7 @@ FIVE_REG_ARG_FN(litecfi_ctx_restore)
 SIX_REG_ARG_FN(litecfi_ctx_restore)
 SEVEN_REG_ARG_FN(litecfi_ctx_restore)
 EIGHT_REG_ARG_FN(litecfi_ctx_restore)
+void litecfi_ctx_restore(unsigned);
 
 /*
 ONE_REG_ARG_FN(litecfi_ctx_peek)

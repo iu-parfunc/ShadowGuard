@@ -493,6 +493,13 @@ SIX_REG_PUSH_FN(litecfi_register_spill, cfi_context);
 SEVEN_REG_PUSH_FN(litecfi_register_spill, cfi_context);
 EIGHT_REG_PUSH_FN(litecfi_register_spill, cfi_context);
 
+void litecfi_register_spill(unsigned mask) {
+  for (uint8_t i = 0; i < 16; ++i)
+    if (mask & (1U << i)) {
+      REGISTER_PUSH(i, cfi_context);
+    }
+}
+
 // Register restore functions
 ONE_REG_POP_FN(litecfi_register_restore, cfi_context);
 TWO_REG_POP_FN(litecfi_register_restore, cfi_context);
@@ -502,6 +509,14 @@ FIVE_REG_POP_FN(litecfi_register_restore, cfi_context);
 SIX_REG_POP_FN(litecfi_register_restore, cfi_context);
 SEVEN_REG_POP_FN(litecfi_register_restore, cfi_context);
 EIGHT_REG_POP_FN(litecfi_register_restore, cfi_context);
+
+void litecfi_register_restore(unsigned mask) {
+  for (uint8_t i = 0; i < 16; ++i)
+    if (mask & (1U << i)) {
+      REGISTER_POP(i, cfi_context);
+    }
+}
+
 
 // Register peek functions
 /*
@@ -525,6 +540,13 @@ SIX_REG_PUSH_FN(litecfi_ctx_save, user_context);
 SEVEN_REG_PUSH_FN(litecfi_ctx_save, user_context);
 EIGHT_REG_PUSH_FN(litecfi_ctx_save, user_context);
 
+void litecfi_ctx_save(unsigned mask) {
+  for (uint8_t i = 0; i < 16; ++i)
+    if (mask & (1U << i)) {
+      REGISTER_PUSH(i, user_context);
+    }
+}
+
 // Register context restore functions
 ONE_REG_POP_FN(litecfi_ctx_restore, user_context);
 TWO_REG_POP_FN(litecfi_ctx_restore, user_context);
@@ -534,6 +556,13 @@ FIVE_REG_POP_FN(litecfi_ctx_restore, user_context);
 SIX_REG_POP_FN(litecfi_ctx_restore, user_context);
 SEVEN_REG_POP_FN(litecfi_ctx_restore, user_context);
 EIGHT_REG_POP_FN(litecfi_ctx_restore, user_context);
+
+void litecfi_ctx_restore(unsigned mask) {
+  for (uint8_t i = 0; i < 16; ++i)
+    if (mask & (1U << i)) {
+      REGISTER_POP(i, user_context);
+    }
+}
 
 // Register context peek functions
 /*

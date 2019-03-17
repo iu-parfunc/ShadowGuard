@@ -192,8 +192,18 @@ BPatch_funcCallExpr GetRegisterOperationSnippet(
     std::map<std::string, BPatch_function*>& instrumentation_fns,
     const std::vector<uint8_t>& collisions, std::string op_prefix) {
   long n_regs = collisions.size();
-  DCHECK(n_regs <= 8)
-      << "Can only save or restore up to 8 conflicting registers: " << n_regs;
+  if (n_regs > 8) {
+    BPatch_function* fn = instrumentation_fns[op_prefix];
+    DCHECK(fn) << "Couldn't find the register operation " << op_prefix;
+    unsigned mask = 0;
+    BPatch_Vector<BPatch_snippet*> args;
+    for (int i = 0; i < n_regs; i++) {
+      uint8_t id = collisions[i];
+      mask |= (1U << id);
+    }
+    args.push_back(new BPatch_constExpr(mask));
+    return BPatch_funcCallExpr(*fn, args);
+  }
 
   BPatch_function* fn =
       instrumentation_fns[op_prefix + "_" + std::to_string(n_regs)];
@@ -287,7 +297,11 @@ void SharedLibraryInstrumentation(
 
   if (FLAGS_threat_model == "trust_system" && isSystemCode && collisions.empty()) return;
 
-  InstSpec* isPtr = &is[collisions.size()];
+  InstSpec* isPtr;
+  if (collisions.size() <= 8)
+    isPtr = &is[collisions.size()];
+  else
+    isPtr = &is[1];
 
   // ---------- 1. Instrument Function Entry ----------------
   std::vector<BPatch_point*>* entries = function->findPoint(BPatch_entry);
@@ -669,6 +683,7 @@ void PopulateRegisterStackOperations(
 
   std::string fn_prefix = "litecfi_register_spill";
   std::string key_prefix = "register_spill";
+  fns[key_prefix] = FindFunctionByName(parser.image, fn_prefix);
   for (int i = 1; i <= 8; i++) {
     std::string fn_name = fn_prefix + "_" + std::to_string(i);
     fns[key_prefix + "_" + std::to_string(i)] =
@@ -677,6 +692,7 @@ void PopulateRegisterStackOperations(
 
   fn_prefix = "litecfi_register_restore";
   key_prefix = "register_restore";
+  fns[key_prefix] = FindFunctionByName(parser.image, fn_prefix);
   for (int i = 1; i <= 8; i++) {
     std::string fn_name = fn_prefix + "_" + std::to_string(i);
     fns[key_prefix + "_" + std::to_string(i)] =
@@ -685,6 +701,7 @@ void PopulateRegisterStackOperations(
 
   fn_prefix = "litecfi_ctx_save";
   key_prefix = "ctx_save";
+  fns[key_prefix] = FindFunctionByName(parser.image, fn_prefix);
   for (int i = 1; i <= 8; i++) {
     std::string fn_name = fn_prefix + "_" + std::to_string(i);
     fns[key_prefix + "_" + std::to_string(i)] =
@@ -693,6 +710,7 @@ void PopulateRegisterStackOperations(
 
   fn_prefix = "litecfi_ctx_restore";
   key_prefix = "ctx_restore";
+  fns[key_prefix] = FindFunctionByName(parser.image, fn_prefix);
   for (int i = 1; i <= 8; i++) {
     std::string fn_name = fn_prefix + "_" + std::to_string(i);
     fns[key_prefix + "_" + std::to_string(i)] =
