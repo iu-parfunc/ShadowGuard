@@ -48,7 +48,7 @@ void litecfi_overflow_stack_push() {
       overflow_stack = (uint64_t*)overflow_stack_space;
   }
   if (overflow_stack == (uint64_t*)overflow_stack_space) {
-      asm("vpextrq $1, %%xmm15, %%r11 \n\t"
+      asm("pextrq $1, %%xmm15, %%r11 \n\t"
           "lea 64(%%r11), %%r11 \n\t"
           "pinsrq $1, %%r11, %%xmm15 \n\t"
           :
@@ -81,7 +81,7 @@ void litecfi_overflow_stack_pop() {
       : ok);
 ok:
   if (overflow_stack == (uint64_t*)overflow_stack_space) {
-      asm("vpextrq $1,%%xmm15, %%r11 \n\t"
+      asm("pextrq $1,%%xmm15, %%r11 \n\t"
           "lea -64(%%r11), %%r11 \n\t"
           "pinsrq $1, %%r11, %%xmm15\n\t"
           :
@@ -138,6 +138,7 @@ ok:
   }
 // clang-format on
 
+/*
 #define REGISTER_PUSH(index, sp)                    \
   switch (index) {                                  \
     PUSH_AVX2(sp, 0, "vmovdqu %%ymm0, (%0);\n\t")   \
@@ -177,6 +178,48 @@ ok:
     POP_AVX2(sp, 13, "vmovdqu (%0), %%ymm13;\n\t") \
     POP_AVX2(sp, 14, "vmovdqu (%0), %%ymm14;\n\t") \
     POP_AVX2(sp, 15, "vmovdqu (%0), %%ymm15;\n\t") \
+    OUT_OF_BOUNDS()                                \
+  }
+*/
+#define REGISTER_PUSH(index, sp)                    \
+  switch (index) {                                  \
+    PUSH_AVX2(sp, 0, "movdqu %%xmm0, (%0);\n\t")   \
+    PUSH_AVX2(sp, 1, "movdqu %%xmm1, (%0);\n\t")   \
+    PUSH_AVX2(sp, 2, "movdqu %%xmm2, (%0);\n\t")   \
+    PUSH_AVX2(sp, 3, "movdqu %%xmm3, (%0);\n\t")   \
+    PUSH_AVX2(sp, 4, "movdqu %%xmm4, (%0);\n\t")   \
+    PUSH_AVX2(sp, 5, "movdqu %%xmm5, (%0);\n\t")   \
+    PUSH_AVX2(sp, 6, "movdqu %%xmm6, (%0);\n\t")   \
+    PUSH_AVX2(sp, 7, "movdqu %%xmm7, (%0);\n\t")   \
+    PUSH_AVX2(sp, 8, "movdqu %%xmm8, (%0);\n\t")   \
+    PUSH_AVX2(sp, 9, "movdqu %%xmm9, (%0);\n\t")   \
+    PUSH_AVX2(sp, 10, "movdqu %%xmm10, (%0);\n\t") \
+    PUSH_AVX2(sp, 11, "movdqu %%xmm11, (%0);\n\t") \
+    PUSH_AVX2(sp, 12, "movdqu %%xmm12, (%0);\n\t") \
+    PUSH_AVX2(sp, 13, "movdqu %%xmm13, (%0);\n\t") \
+    PUSH_AVX2(sp, 14, "movdqu %%xmm14, (%0);\n\t") \
+    PUSH_AVX2(sp, 15, "movdqu %%xmm15, (%0);\n\t") \
+    OUT_OF_BOUNDS()                                 \
+  }
+
+#define REGISTER_POP(index, sp)                    \
+  switch (index) {                                 \
+    POP_AVX2(sp, 0, "movdqu (%0), %%xmm0;\n\t")   \
+    POP_AVX2(sp, 1, "movdqu (%0), %%xmm1;\n\t")   \
+    POP_AVX2(sp, 2, "movdqu (%0), %%xmm2;\n\t")   \
+    POP_AVX2(sp, 3, "movdqu (%0), %%xmm3;\n\t")   \
+    POP_AVX2(sp, 4, "movdqu (%0), %%xmm4;\n\t")   \
+    POP_AVX2(sp, 5, "movdqu (%0), %%xmm5;\n\t")   \
+    POP_AVX2(sp, 6, "movdqu (%0), %%xmm6;\n\t")   \
+    POP_AVX2(sp, 7, "movdqu (%0), %%xmm7;\n\t")   \
+    POP_AVX2(sp, 8, "movdqu (%0), %%xmm8;\n\t")   \
+    POP_AVX2(sp, 9, "movdqu (%0), %%xmm9;\n\t")   \
+    POP_AVX2(sp, 10, "movdqu (%0), %%xmm10;\n\t") \
+    POP_AVX2(sp, 11, "movdqu (%0), %%xmm11;\n\t") \
+    POP_AVX2(sp, 12, "movdqu (%0), %%xmm12;\n\t") \
+    POP_AVX2(sp, 13, "movdqu (%0), %%xmm13;\n\t") \
+    POP_AVX2(sp, 14, "movdqu (%0), %%xmm14;\n\t") \
+    POP_AVX2(sp, 15, "movdqu (%0), %%xmm15;\n\t") \
     OUT_OF_BOUNDS()                                \
   }
 
