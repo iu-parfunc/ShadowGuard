@@ -25,6 +25,10 @@ class RegisterUsageInfo {
   int n_unused_mmx_regs_;
   // Whether a function writes memory or not
   bool writesMemory_;
+  // Whether a function writes to SP or not (excluding ret)
+  bool writesSP_;
+
+  bool ShouldSkip() { return !writesMemory_ && !writesSP_; }
 
  private:
   // Register masks

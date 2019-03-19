@@ -36,7 +36,7 @@ std::map<std::string, Code*>* GetRegisterAnalysisCache() {
   std::string line;
   while (std::getline(cache_file, line)) {
     std::vector<std::string> tokens = Split(line, ',');
-    DCHECK(tokens.size() == 3) << line;
+    DCHECK(tokens.size() == 4) << line;
 
     std::vector<std::string> library_n_function = Split(tokens[0], '%');
 
@@ -72,6 +72,11 @@ std::map<std::string, Code*>* GetRegisterAnalysisCache() {
       info->writesMemory_ = true;
     else
       info->writesMemory_ = false;
+
+    if (tokens[3] == "1")
+      info->writesSP_ = true;
+    else
+      info->writesSP_ = false;
 
     lib->register_usage[function] = info;
   }
@@ -121,7 +126,9 @@ void FlushRegisterAnalysisCache(
       // Remove the trailing ':'
       registers_concat.pop_back();
       cache_file << lib->path << "%" << reg_iter.first << ","
-                 << registers_concat << "," << reg_iter.second->writesMemory_ << std::endl;     
+                 << registers_concat << "," 
+                 << reg_iter.second->writesMemory_ << ","
+                 << reg_iter.second->writesSP_ << std::endl;     
     }
   }
 

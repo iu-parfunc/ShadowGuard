@@ -321,10 +321,10 @@ void SharedLibraryInstrumentation(
 
   // 1.a) Shadow stack push
   // Shared library function call to shadow stack push at function entry
-  if (!info.writesMemory_) {
-      fprintf(stderr, "Skip function %s because it does not write to memory\n", function->getName().c_str());
+  if (info.ShouldSkip()) {
+      fprintf(stderr, "Skip function %s because it does not write to memory or write to SP\n", function->getName().c_str());
   }
-  if (info.writesMemory_ && (FLAGS_threat_model != "trust_system" || !isSystemCode)) {
+  if (!info.ShouldSkip() && (FLAGS_threat_model != "trust_system" || !isSystemCode)) {
 
     if (FLAGS_shadow_stack == "avx2") {
       BPatch_funcCallExpr stack_push(*(instrumentation_fns["push"]), args);
@@ -492,7 +492,7 @@ void SharedLibraryInstrumentation(
 
   // 3.c) Shadow stack pop
   // Shared library function call to shadow stack pop at function exit
-  if (info.writesMemory_ && (FLAGS_threat_model != "trust_system" || !isSystemCode)) {
+  if (!info.ShouldSkip() && (FLAGS_threat_model != "trust_system" || !isSystemCode)) {
 
     if (FLAGS_shadow_stack == "avx2") {
       BPatch_funcCallExpr stack_pop(*(instrumentation_fns["pop"]), args);
