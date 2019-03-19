@@ -5,6 +5,7 @@
 
 #include "BPatch.h"
 #include "BPatch_function.h"
+#include "BPatch_basicBlock.h"
 #include "BPatch_object.h"
 #include "BPatch_point.h"
 #include "InstSpec.h"
@@ -388,6 +389,28 @@ void SharedLibraryInstrumentation(
   // ----------- 2. Instrument Call Instructions -------------
   if (collisions.size() > 0) {
     std::vector<BPatch_point*>* calls = function->findPoint(BPatch_subroutine);
+    // Due to Dyninst's internal problem, instrumenting conditional tail calls
+    // will cause semantic issues: the call instrumentation will be executed
+    // regardless of whether the call happens or not.
+    //
+    // The problem is even worse because Dyninst treat tail calls as non-returning,
+    // so post-call instrumentation is not installed for conditional tail calls
+    //
+    // Here we are lucky because our pre-call instruction is a subset of our exit 
+    // instrumentation. And Dyninst handles conditional exit instrumentation correctly.
+    // So, we work around this problem by skipping all conditional call sites
+    for (auto call_it = calls->begin(); call_it != calls->end(); ) {
+      BPatch_basicBlock *b = (*call_it)->getBlock();
+      std::vector<InstructionAPI::Instruction> insns;
+      b->getInstructions(insns);
+      Dyninst::InstructionAPI::Instruction insn = (*insns.rbegin());
+      if (insn.getCategory() == InstructionAPI::c_BranchInsn && insn.allowsFallThrough()) {
+        // This is a conditional tail call, we skip it
+        call_it = calls->erase(call_it);
+      } else {
+        ++call_it;
+      }
+    }
 
     if (calls->size() > 0) {
       // 2.a) Save user context before the call
