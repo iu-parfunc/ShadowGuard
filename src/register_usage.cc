@@ -165,7 +165,8 @@ const std::vector<bool>& RegisterUsageInfo::GetUnusedMmxMask() {
 // ------------  End RegisterUsageInfo -----------------
 
 void PopulateFunctionRegisterUsage(Dyninst::ParseAPI::Function* const function,
-                                   std::set<std::string>* const used) {
+                                   std::set<std::string>* const used,
+                                   bool& write_mem) {
   if (FLAGS_vv) {
     StdOut(Color::YELLOW) << "     Function : " << function->name() << Endl;
   }
@@ -178,6 +179,7 @@ void PopulateFunctionRegisterUsage(Dyninst::ParseAPI::Function* const function,
     b->getInsns(insns);
 
     for (auto const& ins : insns) {
+      write_mem |= ins.second.writesMemory();
       std::set<Dyninst::InstructionAPI::RegisterAST::Ptr> read;
       std::set<Dyninst::InstructionAPI::RegisterAST::Ptr> written;
       ins.second.getReadSet(read);
@@ -219,10 +221,12 @@ void AnalyseFunctionRegisterUsage(Dyninst::ParseAPI::Function* const function,
   }
 
   std::set<std::string> registers;
-  PopulateFunctionRegisterUsage(function, &registers);
+  bool writesMem = false;
+  PopulateFunctionRegisterUsage(function, &registers, writesMem);
 
   RegisterUsageInfo* info = new RegisterUsageInfo();
   info->used_ = registers;
+  info->writesMemory_ = writesMem;
 
   // Update the cache
   lib->register_usage.insert(

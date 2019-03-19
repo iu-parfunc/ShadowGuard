@@ -23,6 +23,8 @@ class RegisterUsageInfo {
   int n_unused_avx512_regs_;
   // Number of unused MMX registers
   int n_unused_mmx_regs_;
+  // Whether a function writes memory or not
+  bool writesMemory_;
 
  private:
   // Register masks
