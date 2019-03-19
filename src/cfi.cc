@@ -21,7 +21,9 @@ DEFINE_string(
     "\n Shadow stack implementation mechanism for backward-edge protection.\n"
     "\n Valid values are\n"
     "   * avx2 : Uses avx2 register file as backing store\n"
-    "   * avx_v2 : Uses avx2 register file as backing store (new "
+    "   * avx_v2 : Uses avx2 register file as backing store (v2"
+    "implementation)\n"
+    "   * avx_v3 : Uses avx2 register file as backing store (v3 "
     "implementation)\n"
     "   * avx512 : Uses avx512 register file as backing store\n"
     "   * mem : Uses a memory region as backing store\n"
@@ -53,13 +55,14 @@ DEFINE_string(shadow_stack_protection, "sfi",
               "   * mpx : Use mpx bound checking\n"
               "   * none : Use no protection\n");
 
-DEFINE_string(threat_model, "trust_system",
+DEFINE_string(
+    threat_model, "trust_system",
     "\n The threat model for instrumentation.\n"
     "\n Valid values are\n"
-    "   * trust_system : Trust the loader and system libraries (libc) to be free from stack overflow"
+    "   * trust_system : Trust the loader and system libraries (libc) to be "
+    "free from stack overflow"
     " So, only instrument system code for context switch, no CFI checks\n"
     "   * trust_none : Instrument all code for CFI checks\n");
-
 
 DEFINE_string(cache, "./libs/",
               "\n Path to the cache of hardened shared libraries."
@@ -70,13 +73,14 @@ DEFINE_string(
     install, "./bin/",
     "\n Installation path of the hardened binary and its dependencies.\n");
 
-DEFINE_int32(reserved_from, 8, "\n The register number starting to be reserved for CFI\n");
+DEFINE_int32(reserved_from, 8,
+             "\n The register number starting to be reserved for CFI\n");
 
 static bool ValidateShadowStackFlag(const char* flagname,
                                     const std::string& value) {
   if (value == "avx2" || value == "avx512" || value == "mem" ||
       value == "dispatch" || value == "reloc" || value == "empty" ||
-      value == "savegpr" || value == "avx_v2") {
+      value == "savegpr" || value == "avx_v2" || value == "avx_v3") {
     return true;
   }
 

@@ -7,6 +7,7 @@
 #include "asmjit/asmjit.h"
 #include "register_usage.h"
 
+extern const std::string kStackFunction;
 extern const std::string kStackInitFunction;
 extern const std::string kStackPushFunction;
 extern const std::string kStackPopFunction;
@@ -40,11 +41,12 @@ std::string JitCallStackPush2(RegisterUsageInfo info, AssemblerHolder& ah);
 std::string JitCallStackPop(RegisterUsageInfo info, AssemblerHolder& ah);
 std::string JitCallStackPop2(RegisterUsageInfo info, AssemblerHolder& ah);
 
-
 std::string JitStackInit(RegisterUsageInfo info, AssemblerHolder& ah);
 
 std::string JitStackPush(RegisterUsageInfo info, AssemblerHolder& ah);
 
 std::string JitStackPop(RegisterUsageInfo info, AssemblerHolder& ah);
+
+std::string JitStack(RegisterUsageInfo info, AssemblerHolder& ah);
 
 #endif  // LITECFI_JIT_H_

@@ -38,9 +38,9 @@ std::string Footer() { return "NO_EXEC_STACK_DIRECTIVE"; }
 std::string FunctionProlog(std::string name, bool global) {
   std::string prolog = "";
   if (global)
-      prolog += "  .globl ASM_SYMBOL(" + name + ")\n";
+    prolog += "  .globl ASM_SYMBOL(" + name + ")\n";
   else
-      prolog += "  ASM_HIDDEN(" + name + ")\n";
+    prolog += "  ASM_HIDDEN(" + name + ")\n";
   prolog += "  ASM_TYPE_FUNCTION(" + name + ")\n";
   prolog += "ASM_SYMBOL(" + name + "):\n";
   prolog += "CFI_STARTPROC\n";
@@ -58,11 +58,10 @@ std::string FunctionEpilog(std::string name) {
   return epilog;
 }
 
-std::string GenerateFunction(std::string fn_name, RegisterUsageInfo& info,
-                             std::string (*codegen)(RegisterUsageInfo,
-                                                    AssemblerHolder&),
-                             std::string overflow_slot = "",
-                             bool global = true) {
+std::string
+GenerateFunction(std::string fn_name, RegisterUsageInfo& info,
+                 std::string (*codegen)(RegisterUsageInfo, AssemblerHolder&),
+                 std::string overflow_slot = "", bool global = true) {
   std::string prolog = FunctionProlog(fn_name, global);
 
   /* Generate function body */
@@ -78,6 +77,11 @@ std::string CodegenStackInit(RegisterUsageInfo info) {
   return GenerateFunction(kStackInitFunction, info, JitStackInit);
 }
 
+std::string CodegenStack(RegisterUsageInfo info) {
+  std::string overflow_slot = "";
+  return GenerateFunction(kStackFunction, info, JitStack, overflow_slot, false);
+}
+
 std::string CodegenStackPush(RegisterUsageInfo info) {
   std::string overflow_slot = "";
   overflow_slot += "push rax\n";
@@ -90,8 +94,8 @@ std::string CodegenStackPush(RegisterUsageInfo info) {
   overflow_slot += "pop rcx\n";
   overflow_slot += "pop rdx\n";
   overflow_slot += "pop rax\n";
-  return GenerateFunction(kStackPushFunction, info, JitStackPush,
-                          overflow_slot, false);
+  return GenerateFunction(kStackPushFunction, info, JitStackPush, overflow_slot,
+                          false);
 }
 
 std::string CodegenStackPop(RegisterUsageInfo info) {
@@ -106,7 +110,8 @@ std::string CodegenStackPop(RegisterUsageInfo info) {
   overflow_slot += "pop rcx\n";
   overflow_slot += "pop rdx\n";
   overflow_slot += "pop rax\n";
-  return GenerateFunction(kStackPopFunction, info, JitStackPop, overflow_slot, false);
+  return GenerateFunction(kStackPopFunction, info, JitStackPop, overflow_slot,
+                          false);
 }
 
 std::string Codegen(RegisterUsageInfo info) {
@@ -120,26 +125,22 @@ std::string Codegen(RegisterUsageInfo info) {
     return "";
   }
 
-  /*
-  std::string stack_init = Header() + CodegenStackInit(info) + Footer();
-  std::ofstream init(temp_dir + "/" + "__litecfi_stack_init_x86_64.S");
-  init << stack_init;
-
-  std::string stack_push = Header() + CodegenStackPush(info) + Footer();
-  std::ofstream push(temp_dir + "/" + "__litecfi_stack_push_x86_64.S");
-  push << stack_push;
-
-  std::string stack_pop = Header() + CodegenStackPop(info) + Footer();
-  std::ofstream pop(temp_dir + "/" + "__litecfi_stack_pop_x86_64.S");
-  pop << stack_pop;
-  */
-
   // Put init, push and pop functions in one .S file,
   // so that we can reference push & pop function with
-  // pc-relative addressing 
-  std::string libstack = Header() + CodegenStackInit(info) + CodegenStackPush(info) + CodegenStackPop(info) + Footer();
+  // pc-relative addressing
   std::ofstream libstack_stream(temp_dir + "/" + "__litecfi_stack_x86_64.S");
-  libstack_stream << libstack;
+  if (FLAGS_shadow_stack == "avx_v3") {
+    std::string libstack =
+        Header() + CodegenStackInit(info) + CodegenStack(info) + Footer();
+    libstack_stream << libstack;
+  } else {
+    std::string libstack = Header() + CodegenStackInit(info) +
+                           CodegenStackPush(info) + CodegenStackPop(info) +
+                           Footer();
+    libstack_stream << libstack;
+  }
+
+  libstack_stream.close();
 
   std::string soname = "libstack.so";
 

@@ -141,6 +141,13 @@ asmjit::X86Gp GetRaHolder();
   a->bind(error);                                                              \
   a->int3();
 
+#define JIT_POP_RET_SEQ_V3(a, error)                                           \
+  a->cmp(r11, ptr(GetRaHolder()));                                             \
+  a->jne(error);                                                               \
+  a->ret();                                                                    \
+  a->bind(error);                                                              \
+  a->int3();
+
 std::string JitAvx2StackInit(RegisterUsageInfo& info, AssemblerHolder& ah);
 std::string JitAvx2StackPush(RegisterUsageInfo& info, AssemblerHolder& ah);
 std::string JitAvx2StackPop(RegisterUsageInfo& info, AssemblerHolder& ah);
@@ -149,10 +156,18 @@ std::string JitAvxV2StackInit(RegisterUsageInfo& info, AssemblerHolder& ah);
 std::string JitAvxV2StackPush(RegisterUsageInfo& info, AssemblerHolder& ah);
 std::string JitAvxV2StackPop(RegisterUsageInfo& info, AssemblerHolder& ah);
 std::string JitAvxV2CallStackPush(RegisterUsageInfo& info, AssemblerHolder& ah);
-std::string JitAvxV2CallStackPush2(RegisterUsageInfo& info, AssemblerHolder& ah);
+std::string JitAvxV2CallStackPush2(RegisterUsageInfo& info,
+                                   AssemblerHolder& ah);
 std::string JitAvxV2CallStackPop(RegisterUsageInfo& info, AssemblerHolder& ah);
 std::string JitAvxV2CallStackPop2(RegisterUsageInfo& info, AssemblerHolder& ah);
 
+std::string JitAvxV3Stack(RegisterUsageInfo& info, AssemblerHolder& ah);
+std::string JitAvxV3StackInit(RegisterUsageInfo& info, AssemblerHolder& ah);
+std::string JitAvxV3CallStackPush(RegisterUsageInfo& info, AssemblerHolder& ah);
+std::string JitAvxV3CallStackPush2(RegisterUsageInfo& info,
+                                   AssemblerHolder& ah);
+std::string JitAvxV3CallStackPop(RegisterUsageInfo& info, AssemblerHolder& ah);
+std::string JitAvxV3CallStackPop2(RegisterUsageInfo& info, AssemblerHolder& ah);
 
 std::string JitAvx512StackInit(RegisterUsageInfo& info, AssemblerHolder& ah);
 std::string JitAvx512StackPush(RegisterUsageInfo& info, AssemblerHolder& ah);

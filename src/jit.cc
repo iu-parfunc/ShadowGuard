@@ -16,6 +16,8 @@ const std::string kStackInitFunction = "litecfi_avx2_stack_init";
 const std::string kStackPushFunction = "litecfi_avx2_stack_push";
 const std::string kStackPopFunction = "litecfi_avx2_stack_pop";
 
+const std::string kStackFunction = "litecfi_avx2_stack";
+
 /**************** AssemblerHolder  *****************/
 
 // Error handler that just prints the error and lets AsmJit ignore it.
@@ -91,7 +93,6 @@ std::string JitCallStackPush2(RegisterUsageInfo info, AssemblerHolder& ah) {
   return "";
 }
 
-
 std::string JitCallStackPop(RegisterUsageInfo info, AssemblerHolder& ah) {
   if (FLAGS_shadow_stack == "avx_v2") {
     return JitAvxV2CallStackPop(info, ah);
@@ -113,6 +114,8 @@ std::string JitStackInit(RegisterUsageInfo info, AssemblerHolder& ah) {
     return JitAvx2StackInit(info, ah);
   } else if (FLAGS_shadow_stack == "avx_v2") {
     return JitAvxV2StackInit(info, ah);
+  } else if (FLAGS_shadow_stack == "avx_v3") {
+    return JitAvxV3StackInit(info, ah);
   } else if (FLAGS_shadow_stack == "avx512") {
     // TODO(chamibuddhika) Test this
     return JitAvx512StackInit(info, ah);
@@ -178,5 +181,12 @@ std::string JitStackPop(RegisterUsageInfo info, AssemblerHolder& ah) {
     return JitEmpty(ah);
   }
 
+  return "";
+}
+
+std::string JitStack(RegisterUsageInfo info, AssemblerHolder& ah) {
+  if (FLAGS_shadow_stack == "avx_v3") {
+    return JitAvxV3Stack(info, ah);
+  }
   return "";
 }
