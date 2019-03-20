@@ -73,7 +73,12 @@ std::string JitAvxV2StackInit(RegisterUsageInfo& info, AssemblerHolder& ah) {
   stack_init += "pinsrq " + GetAvx2Register(sp) + ", r11, 0\n";
   stack_init += "lea r11, " + kStackPopFunction + "[rip]\n";
   stack_init += "pinsrq " + GetAvx2Register(sp) + ", r11, 1\n";
-
+  /*
+  stack_init += "lea r11, empty[rip]\n";
+  stack_init += "pinsrq " + GetAvx2Register(sp) + ", r11, 0\n";
+  stack_init += "lea r11, empty[rip]\n";
+  stack_init += "pinsrq " + GetAvx2Register(sp) + ", r11, 1\n";
+  */
   return stack_init;
 }
 

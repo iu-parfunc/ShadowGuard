@@ -156,6 +156,12 @@ std::string CodegenStackPop(RegisterUsageInfo info) {
                           false);
 }
 
+std::string CodegenEmptyFunction() {
+  std::string prolog = FunctionProlog("empty", false);
+  std::string epilog = FunctionEpilog("empty");
+  return prolog + epilog;
+}
+
 std::string Codegen(RegisterUsageInfo info) {
   std::string temp_dir = "/tmp/.litecfi_tmp";
 
@@ -167,17 +173,14 @@ std::string Codegen(RegisterUsageInfo info) {
     return "";
   }
 
-  // Put init, push and pop functions in one .S file,
-  // so that we can reference push & pop function with
-  // pc-relative addressing
   std::ofstream libstack_stream(temp_dir + "/" + "__litecfi_stack_x86_64.S");
   if (FLAGS_shadow_stack == "avx_v3") {
     std::string libstack =
-        Header() + CodegenStackInit(info) + CodegenStack(info) + Footer();
+        Header() + CodegenStackInit(info) + CodegenStack(info) + CodegenEmptyFunction() + Footer();
     libstack_stream << libstack;
   } else {
     std::string libstack = Header() + CodegenStackInit(info) +
-                           CodegenStackPush(info) + CodegenStackPop(info) +
+                           CodegenStackPush(info) + CodegenStackPop(info) + CodegenEmptyFunction() + 
                            Footer();
     libstack_stream << libstack;
   }
