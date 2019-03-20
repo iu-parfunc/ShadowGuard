@@ -753,11 +753,19 @@ void PopulateRegisterStackOperations(
   std::string fn_name = "litecfi_mem_initialize";
   fns["tls_init"] = FindFunctionByName(parser.image, fn_name);
 
-  fn_name = "litecfi_overflow_stack_push";
-  fns["overflow_push"] = FindFunctionByName(parser.image, fn_name);
+  if (FLAGS_shadow_stack == "avx_v3") {
+    fn_name = "litecfi_overflow_stack_push_v3";
+    fns["overflow_push"] = FindFunctionByName(parser.image, fn_name);
 
-  fn_name = "litecfi_overflow_stack_pop";
-  fns["overflow_pop"] = FindFunctionByName(parser.image, fn_name);
+    fn_name = "litecfi_overflow_stack_pop_v3";
+    fns["overflow_pop"] = FindFunctionByName(parser.image, fn_name);
+  } else {
+    fn_name = "litecfi_overflow_stack_push";
+    fns["overflow_push"] = FindFunctionByName(parser.image, fn_name);
+
+    fn_name = "litecfi_overflow_stack_pop";
+    fns["overflow_pop"] = FindFunctionByName(parser.image, fn_name);
+  }
 
   // In avx_v2 and up implementations, the stack push & pop related functions
   // are hidden symbols in libstack.so. We set up call pointers

@@ -111,7 +111,7 @@ std::string CodegenStack(RegisterUsageInfo info) {
   overflow_slot += "lea r11, -64(r11)\n";
   overflow_slot += "vmovq xmm15, r11\n";
   overflow_slot += "jmp [r11 - 64]\n";
-  overflow_slot += "retq\n";
+  overflow_slot += "ret\n";
 
   return GenerateFunction(kStackFunction, info, JitStack, overflow_slot, false);
 }
