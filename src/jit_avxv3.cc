@@ -28,9 +28,10 @@ std::string JitAvxV3CallStackPush(RegisterUsageInfo& info,
   a->vmovq(r11, sp);
   a->lea(r11, ptr(r11, /* 2 * A */ 64));
   a->vmovq(sp, r11);
+  a->lea(r11, ptr(r11, -64));
 
   // a->call(ptr(r11, -32));
-  a->call(ptr(r11, -64));
+  a->call(r11);
 
   a->pop(r11);
   a->pop(r10);
@@ -49,10 +50,13 @@ std::string JitAvxV3CallStackPush2(RegisterUsageInfo& info,
   // a->vmovq(sp, r11);
 
   a->vmovq(r11, sp);
-  a->lea(r11, ptr(r11, /* -(2 * A) */ -64));
+  a->lea(r11, ptr(r11, /* -(2 * A) */ 64));
   a->vmovq(sp, r11);
+  a->lea(r11, ptr(r11, -64));
 
-  a->call(ptr(r11, 32));
+  // a->and_(rsp, asmjit::imm(-16));
+  a->call(r11);
+
   return "";
 }
 
@@ -70,8 +74,9 @@ std::string JitAvxV3CallStackPop(RegisterUsageInfo& info, AssemblerHolder& ah) {
   a->vmovq(r11, sp);
   a->lea(r11, ptr(r11, /* -(2 * A) */ -64));
   a->vmovq(sp, r11);
+  a->lea(r11, ptr(r11, 32));
 
-  a->call(ptr(r11, 64));
+  a->call(r11);
 
   a->pop(r11);
   a->pop(r10);
@@ -88,8 +93,10 @@ std::string JitAvxV3CallStackPop2(RegisterUsageInfo& info,
   a->vmovq(r11, sp);
   a->lea(r11, ptr(r11, /* -(2 * A) */ -64));
   a->vmovq(sp, r11);
+  a->lea(r11, ptr(r11, 32));
 
-  a->call(ptr(r11, 128));
+  a->call(r11);
+
   return "";
 }
 
@@ -100,7 +107,6 @@ std::string JitAvxV3StackInit(RegisterUsageInfo& info, AssemblerHolder& ah) {
 
   std::string stack_init = "";
   stack_init += "lea r11, " + kStackFunction + "[rip]\n";
-  stack_init += "lea r11, [r11 - 64]\n";
   stack_init += "vmovq " + GetAvx2Register(sp) + ", r11\n";
 
   return stack_init;

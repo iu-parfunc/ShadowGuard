@@ -73,7 +73,10 @@ GenerateFunction(std::string fn_name, RegisterUsageInfo& info,
 }
 
 std::string CodegenStackInit(RegisterUsageInfo info) {
-  return GenerateFunction(kStackInitFunction, info, JitStackInit);
+  std::string overflow_slot = "ret\n";
+
+  return GenerateFunction(kStackInitFunction, info, JitStackInit,
+                          overflow_slot);
 }
 
 std::string CodegenStack(RegisterUsageInfo info) {
@@ -84,7 +87,7 @@ std::string CodegenStack(RegisterUsageInfo info) {
   overflow_slot += "push rcx\n";
   overflow_slot += "push rdi\n";
   overflow_slot += "mov rdi, r10\n";
-  overflow_slot += "call litecfi_overflow_stack_pop@plt\n";
+  overflow_slot += "call litecfi_overflow_stack_pop_v3@plt\n";
   overflow_slot += "pop rdi\n";
   overflow_slot += "pop rcx\n";
   overflow_slot += "pop rdx\n";
@@ -98,7 +101,7 @@ std::string CodegenStack(RegisterUsageInfo info) {
   overflow_slot += "push rcx\n";
   overflow_slot += "push rdi\n";
   overflow_slot += "mov rdi, r10\n";
-  overflow_slot += "call litecfi_overflow_stack_push@plt\n";
+  overflow_slot += "call litecfi_overflow_stack_push_v3@plt\n";
   overflow_slot += "pop rdi\n";
   overflow_slot += "pop rcx\n";
   overflow_slot += "pop rdx\n";
@@ -108,10 +111,9 @@ std::string CodegenStack(RegisterUsageInfo info) {
 
   // Additional overflow slot for push
   overflow_slot += "vmovq r11, xmm15\n";
-  overflow_slot += "lea r11, -64(r11)\n";
+  overflow_slot += "lea r11, [r11 - 64]\n";
   overflow_slot += "vmovq xmm15, r11\n";
   overflow_slot += "jmp [r11 - 64]\n";
-  overflow_slot += "ret\n";
 
   return GenerateFunction(kStackFunction, info, JitStack, overflow_slot, false);
 }

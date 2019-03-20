@@ -80,6 +80,8 @@ bool HasEnoughStorage(RegisterUsageInfo& info) {
 std::string JitCallStackPush(RegisterUsageInfo info, AssemblerHolder& ah) {
   if (FLAGS_shadow_stack == "avx_v2") {
     return JitAvxV2CallStackPush(info, ah);
+  } else if (FLAGS_shadow_stack == "avx_v3") {
+    return JitAvxV3CallStackPush(info, ah);
   }
 
   return "";
@@ -88,6 +90,8 @@ std::string JitCallStackPush(RegisterUsageInfo info, AssemblerHolder& ah) {
 std::string JitCallStackPush2(RegisterUsageInfo info, AssemblerHolder& ah) {
   if (FLAGS_shadow_stack == "avx_v2") {
     return JitAvxV2CallStackPush2(info, ah);
+  } else if (FLAGS_shadow_stack == "avx_v3") {
+    return JitAvxV3CallStackPush2(info, ah);
   }
 
   return "";
@@ -96,6 +100,8 @@ std::string JitCallStackPush2(RegisterUsageInfo info, AssemblerHolder& ah) {
 std::string JitCallStackPop(RegisterUsageInfo info, AssemblerHolder& ah) {
   if (FLAGS_shadow_stack == "avx_v2") {
     return JitAvxV2CallStackPop(info, ah);
+  } else if (FLAGS_shadow_stack == "avx_v3") {
+    return JitAvxV3CallStackPop(info, ah);
   }
 
   return "";
@@ -104,6 +110,8 @@ std::string JitCallStackPop(RegisterUsageInfo info, AssemblerHolder& ah) {
 std::string JitCallStackPop2(RegisterUsageInfo info, AssemblerHolder& ah) {
   if (FLAGS_shadow_stack == "avx_v2") {
     return JitAvxV2CallStackPop2(info, ah);
+  } else if (FLAGS_shadow_stack == "avx_v3") {
+    return JitAvxV3CallStackPop2(info, ah);
   }
 
   return "";

@@ -100,23 +100,6 @@ class StackOpSnippet : public Dyninst::PatchAPI::Snippet {
   RegisterUsageInfo info_;
 };
 
-class CustomSnippet : public Dyninst::PatchAPI::Snippet {
- public:
-  explicit CustomSnippet(unsigned char* buf, int size) : size_(size) {
-    buf_ = new unsigned char[size];
-    memcpy(buf_, buf, size);
-  }
-
-  bool generate(Dyninst::PatchAPI::Point* pt, Dyninst::Buffer& buf) override {
-    buf.copy(buf_, size_);
-    return true;
-  }
-
- protected:
-  unsigned char* buf_;
-  int size_;
-};
-
 class StackInitSnippet : public StackOpSnippet {
  public:
   explicit StackInitSnippet(RegisterUsageInfo info) : StackOpSnippet(info) {
