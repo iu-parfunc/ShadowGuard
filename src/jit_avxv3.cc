@@ -6,6 +6,37 @@
 #include "jit_internal.h"
 #include "register_utils.h"
 
+//--------------- Jump Table Version v3 : Threaded Jump Table -----------------
+//
+// Here we implement a threaded jump table where push and pop slots are
+// alternating with each other. Advantage of this approach over two separate
+// jump tables for push and pop is that, with this approach we only need to
+// maintain one stack pointer. This cuts down the vector operations at each push
+// and pop by half.
+//
+//   push_0 |        |  |
+//          |--------|  |
+//   pop_0  |        |  v
+//          |--------| <-- sp (%xmm15[0])
+//   push_1 |        |
+//          |--------|
+//   pop_1  |        |
+//             ...
+//
+// Notes:
+//
+// 1. We always position the pointer to a start of a push slot. So during a
+// push it will bump the pointer to the next push slot. A pop will position the
+// pointer to the previous push slot. Pop dispatch will then calculate the jump
+// target for the pop slot relative to that previous push slot.
+// 2. Overflow handling is bit complicated since we need to handle overflow
+// stack with the same stack pointer arithmetic. We use a second overflow
+// slot for push to achieve that. More details can be found in thread_local.c.
+// 3. This implementation moves the stack pointer updates to happen at the
+// callsite of stack functions rather than within the jump table slots. This
+// considerably trim the jump table slots making more of them fit to a
+// instruction cache line.
+
 const int alignment = 32;
 using namespace asmjit::x86;
 
@@ -25,6 +56,7 @@ std::string JitAvxV3CallStackPush(RegisterUsageInfo& info,
   // a->lea(r11, ptr(r11, /* 2 * A */ 64));
   // a->vmovq(sp, r11);
 
+  // Bump the pointer to the next push slot
   a->vmovq(r11, sp);
   a->lea(r11, ptr(r11, /* 2 * A */ 64));
   a->vmovq(sp, r11);
@@ -49,9 +81,11 @@ std::string JitAvxV3CallStackPush2(RegisterUsageInfo& info,
   // a->lea(r11, ptr(r11, /* 2 * A */ 64));
   // a->vmovq(sp, r11);
 
+  // Bump the pointer to the next push slot
   a->vmovq(r11, sp);
   a->lea(r11, ptr(r11, /* -(2 * A) */ 64));
   a->vmovq(sp, r11);
+  // Readjust the dispatch target to be the original push slot
   a->lea(r11, ptr(r11, -64));
 
   // a->and_(rsp, asmjit::imm(-16));
@@ -71,9 +105,11 @@ std::string JitAvxV3CallStackPop(RegisterUsageInfo& info, AssemblerHolder& ah) {
 
   a->lea(r10, ptr(rsp, 16));
 
+  // Decrement the pointer to the previous push slot
   a->vmovq(r11, sp);
   a->lea(r11, ptr(r11, /* -(2 * A) */ -64));
   a->vmovq(sp, r11);
+  // Readjust the dispatch target to be the corresponding pop slot
   a->lea(r11, ptr(r11, 32));
 
   a->call(r11);

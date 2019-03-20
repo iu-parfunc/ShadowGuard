@@ -92,7 +92,52 @@ ok:
   return;
 }
 
-/* Overflow functions for v3 jump table implementation */
+// Overflow functions for v3 jump table implementation
+//
+// Overflow slots look like below.
+//
+//          push_n |         |
+//                 |---------|
+//           pop_n |         |
+//                 |---------|  <--- Start of overflow stack
+// overflow_push_0 |         |
+//                 |---------|
+//    overflow_pop |         |
+//                 |---------|
+// overflow_push_1 |         |  <--- Second overflow push slot
+//
+//
+//
+//  Notes:
+//
+//  1. At the entry to first overflow push the stack pointer will be have been
+//  positioned (which happens at the call site) to second overflow push slot. If
+//  there is a subsequent push this second push slot will be executed. Upon
+//  entry to this second push slot the stack pointer will now be out of bounds
+//  with the ponter bump at the call site. However within this second push slot
+//  we first reposition the stack pointer to the second push overflow slot and
+//  then transfer the control back to the first push slot to handle the actual
+//  push to the overflow stack. This cycle repeats with all subsequent pushes.
+//  Invariant here is that stack pointer is never seen out of bounds outside the
+//  overflow push slots. Also note that the first overflow push slot will not
+//  make any stack pointer adjustments within it. Hence the control flow
+//  redirect from second push slot works as intended.
+//
+//  2. When a pop happens from the overflow stack, the pointer will always be at
+//  the start of second overflow push slot at the pop function call site (due to
+//  the invariant at 1). Then the pointer will be set to the start of first
+//  overflow push slot at the call site and the pop slot entered. If at the end
+//  of the pop we discover the overflow_stack is not yet empty we reposition the
+//  stack pointer to the start of second overflow push slot. This will make next
+//  pops to also go through the overflow pop slot. If however, the overflow
+//  stack is empty we do nothing, since at the next pop, the call site will
+//  decrement the pointer back to regular stack slots and a regular stack pop
+//  will happen.
+//
+//  With this scheme we are able to handle the transitions between the overflow
+//  and regular stacks seamlessly. However one disadvantage of this approach is
+//  that each overflow push after the first one will incur an additional
+//  indirect jump from the second overflow push slot to the first.
 
 void litecfi_overflow_stack_push_v3() {
   if (overflow_stack == NULL) {
