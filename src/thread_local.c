@@ -94,7 +94,8 @@ ok:
 
 // Overflow functions for v3 jump table implementation
 //
-// Overflow slots look like below.
+// Overflow slots look like below. See codegen.cc for the actual contents of
+// each of these slots.
 //
 //          push_n |         |
 //                 |---------|

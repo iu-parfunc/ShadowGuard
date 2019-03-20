@@ -162,6 +162,7 @@ std::string JitAvxV3StackInit(RegisterUsageInfo& info, AssemblerHolder& ah) {
     break;                                                                     \
   }                                                                            \
   case i2: {                                                                   \
+    /* Push slot */                                                            \
     a->vmovq(scratch.xmm, ptr(GetRaHolder()));                                 \
     a->vpbroadcastq(scratch.xmm, scratch.xmm);                                 \
     a->vpblendd(ymm_reg, ymm_reg, scratch.ymm, asmjit::imm(12));               \
