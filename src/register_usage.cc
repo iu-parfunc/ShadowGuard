@@ -167,7 +167,8 @@ const std::vector<bool>& RegisterUsageInfo::GetUnusedMmxMask() {
 void PopulateFunctionRegisterUsage(Dyninst::ParseAPI::Function* const function,
                                    std::set<std::string>* const used,
                                    bool& write_mem,
-                                   bool& write_sp) {
+                                   bool& write_sp,
+                                   bool& contains_call) {
   if (FLAGS_vv) {
     StdOut(Color::YELLOW) << "     Function : " << function->name() << Endl;
   }
@@ -181,6 +182,7 @@ void PopulateFunctionRegisterUsage(Dyninst::ParseAPI::Function* const function,
 
     for (auto const& ins : insns) {
       write_mem |= ins.second.writesMemory();
+      contains_call |= (ins.second.getCategory() == Dyninst::InstructionAPI::c_CallInsn);
       std::set<Dyninst::InstructionAPI::RegisterAST::Ptr> read;
       std::set<Dyninst::InstructionAPI::RegisterAST::Ptr> written;
       ins.second.getReadSet(read);
@@ -229,12 +231,14 @@ void AnalyseFunctionRegisterUsage(Dyninst::ParseAPI::Function* const function,
   std::set<std::string> registers;
   bool writesMem = false;
   bool writesSP = false;
-  PopulateFunctionRegisterUsage(function, &registers, writesMem, writesSP);
+  bool containsCall = false;
+  PopulateFunctionRegisterUsage(function, &registers, writesMem, writesSP, containsCall);
 
   RegisterUsageInfo* info = new RegisterUsageInfo();
   info->used_ = registers;
   info->writesMemory_ = writesMem;
   info->writesSP_ = writesSP;
+  info->containsCall_ = containsCall;
 
   // Update the cache
   lib->register_usage.insert(

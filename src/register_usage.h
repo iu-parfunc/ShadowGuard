@@ -27,8 +27,10 @@ class RegisterUsageInfo {
   bool writesMemory_;
   // Whether a function writes to SP or not (excluding ret)
   bool writesSP_;
+  // Whether a function calls other function
+  bool containsCall_;
 
-  bool ShouldSkip() { return !writesMemory_ && !writesSP_; }
+  bool ShouldSkip() { return !writesMemory_ && !writesSP_ && !containsCall_; }
 
  private:
   // Register masks

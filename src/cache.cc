@@ -36,7 +36,7 @@ std::map<std::string, Code*>* GetRegisterAnalysisCache() {
   std::string line;
   while (std::getline(cache_file, line)) {
     std::vector<std::string> tokens = Split(line, ',');
-    DCHECK(tokens.size() == 4) << line;
+    DCHECK(tokens.size() == 5) << line;
 
     std::vector<std::string> library_n_function = Split(tokens[0], '%');
 
@@ -78,6 +78,10 @@ std::map<std::string, Code*>* GetRegisterAnalysisCache() {
     else
       info->writesSP_ = false;
 
+    if (tokens[4] == "1")
+      info->containsCall_ = true;
+    else
+      info->containsCall_ = false;
     lib->register_usage[function] = info;
   }
 
@@ -128,7 +132,8 @@ void FlushRegisterAnalysisCache(
       cache_file << lib->path << "%" << reg_iter.first << ","
                  << registers_concat << "," 
                  << reg_iter.second->writesMemory_ << ","
-                 << reg_iter.second->writesSP_ << std::endl;     
+                 << reg_iter.second->writesSP_ << ","
+                 << reg_iter.second->containsCall_ << std::endl;     
     }
   }
 
