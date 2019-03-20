@@ -50,7 +50,6 @@ std::string FunctionProlog(std::string name, bool global) {
 
 std::string FunctionEpilog(std::string name) {
   std::string epilog = "";
-  epilog += "ret\n";
   epilog += ".align 64\n";
   epilog += "ASM_SIZE(" + name + ")\n";
   epilog += "CFI_ENDPROC\n\n";
@@ -79,6 +78,41 @@ std::string CodegenStackInit(RegisterUsageInfo info) {
 
 std::string CodegenStack(RegisterUsageInfo info) {
   std::string overflow_slot = "";
+  // Overflow pop slot
+  overflow_slot += "push rax\n";
+  overflow_slot += "push rdx\n";
+  overflow_slot += "push rcx\n";
+  overflow_slot += "push rdi\n";
+  overflow_slot += "mov rdi, r10\n";
+  overflow_slot += "call litecfi_overflow_stack_pop@plt\n";
+  overflow_slot += "pop rdi\n";
+  overflow_slot += "pop rcx\n";
+  overflow_slot += "pop rdx\n";
+  overflow_slot += "pop rax\n";
+  overflow_slot += "ret\n";
+  overflow_slot += ".align 32\n";
+
+  // Overflow push slot
+  overflow_slot += "push rax\n";
+  overflow_slot += "push rdx\n";
+  overflow_slot += "push rcx\n";
+  overflow_slot += "push rdi\n";
+  overflow_slot += "mov rdi, r10\n";
+  overflow_slot += "call litecfi_overflow_stack_push@plt\n";
+  overflow_slot += "pop rdi\n";
+  overflow_slot += "pop rcx\n";
+  overflow_slot += "pop rdx\n";
+  overflow_slot += "pop rax\n";
+  overflow_slot += "ret\n";
+  overflow_slot += ".align 32\n";
+
+  // Additional overflow slot for push
+  overflow_slot += "vmovq r11, xmm15\n";
+  overflow_slot += "lea r11, -64(r11)\n";
+  overflow_slot += "vmovq xmm15, r11\n";
+  overflow_slot += "jmp [r11 - 64]\n";
+  overflow_slot += "retq\n";
+
   return GenerateFunction(kStackFunction, info, JitStack, overflow_slot, false);
 }
 
@@ -94,6 +128,8 @@ std::string CodegenStackPush(RegisterUsageInfo info) {
   overflow_slot += "pop rcx\n";
   overflow_slot += "pop rdx\n";
   overflow_slot += "pop rax\n";
+  overflow_slot += "ret\n";
+
   return GenerateFunction(kStackPushFunction, info, JitStackPush, overflow_slot,
                           false);
 }
@@ -110,6 +146,8 @@ std::string CodegenStackPop(RegisterUsageInfo info) {
   overflow_slot += "pop rcx\n";
   overflow_slot += "pop rdx\n";
   overflow_slot += "pop rax\n";
+  overflow_slot += "ret\n";
+
   return GenerateFunction(kStackPopFunction, info, JitStackPop, overflow_slot,
                           false);
 }
