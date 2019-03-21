@@ -217,7 +217,6 @@ ok:
   }
 // clang-format on
 
-/*
 #define REGISTER_PUSH(index, sp)                    \
   switch (index) {                                  \
     PUSH_AVX2(sp, 0, "vmovdqu %%ymm0, (%0);\n\t")   \
@@ -259,7 +258,7 @@ ok:
     POP_AVX2(sp, 15, "vmovdqu (%0), %%ymm15;\n\t") \
     OUT_OF_BOUNDS()                                \
   }
-*/
+/*
 #define REGISTER_PUSH(index, sp)                                               \
   switch (index) {                                                             \
     PUSH_AVX2(sp, 0, "movdqu %%xmm0, (%0);\n\t")                               \
@@ -301,7 +300,7 @@ ok:
     POP_AVX2(sp, 15, "movdqu (%0), %%xmm15;\n\t")                              \
     OUT_OF_BOUNDS()                                                            \
   }
-
+*/
 #define REGISTER_PEEK(index, sp, offset)                                       \
   switch (index) {                                                             \
     PEEK_AVX2(sp, 0, offset, "vmovdqu (%%rdx), %%ymm0;\n\t")                   \

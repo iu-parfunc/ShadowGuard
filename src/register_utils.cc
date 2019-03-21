@@ -159,7 +159,7 @@ std::vector<uint8_t> GetUnusedAvx2QuadWords(RegisterUsageInfo& info) {
   const std::vector<bool>& mask = info.GetUnusedAvx2Mask();
   for (int i = (int)mask.size() - 1; i >= 0; i--) {
     if (mask[i]) {
-      for (unsigned int j = 0; j < 2; j++) {
+      for (unsigned int j = 0; j < 4; j++) {
         quad_words.push_back(4 * i + j);
       }
     }

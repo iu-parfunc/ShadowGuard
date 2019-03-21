@@ -302,6 +302,7 @@ void SharedLibraryInstrumentation(
         << "Failed instrumenting nop entry instrumentation.";
     return;
   }
+  function->relocateFunction();
 
   std::vector<uint8_t> collisions =
       GetRegisterCollisions(info.GetUnusedAvx2Mask());
@@ -797,7 +798,7 @@ void Instrument(std::string binary, std::map<std::string, Code*>* const cache,
 
   // Delete AVX2 register clearing instructions
   BPatch::bpatch->addDeleteInstructionOpcode(e_vzeroall);
-  // BPatch::bpatch->addDeleteInstructionOpcode(e_vzeroupper);
+  BPatch::bpatch->addDeleteInstructionOpcode(e_vzeroupper);
 
   std::vector<BPatch_object*> objects;
   parser.image->getObjects(objects);
