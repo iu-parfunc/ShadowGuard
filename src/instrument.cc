@@ -202,7 +202,7 @@ BPatch_funcCallExpr GetRegisterOperationSnippet(
     std::map<std::string, BPatch_function*>& instrumentation_fns,
     const std::vector<uint8_t>& collisions, std::string op_prefix) {
   long n_regs = collisions.size();
-  if (n_regs > 8) {
+  if (n_regs > 0) {
     BPatch_function* fn = instrumentation_fns[op_prefix];
     DCHECK(fn) << "Couldn't find the register operation " << op_prefix;
     unsigned mask = 0;
@@ -312,7 +312,7 @@ void SharedLibraryInstrumentation(
     return;
 
   InstSpec* isPtr;
-  if (collisions.size() <= 8)
+  if (collisions.size() <= 0)
     isPtr = &is[collisions.size()];
   else
     isPtr = &is[1];

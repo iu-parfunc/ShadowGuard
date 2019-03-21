@@ -561,6 +561,15 @@ ok:
     REGISTER_PEEK(reg8, sp, offset)                                            \
   }
 
+#define VECTOR_REGISTER_OP(mask, index, mem, insn) \
+  if (mask & (1U << index)) {                      \
+    asm(insn                                       \
+        :                                          \
+        : "r"(&mem[index*REG_SIZE])                \
+        :);                                        \
+  }
+
+
 // Register spill functions
 ONE_REG_PUSH_FN(litecfi_register_spill, cfi_context);
 TWO_REG_PUSH_FN(litecfi_register_spill, cfi_context);
@@ -572,10 +581,14 @@ SEVEN_REG_PUSH_FN(litecfi_register_spill, cfi_context);
 EIGHT_REG_PUSH_FN(litecfi_register_spill, cfi_context);
 
 void litecfi_register_spill(unsigned mask) {
-  for (uint8_t i = 0; i < 16; ++i)
-    if (mask & (1U << i)) {
-      REGISTER_PUSH(i, cfi_context);
-    }
+  VECTOR_REGISTER_OP(mask, 8, cfi_context, "vmovdqu %%ymm8, (%0);\n\t"); 
+  VECTOR_REGISTER_OP(mask, 9, cfi_context, "vmovdqu %%ymm9, (%0);\n\t"); 
+  VECTOR_REGISTER_OP(mask, 10, cfi_context, "vmovdqu %%ymm10, (%0);\n\t"); 
+  VECTOR_REGISTER_OP(mask, 11, cfi_context, "vmovdqu %%ymm11, (%0);\n\t"); 
+  VECTOR_REGISTER_OP(mask, 12, cfi_context, "vmovdqu %%ymm12, (%0);\n\t"); 
+  VECTOR_REGISTER_OP(mask, 13, cfi_context, "vmovdqu %%ymm13, (%0);\n\t"); 
+  VECTOR_REGISTER_OP(mask, 14, cfi_context, "vmovdqu %%ymm14, (%0);\n\t"); 
+  VECTOR_REGISTER_OP(mask, 15, cfi_context, "vmovdqu %%ymm15, (%0);\n\t"); 
 }
 
 // Register restore functions
@@ -589,10 +602,14 @@ SEVEN_REG_POP_FN(litecfi_register_restore, cfi_context);
 EIGHT_REG_POP_FN(litecfi_register_restore, cfi_context);
 
 void litecfi_register_restore(unsigned mask) {
-  for (uint8_t i = 0; i < 16; ++i)
-    if (mask & (1U << i)) {
-      REGISTER_POP(i, cfi_context);
-    }
+  VECTOR_REGISTER_OP(mask, 8, cfi_context, "vmovdqu (%0), %%ymm8;\n\t"); 
+  VECTOR_REGISTER_OP(mask, 9, cfi_context, "vmovdqu (%0), %%ymm9;\n\t"); 
+  VECTOR_REGISTER_OP(mask, 10, cfi_context, "vmovdqu (%0), %%ymm10;\n\t"); 
+  VECTOR_REGISTER_OP(mask, 11, cfi_context, "vmovdqu (%0), %%ymm11;\n\t"); 
+  VECTOR_REGISTER_OP(mask, 12, cfi_context, "vmovdqu (%0), %%ymm12;\n\t"); 
+  VECTOR_REGISTER_OP(mask, 13, cfi_context, "vmovdqu (%0), %%ymm13;\n\t"); 
+  VECTOR_REGISTER_OP(mask, 14, cfi_context, "vmovdqu (%0), %%ymm14;\n\t"); 
+  VECTOR_REGISTER_OP(mask, 15, cfi_context, "vmovdqu (%0), %%ymm15;\n\t"); 
 }
 
 // Register peek functions
@@ -618,10 +635,14 @@ SEVEN_REG_PUSH_FN(litecfi_ctx_save, user_context);
 EIGHT_REG_PUSH_FN(litecfi_ctx_save, user_context);
 
 void litecfi_ctx_save(unsigned mask) {
-  for (uint8_t i = 0; i < 16; ++i)
-    if (mask & (1U << i)) {
-      REGISTER_PUSH(i, user_context);
-    }
+  VECTOR_REGISTER_OP(mask, 8, user_context, "vmovdqu %%ymm8, (%0);\n\t"); 
+  VECTOR_REGISTER_OP(mask, 9, user_context, "vmovdqu %%ymm9, (%0);\n\t"); 
+  VECTOR_REGISTER_OP(mask, 10, user_context, "vmovdqu %%ymm10, (%0);\n\t"); 
+  VECTOR_REGISTER_OP(mask, 11, user_context, "vmovdqu %%ymm11, (%0);\n\t"); 
+  VECTOR_REGISTER_OP(mask, 12, user_context, "vmovdqu %%ymm12, (%0);\n\t"); 
+  VECTOR_REGISTER_OP(mask, 13, user_context, "vmovdqu %%ymm13, (%0);\n\t"); 
+  VECTOR_REGISTER_OP(mask, 14, user_context, "vmovdqu %%ymm14, (%0);\n\t"); 
+  VECTOR_REGISTER_OP(mask, 15, user_context, "vmovdqu %%ymm15, (%0);\n\t"); 
 }
 
 // Register context restore functions
@@ -635,10 +656,14 @@ SEVEN_REG_POP_FN(litecfi_ctx_restore, user_context);
 EIGHT_REG_POP_FN(litecfi_ctx_restore, user_context);
 
 void litecfi_ctx_restore(unsigned mask) {
-  for (uint8_t i = 0; i < 16; ++i)
-    if (mask & (1U << i)) {
-      REGISTER_POP(i, user_context);
-    }
+  VECTOR_REGISTER_OP(mask, 8, user_context, "vmovdqu (%0), %%ymm8;\n\t"); 
+  VECTOR_REGISTER_OP(mask, 9, user_context, "vmovdqu (%0), %%ymm9;\n\t"); 
+  VECTOR_REGISTER_OP(mask, 10, user_context, "vmovdqu (%0), %%ymm10;\n\t"); 
+  VECTOR_REGISTER_OP(mask, 11, user_context, "vmovdqu (%0), %%ymm11;\n\t"); 
+  VECTOR_REGISTER_OP(mask, 12, user_context, "vmovdqu (%0), %%ymm12;\n\t"); 
+  VECTOR_REGISTER_OP(mask, 13, user_context, "vmovdqu (%0), %%ymm13;\n\t"); 
+  VECTOR_REGISTER_OP(mask, 14, user_context, "vmovdqu (%0), %%ymm14;\n\t"); 
+  VECTOR_REGISTER_OP(mask, 15, user_context, "vmovdqu (%0), %%ymm15;\n\t"); 
 }
 
 // Register context peek functions
