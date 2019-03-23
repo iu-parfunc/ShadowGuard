@@ -683,6 +683,14 @@ void PopulateRegisterStackOperations(
   key_prefix = "ctx_restore";
   fns[key_prefix] = FindFunctionByName(parser.image, fn_prefix);
 
+  fn_prefix = "litecfi_register_spill";
+  key_prefix = "register_spill";
+  fns[key_prefix] = FindFunctionByName(parser.image, fn_prefix);
+
+  fn_prefix = "litecfi_register_restore";
+  key_prefix = "register_restore";
+  fns[key_prefix] = FindFunctionByName(parser.image, fn_prefix);
+
   fn_prefix = "litecfi_stack_print_stats";
   key_prefix = "print_stats";
   fns[key_prefix] = FindFunctionByName(parser.image, fn_prefix);
