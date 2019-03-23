@@ -52,15 +52,7 @@ asmjit::CodeHolder* AssemblerHolder::GetCode() { return code_; }
 
 /********************** End ***********************/
 
-DECLARE_string(instrument);
-
-asmjit::X86Gp GetRaHolder() {
-  if (FLAGS_instrument == "shared") {
-    return asmjit::x86::r10;
-  }
-  // Inlined instrumentation
-  return asmjit::x86::rsp;
-}
+asmjit::X86Gp GetRaHolder() { return asmjit::x86::r10; }
 
 bool HasEnoughStorage(RegisterUsageInfo& info) {
   int n_unused_avx_regs = 0;
@@ -118,9 +110,7 @@ std::string JitCallStackPop2(RegisterUsageInfo info, AssemblerHolder& ah) {
 }
 
 std::string JitStackInit(RegisterUsageInfo info, AssemblerHolder& ah) {
-  if (FLAGS_shadow_stack == "avx2") {
-    return JitAvx2StackInit(info, ah);
-  } else if (FLAGS_shadow_stack == "avx_v2") {
+  if (FLAGS_shadow_stack == "avx_v2") {
     return JitAvxV2StackInit(info, ah);
   } else if (FLAGS_shadow_stack == "avx_v3") {
     return JitAvxV3StackInit(info, ah);
@@ -149,9 +139,7 @@ std::string JitStackPush(RegisterUsageInfo info, AssemblerHolder& ah) {
     return "";
   }
 
-  if (FLAGS_shadow_stack == "avx2") {
-    return JitAvx2StackPush(info, ah);
-  } else if (FLAGS_shadow_stack == "avx_v2") {
+  if (FLAGS_shadow_stack == "avx_v2") {
     return JitAvxV2StackPush(info, ah);
   } else if (FLAGS_shadow_stack == "avx512") {
     // TODO(chamibuddhika) Test this
@@ -173,9 +161,7 @@ std::string JitStackPop(RegisterUsageInfo info, AssemblerHolder& ah) {
     return "";
   }
 
-  if (FLAGS_shadow_stack == "avx2") {
-    return JitAvx2StackPop(info, ah);
-  } else if (FLAGS_shadow_stack == "avx_v2") {
+  if (FLAGS_shadow_stack == "avx_v2") {
     return JitAvxV2StackPop(info, ah);
   } else if (FLAGS_shadow_stack == "avx512") {
     // TODO(chamibuddhika) Test this

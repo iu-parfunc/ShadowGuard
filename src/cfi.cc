@@ -20,7 +20,6 @@ DEFINE_string(
     shadow_stack, "avx2",
     "\n Shadow stack implementation mechanism for backward-edge protection.\n"
     "\n Valid values are\n"
-    "   * avx2 : Uses avx2 register file as backing store\n"
     "   * avx_v2 : Uses avx2 register file as backing store (v2"
     "implementation)\n"
     "   * avx_v3 : Uses avx2 register file as backing store (v3 "
@@ -34,16 +33,6 @@ DEFINE_string(
     "   * reloc : Only perform relocation.\n"
     "   * savegpr: Relocation + saving & restoring GPRs\n"
     " Less context sensitive and precise than other techniques.\n");
-
-DEFINE_string(
-    instrument, "inline",
-    "\n Method of injecting instrumentation.\n"
-    "\n Valid values are\n"
-    "   * inline : Inline all the instrumentation to each function\n"
-    "   * shared : Create instrumentation as a shared library and inject calls"
-    " to it\n"
-    "   * static : Create instrumentation as a static library and inject jumps"
-    " to it\n");
 
 DEFINE_string(shadow_stack_protection, "sfi",
               "\n Applicable only when `shadow-stack` is set to mem."
@@ -78,9 +67,9 @@ DEFINE_int32(reserved_from, 8,
 
 static bool ValidateShadowStackFlag(const char* flagname,
                                     const std::string& value) {
-  if (value == "avx2" || value == "avx512" || value == "mem" ||
-      value == "dispatch" || value == "reloc" || value == "empty" ||
-      value == "savegpr" || value == "avx_v2" || value == "avx_v3") {
+  if (value == "avx512" || value == "mem" || value == "dispatch" ||
+      value == "reloc" || value == "empty" || value == "savegpr" ||
+      value == "avx_v2" || value == "avx_v3") {
     return true;
   }
 

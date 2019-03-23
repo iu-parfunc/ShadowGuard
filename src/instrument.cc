@@ -4,8 +4,8 @@
 #include <vector>
 
 #include "BPatch.h"
-#include "BPatch_function.h"
 #include "BPatch_basicBlock.h"
+#include "BPatch_function.h"
 #include "BPatch_object.h"
 #include "BPatch_point.h"
 #include "InstSpec.h"
@@ -30,6 +30,7 @@ DECLARE_string(instrument);
 DECLARE_bool(libs);
 DECLARE_string(shadow_stack);
 DECLARE_bool(skip);
+DECLARE_bool(stats);
 DECLARE_bool(vv);
 DECLARE_string(threat_model);
 DECLARE_int32(reserved_from);
@@ -158,8 +159,7 @@ std::vector<bool> GetReservedAvxMask() {
   int n_regs = 0;
   int reserved_from = 0;
 
-  if (FLAGS_shadow_stack == "avx2" || FLAGS_shadow_stack == "avx_v2" ||
-      FLAGS_shadow_stack == "avx_v3") {
+  if (FLAGS_shadow_stack == "avx_v2" || FLAGS_shadow_stack == "avx_v3") {
     n_regs = 16;
     reserved_from = FLAGS_reserved_from;
   } else if (FLAGS_shadow_stack == "avx512") {
@@ -182,8 +182,7 @@ std::vector<uint8_t> GetRegisterCollisions(const std::vector<bool>& unused) {
   std::vector<bool> reserved = GetReservedAvxMask();
 
   int n_regs = 0;
-  if (FLAGS_shadow_stack == "avx2" || FLAGS_shadow_stack == "avx_v2" ||
-      FLAGS_shadow_stack == "avx_v3") {
+  if (FLAGS_shadow_stack == "avx_v2" || FLAGS_shadow_stack == "avx_v3") {
     n_regs = 16;
   } else if (FLAGS_shadow_stack == "avx512") {
     n_regs = 32;
@@ -201,31 +200,18 @@ std::vector<uint8_t> GetRegisterCollisions(const std::vector<bool>& unused) {
 BPatch_funcCallExpr GetRegisterOperationSnippet(
     std::map<std::string, BPatch_function*>& instrumentation_fns,
     const std::vector<uint8_t>& collisions, std::string op_prefix) {
-  long n_regs = collisions.size();
-  if (n_regs > 0) {
-    BPatch_function* fn = instrumentation_fns[op_prefix];
-    DCHECK(fn) << "Couldn't find the register operation " << op_prefix;
-    unsigned mask = 0;
-    BPatch_Vector<BPatch_snippet*> args;
-    for (int i = 0; i < n_regs; i++) {
-      uint8_t id = collisions[i];
-      mask |= (1U << id);
-    }
-    args.push_back(new BPatch_constExpr(mask));
-    return BPatch_funcCallExpr(*fn, args);
-  }
+  BPatch_function* fn = instrumentation_fns[op_prefix];
+  DCHECK(fn) << "Couldn't find the register operation " << op_prefix;
 
-  BPatch_function* fn =
-      instrumentation_fns[op_prefix + "_" + std::to_string(n_regs)];
-  DCHECK(fn) << "Couldn't find the register operation " << op_prefix << "_"
-             << std::to_string(n_regs);
+  unsigned mask = 0;
+  long n_regs = collisions.size();
+  for (int i = 0; i < n_regs; i++) {
+    uint8_t id = collisions[i];
+    mask |= (1U << id);
+  }
 
   BPatch_Vector<BPatch_snippet*> args;
-  for (int i = 0; i < n_regs; i++) {
-    BPatch_constExpr* reg = new BPatch_constExpr(collisions[i]);
-    args.push_back(reg);
-  }
-
+  args.push_back(new BPatch_constExpr(mask));
   return BPatch_funcCallExpr(*fn, args);
 }
 
@@ -323,26 +309,15 @@ void SharedLibraryInstrumentation(
   // 1.a) Shadow stack push
   // Shared library function call to shadow stack push at function entry
   if (info.ShouldSkip()) {
-      fprintf(stderr, "Skip function %s because it does not write to memory or write to SP\n", function->getName().c_str());
+    fprintf(
+        stderr,
+        "Skip function %s because it does not write to memory or write to SP\n",
+        function->getName().c_str());
   }
-  if (!info.ShouldSkip() && (FLAGS_threat_model != "trust_system" || !isSystemCode)) {
+  if (!info.ShouldSkip() &&
+      (FLAGS_threat_model != "trust_system" || !isSystemCode)) {
 
-    if (FLAGS_shadow_stack == "avx2") {
-      BPatch_funcCallExpr stack_push(*(instrumentation_fns["push"]), args);
-      BPatch_funcCallExpr of_push(*(instrumentation_fns["overflow_push"]),
-                                  args);
-
-      // Check return value to determine whether stack is overflown
-      BPatch_ifExpr push_of_check(
-          BPatch_boolExpr(BPatch_eq, stack_push, BPatch_constExpr(0)), of_push);
-
-      handle = nullptr;
-      handle =
-          binary_edit->insertSnippet(push_of_check, *entries, BPatch_callBefore,
-                                     BPatch_lastSnippet, isPtr);
-      DCHECK(handle != nullptr) << "Failed instrumenting stack push.";
-    } else if (FLAGS_shadow_stack == "avx_v2" ||
-               FLAGS_shadow_stack == "avx_v3") {
+    if (FLAGS_shadow_stack == "avx_v2" || FLAGS_shadow_stack == "avx_v3") {
       RegisterUsageInfo unused;
       std::vector<bool>& mask =
           const_cast<std::vector<bool>&>(unused.GetUnusedAvx2Mask());
@@ -397,18 +372,21 @@ void SharedLibraryInstrumentation(
     // will cause semantic issues: the call instrumentation will be executed
     // regardless of whether the call happens or not.
     //
-    // The problem is even worse because Dyninst treat tail calls as non-returning,
-    // so post-call instrumentation is not installed for conditional tail calls
+    // The problem is even worse because Dyninst treat tail calls as
+    // non-returning, so post-call instrumentation is not installed for
+    // conditional tail calls
     //
-    // Here we are lucky because our pre-call instruction is a subset of our exit 
-    // instrumentation. And Dyninst handles conditional exit instrumentation correctly.
-    // So, we work around this problem by skipping all conditional call sites
-    for (auto call_it = calls->begin(); call_it != calls->end(); ) {
-      BPatch_basicBlock *b = (*call_it)->getBlock();
+    // Here we are lucky because our pre-call instruction is a subset of our
+    // exit instrumentation. And Dyninst handles conditional exit
+    // instrumentation correctly. So, we work around this problem by skipping
+    // all conditional call sites
+    for (auto call_it = calls->begin(); call_it != calls->end();) {
+      BPatch_basicBlock* b = (*call_it)->getBlock();
       std::vector<InstructionAPI::Instruction> insns;
       b->getInstructions(insns);
       Dyninst::InstructionAPI::Instruction insn = (*insns.rbegin());
-      if (insn.getCategory() == InstructionAPI::c_BranchInsn && insn.allowsFallThrough()) {
+      if (insn.getCategory() == InstructionAPI::c_BranchInsn &&
+          insn.allowsFallThrough()) {
         // This is a conditional tail call, we skip it
         call_it = calls->erase(call_it);
       } else {
@@ -493,23 +471,10 @@ void SharedLibraryInstrumentation(
 
   // 3.c) Shadow stack pop
   // Shared library function call to shadow stack pop at function exit
-  if (!info.ShouldSkip() && (FLAGS_threat_model != "trust_system" || !isSystemCode)) {
+  if (!info.ShouldSkip() &&
+      (FLAGS_threat_model != "trust_system" || !isSystemCode)) {
 
-    if (FLAGS_shadow_stack == "avx2") {
-      BPatch_funcCallExpr stack_pop(*(instrumentation_fns["pop"]), args);
-      BPatch_funcCallExpr of_pop(*(instrumentation_fns["overflow_pop"]), args);
-
-      // Check return value to determine whether stack is overflown
-      BPatch_ifExpr pop_of_check(
-          BPatch_boolExpr(BPatch_eq, stack_pop, BPatch_constExpr(0)), of_pop);
-
-      handle = nullptr;
-      handle = binary_edit->insertSnippet(
-          pop_of_check, *exits, BPatch_callAfter, BPatch_lastSnippet, isPtr);
-      DCHECK(handle != nullptr)
-          << "Failed instrumenting stack pop at function exit.";
-    } else if (FLAGS_shadow_stack == "avx_v2" ||
-               FLAGS_shadow_stack == "avx_v3") {
+    if (FLAGS_shadow_stack == "avx_v2" || FLAGS_shadow_stack == "avx_v3") {
       RegisterUsageInfo unused;
       std::vector<bool>& mask =
           const_cast<std::vector<bool>&>(unused.GetUnusedAvx2Mask());
@@ -544,27 +509,6 @@ void InstrumentTlsInit(
 
   BPatchSnippetHandle* handle = binary_edit->insertSnippet(tls_init, *entries);
   DCHECK(handle != nullptr) << "Failed instrumenting tls initialization.";
-}
-
-void InlinedInstrumentation(BPatch_function* function,
-                            const RegisterUsageInfo& info, const Parser& parser,
-                            PatchMgr::Ptr patcher) {
-  // Inlined shadow stack push instrumentation at function entry
-  Snippet::Ptr stack_push =
-      StackPushSnippet::create(new StackPushSnippet(info));
-  InsertInstrumentation(function, Point::FuncEntry, stack_push, patcher);
-
-  // Spill conflicting registers
-
-  // Instrument all calls to
-  //   Save context precall
-  //   Restore context after call
-
-  // Inlined shadow stack pop instrumentation at function exit
-  Snippet::Ptr stack_pop = StackPopSnippet::create(new StackPopSnippet(info));
-  InsertInstrumentation(function, Point::FuncExit, stack_pop, patcher);
-
-  // Restore spilled registers
 }
 
 void InstrumentFunction(
@@ -609,16 +553,8 @@ void InstrumentFunction(
     return;
   }
 
-  if (FLAGS_instrument == "inline") {
-    InlinedInstrumentation(function, *info, parser, patcher);
-    return;
-  }
-
-  if (FLAGS_instrument == "shared") {
-    SharedLibraryInstrumentation(function, *info, parser, patcher,
-                                 instrumentation_fns, isSystemCode);
-    return;
-  }
+  SharedLibraryInstrumentation(function, *info, parser, patcher,
+                               instrumentation_fns, isSystemCode);
 }
 
 static void GetIFUNCs(BPatch_module* module,
@@ -724,58 +660,16 @@ void PopulateRegisterStackOperations(
     std::map<std::string, BPatch_function*>& fns) {
   DCHECK(binary_edit->loadLibrary("libtls.so")) << "Failed to load tls library";
 
-  std::string fn_prefix = "litecfi_register_spill";
-  std::string key_prefix = "register_spill";
+  std::string fn_prefix = "litecfi_ctx_save";
+  std::string key_prefix = "ctx_save";
   fns[key_prefix] = FindFunctionByName(parser.image, fn_prefix);
-  for (int i = 1; i <= 8; i++) {
-    std::string fn_name = fn_prefix + "_" + std::to_string(i);
-    fns[key_prefix + "_" + std::to_string(i)] =
-        FindFunctionByName(parser.image, fn_name);
-  }
-
-  fn_prefix = "litecfi_register_restore";
-  key_prefix = "register_restore";
-  fns[key_prefix] = FindFunctionByName(parser.image, fn_prefix);
-  for (int i = 1; i <= 8; i++) {
-    std::string fn_name = fn_prefix + "_" + std::to_string(i);
-    fns[key_prefix + "_" + std::to_string(i)] =
-        FindFunctionByName(parser.image, fn_name);
-  }
-
-  fn_prefix = "litecfi_ctx_save";
-  key_prefix = "ctx_save";
-  fns[key_prefix] = FindFunctionByName(parser.image, fn_prefix);
-  for (int i = 1; i <= 8; i++) {
-    std::string fn_name = fn_prefix + "_" + std::to_string(i);
-    fns[key_prefix + "_" + std::to_string(i)] =
-        FindFunctionByName(parser.image, fn_name);
-  }
 
   fn_prefix = "litecfi_ctx_restore";
   key_prefix = "ctx_restore";
   fns[key_prefix] = FindFunctionByName(parser.image, fn_prefix);
-  for (int i = 1; i <= 8; i++) {
-    std::string fn_name = fn_prefix + "_" + std::to_string(i);
-    fns[key_prefix + "_" + std::to_string(i)] =
-        FindFunctionByName(parser.image, fn_name);
-  }
 
-  std::string fn_name = "litecfi_mem_initialize";
-  fns["tls_init"] = FindFunctionByName(parser.image, fn_name);
-
-  if (FLAGS_shadow_stack == "avx_v3") {
-    fn_name = "litecfi_overflow_stack_push_v3";
-    fns["overflow_push"] = FindFunctionByName(parser.image, fn_name);
-
-    fn_name = "litecfi_overflow_stack_pop_v3";
-    fns["overflow_pop"] = FindFunctionByName(parser.image, fn_name);
-  } else {
-    fn_name = "litecfi_overflow_stack_push";
-    fns["overflow_push"] = FindFunctionByName(parser.image, fn_name);
-
-    fn_name = "litecfi_overflow_stack_pop";
-    fns["overflow_pop"] = FindFunctionByName(parser.image, fn_name);
-  }
+  // std::string fn_name = "litecfi_mem_initialize";
+  // fns["tls_init"] = FindFunctionByName(parser.image, fn_name);
 
   // In avx_v2 and up implementations, the stack push & pop related functions
   // are hidden symbols in libstack.so. We set up call pointers
@@ -809,28 +703,26 @@ void Instrument(std::string binary, std::map<std::string, Code*>* const cache,
   SetupInstrumentationSpec();
 
   std::map<std::string, BPatch_function*> instrumentation_fns;
-  if (FLAGS_instrument == "shared") {
-    RegisterUsageInfo info;
+  RegisterUsageInfo info;
 
-    // Mark reserved avx2 registers as unused for the purpose of shadow stack
-    // code generation
-    if (FLAGS_shadow_stack == "avx2" || FLAGS_shadow_stack == "avx_v2" ||
-        FLAGS_shadow_stack == "avx_v3") {
-      std::vector<bool>& mask =
-          const_cast<std::vector<bool>&>(info.GetUnusedAvx2Mask());
-      mask = GetReservedAvxMask();
-    }
-
-    std::string instrumentation_library = "libstack.so";
-
-    if (!FLAGS_skip) {
-      instrumentation_library = Codegen(const_cast<RegisterUsageInfo&>(info));
-    }
-
-    if (FLAGS_shadow_stack != "reloc" && FLAGS_shadow_stack != "savegpr")
-      DCHECK(binary_edit->loadLibrary(instrumentation_library.c_str()))
-          << "Failed to load instrumentation library";
+  // Mark reserved avx2 registers as unused for the purpose of shadow stack
+  // code generation
+  if (FLAGS_shadow_stack == "avx_v2" || FLAGS_shadow_stack == "avx_v3") {
+    std::vector<bool>& mask =
+        const_cast<std::vector<bool>&>(info.GetUnusedAvx2Mask());
+    mask = GetReservedAvxMask();
   }
+
+  std::string instrumentation_library = "libstack.so";
+
+  if (!FLAGS_skip) {
+    instrumentation_library = Codegen(const_cast<RegisterUsageInfo&>(info));
+  }
+
+  if (FLAGS_shadow_stack != "reloc" && FLAGS_shadow_stack != "savegpr")
+    DCHECK(binary_edit->loadLibrary(instrumentation_library.c_str()))
+        << "Failed to load instrumentation library";
+
   if (FLAGS_shadow_stack != "reloc" && FLAGS_shadow_stack != "savegpr")
     PopulateRegisterStackOperations(binary_edit, parser, instrumentation_fns);
 
