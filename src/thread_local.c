@@ -24,6 +24,9 @@ uint64_t* overflow_stack = &overflow_stack_space[0];
 uint64_t cfi_context[CONTEXT_SIZE];
 uint64_t user_context[CONTEXT_SIZE];
 
+uint64_t n_overflow_pushes = 0;
+uint64_t n_overflow_pops = 0;
+
 /*
 static void setup_memory(uint64_t** mem_ptr, long size) {
   // Add space for two guard pages at the beginning and the end of the stack
@@ -177,6 +180,59 @@ ok:
   }
 
   return;
+}
+
+// Overflow functions which includes stat collection
+
+void litecfi_overflow_stack_push_v3_stats() {
+  if (overflow_stack == NULL) {
+    overflow_stack = (uint64_t*)overflow_stack_space;
+  }
+
+  __atomic_add_fetch(&n_overflow_pushes, 1, __ATOMIC_SEQ_CST);
+
+  asm("movq (%%rdi), %%r10;\n\t"
+      "movq %%r10, (%0);\n\t"
+      "addq $8, %0;\n\t"
+      : "+a"(overflow_stack)
+      :
+      :);
+}
+
+void litecfi_overflow_stack_pop_v3_stats() {
+  uint64_t ret_addr;
+
+  __atomic_add_fetch(&n_overflow_pops, 1, __ATOMIC_SEQ_CST);
+
+  asm("subq $8, %0;\n\t"
+      "movq (%0), %1;\n\t"
+      : "+d"(overflow_stack), "=b"(ret_addr)
+      :);
+  asm goto("cmp %0, (%%rdi); \n\t"
+           "jz %l1; \n\t"
+           "int $3; \n\t"
+           :
+           : "b"(ret_addr)
+           : "cc"
+           : ok);
+ok:
+  if (overflow_stack > (uint64_t*)overflow_stack_space) {
+    asm("vmovq %%xmm15, %%r11 \n\t"
+        "lea 64(%%r11), %%r11 \n\t"
+        "vmovq %%r11, %%xmm15 \n\t"
+        :
+        :
+        :);
+  }
+
+  return;
+}
+
+void litecfi_stack_print_stats() {
+  printf("[Statistics] Number of overflow pushes : %lu\n", n_overflow_pushes);
+  printf("[Statistics] Number of overflow pops : %lu\n", n_overflow_pops);
+  printf("[Statistics] Total overflow operations  : %lu\n",
+         n_overflow_pushes + n_overflow_pops);
 }
 
 #define VECTOR_REGISTER_OP(mask, index, mem, insn)                             \

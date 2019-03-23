@@ -475,6 +475,18 @@ void SharedLibraryInstrumentation(
       (FLAGS_threat_model != "trust_system" || !isSystemCode)) {
 
     if (FLAGS_shadow_stack == "avx_v2" || FLAGS_shadow_stack == "avx_v3") {
+      if (FLAGS_stats && function->getName() == "main") {
+        // Print internal statistics related to stack and program exit
+        BPatch_funcCallExpr print_stats = GetRegisterOperationSnippet(
+            instrumentation_fns, collisions, "print_stats");
+
+        BPatch_Vector<BPatch_snippet*> args;
+        handle = binary_edit->insertSnippet(
+            print_stats, *exits, BPatch_callAfter, BPatch_lastSnippet, nullptr);
+        DCHECK(handle != nullptr) << "Failed instrumenting statistics logging "
+                                     "at main exit.";
+      }
+
       RegisterUsageInfo unused;
       std::vector<bool>& mask =
           const_cast<std::vector<bool>&>(unused.GetUnusedAvx2Mask());
@@ -666,6 +678,10 @@ void PopulateRegisterStackOperations(
 
   fn_prefix = "litecfi_ctx_restore";
   key_prefix = "ctx_restore";
+  fns[key_prefix] = FindFunctionByName(parser.image, fn_prefix);
+
+  fn_prefix = "litecfi_stack_print_stats";
+  key_prefix = "print_stats";
   fns[key_prefix] = FindFunctionByName(parser.image, fn_prefix);
 
   // std::string fn_name = "litecfi_mem_initialize";

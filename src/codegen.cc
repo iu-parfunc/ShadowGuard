@@ -11,6 +11,7 @@
 #include "utils.h"
 
 DECLARE_string(shadow_stack);
+DECLARE_bool(stats);
 
 std::string Header() {
   std::string header = "";
@@ -88,7 +89,13 @@ std::string CodegenStack(RegisterUsageInfo info) {
   overflow_slot += "push rcx\n";
   overflow_slot += "push rdi\n";
   overflow_slot += "mov rdi, r10\n";
-  overflow_slot += "call litecfi_overflow_stack_push_v3@plt\n";
+
+  if (FLAGS_stats) {
+    overflow_slot += "call litecfi_overflow_stack_push_v3_stats@plt\n";
+  } else {
+    overflow_slot += "call litecfi_overflow_stack_push_v3@plt\n";
+  }
+
   overflow_slot += "pop rdi\n";
   overflow_slot += "pop rcx\n";
   overflow_slot += "pop rdx\n";
@@ -102,7 +109,13 @@ std::string CodegenStack(RegisterUsageInfo info) {
   overflow_slot += "push rcx\n";
   overflow_slot += "push rdi\n";
   overflow_slot += "mov rdi, r10\n";
-  overflow_slot += "call litecfi_overflow_stack_pop_v3@plt\n";
+
+  if (FLAGS_stats) {
+    overflow_slot += "call litecfi_overflow_stack_pop_v3_stats@plt\n";
+  } else {
+    overflow_slot += "call litecfi_overflow_stack_pop_v3@plt\n";
+  }
+
   overflow_slot += "pop rdi\n";
   overflow_slot += "pop rcx\n";
   overflow_slot += "pop rdx\n";
@@ -175,13 +188,14 @@ std::string Codegen(RegisterUsageInfo info) {
 
   std::ofstream libstack_stream(temp_dir + "/" + "__litecfi_stack_x86_64.S");
   if (FLAGS_shadow_stack == "avx_v3") {
-    std::string libstack =
-        Header() + CodegenStackInit(info) + CodegenStack(info) + CodegenEmptyFunction() + Footer();
+    std::string libstack = Header() + CodegenStackInit(info) +
+                           CodegenStack(info) + CodegenEmptyFunction() +
+                           Footer();
     libstack_stream << libstack;
   } else {
     std::string libstack = Header() + CodegenStackInit(info) +
-                           CodegenStackPush(info) + CodegenStackPop(info) + CodegenEmptyFunction() + 
-                           Footer();
+                           CodegenStackPush(info) + CodegenStackPop(info) +
+                           CodegenEmptyFunction() + Footer();
     libstack_stream << libstack;
   }
 

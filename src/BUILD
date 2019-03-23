@@ -13,7 +13,6 @@ cc_binary(
 	"instrument.h",
         "jit.cc",
 	"jit.h",
-	"jit_avx2.cc",
 	"jit_avxv2.cc",
 	"jit_avxv3.cc",
 	"jit_avx512.cc",

@@ -14,10 +14,14 @@ DEFINE_bool(vv, false, "Log verbose output.");
 
 DEFINE_bool(skip, false, "Skip codegen.");
 
+DEFINE_bool(stats, false,
+            "Instrument to collect internal stack usage "
+            "statistics at runtime.");
+
 DEFINE_bool(libs, false, "Protect shared libraries as well.");
 
 DEFINE_string(
-    shadow_stack, "avx2",
+    shadow_stack, "avx_v3",
     "\n Shadow stack implementation mechanism for backward-edge protection.\n"
     "\n Valid values are\n"
     "   * avx_v2 : Uses avx2 register file as backing store (v2"
