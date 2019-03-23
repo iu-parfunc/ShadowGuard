@@ -552,6 +552,9 @@ void InstrumentFunction(
       handle =
           binary_edit->insertSnippet(stack_init, *entries, BPatch_callBefore,
                                      BPatch_lastSnippet, &is_init);
+      DCHECK(handle != nullptr)
+          << "Failed to instrument init function for stack initialization.";
+
       return;
     }
     RegisterUsageInfo reserved;

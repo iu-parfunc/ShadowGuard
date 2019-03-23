@@ -26,6 +26,7 @@ uint64_t user_context[CONTEXT_SIZE];
 
 uint64_t n_overflow_pushes = 0;
 uint64_t n_overflow_pops = 0;
+uint64_t max_overflow_depth = 0;
 
 /*
 static void setup_memory(uint64_t** mem_ptr, long size) {
@@ -189,6 +190,11 @@ void litecfi_overflow_stack_push_v3_stats() {
     overflow_stack = (uint64_t*)overflow_stack_space;
   }
 
+  uint64_t overflow_depth = overflow_stack - (uint64_t*)overflow_stack_space;
+  if (overflow_depth > max_overflow_depth) {
+    max_overflow_depth = overflow_depth;
+  }
+
   __atomic_add_fetch(&n_overflow_pushes, 1, __ATOMIC_SEQ_CST);
 
   asm("movq (%%rdi), %%r10;\n\t"
@@ -233,6 +239,7 @@ void litecfi_stack_print_stats() {
   printf("[Statistics] Number of overflow pops : %lu\n", n_overflow_pops);
   printf("[Statistics] Total overflow operations  : %lu\n",
          n_overflow_pushes + n_overflow_pops);
+  printf("[Statistics] Max overflow depth : %lu\n", max_overflow_depth);
 }
 
 #define VECTOR_REGISTER_OP(mask, index, mem, insn)                             \
