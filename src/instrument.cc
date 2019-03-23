@@ -477,12 +477,11 @@ void SharedLibraryInstrumentation(
     if (FLAGS_shadow_stack == "avx_v2" || FLAGS_shadow_stack == "avx_v3") {
       if (FLAGS_stats && function->getName() == "main") {
         // Print internal statistics related to stack and program exit
-        BPatch_funcCallExpr print_stats = GetRegisterOperationSnippet(
-            instrumentation_fns, collisions, "print_stats");
-
         BPatch_Vector<BPatch_snippet*> args;
+        BPatch_function* fn = instrumentation_fns["print_stats"];
+        BPatch_funcCallExpr print_stats(*fn, args);
         handle = binary_edit->insertSnippet(
-            print_stats, *exits, BPatch_callAfter, BPatch_lastSnippet, nullptr);
+            print_stats, *exits, BPatch_callAfter, BPatch_lastSnippet, isPtr);
         DCHECK(handle != nullptr) << "Failed instrumenting statistics logging "
                                      "at main exit.";
       }
