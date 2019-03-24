@@ -69,6 +69,9 @@ DEFINE_string(
 DEFINE_int32(reserved_from, 8,
              "\n The register number starting to be reserved for CFI\n");
 
+DEFINE_int32(qwords_per_reg, 4,
+        "\n Number of qwords per vector register used for CFI\n");
+
 static bool ValidateShadowStackFlag(const char* flagname,
                                     const std::string& value) {
   if (value == "avx512" || value == "mem" || value == "dispatch" ||
