@@ -16,6 +16,7 @@ using namespace Dyninst;
 using namespace Dyninst::PatchAPI;
 
 DEFINE_int32(stack_size, 24, "Stack size.");
+InstSpec is;
 
 void InstrumentFunction(
     BPatch_function* function, const Parser& parser, PatchMgr::Ptr patcher,
@@ -33,7 +34,7 @@ void InstrumentFunction(
 
   BPatchSnippetHandle* handle;
   handle = binary_edit->insertSnippet(entry, *entries, BPatch_callBefore,
-                                      BPatch_lastSnippet);
+                                      BPatch_lastSnippet, &is);
   DCHECK(handle != nullptr)
       << "Failed instrumenting nop entry instrumentation.";
 
@@ -45,7 +46,7 @@ void InstrumentFunction(
     BPatch_funcCallExpr print_stats(*fn, args);
 
     handle = binary_edit->insertSnippet(print_stats, *exits, BPatch_callAfter,
-                                        BPatch_lastSnippet);
+                                        BPatch_lastSnippet, &is);
     DCHECK(handle != nullptr) << "Failed instrumenting statistics logging "
                                  "at main exit.";
   }
@@ -59,7 +60,7 @@ void InstrumentFunction(
   BPatch_funcCallExpr exit(*(instrumentation_fns["exit"]), args);
   handle = nullptr;
   handle = binary_edit->insertSnippet(exit, *exits, BPatch_callAfter,
-                                      BPatch_lastSnippet);
+                                      BPatch_lastSnippet, &is);
   DCHECK(handle != nullptr)
       << "Failed instrumenting nop entry instrumentation.";
 }
@@ -139,6 +140,21 @@ void PopulateFunctions(BPatch_binaryEdit* binary_edit, const Parser& parser,
   fns[key_prefix] = FindFunctionByName(parser.image, fn_prefix);
 }
 
+void SetInstrumentationSpec() {
+  is.saveRegs.push_back(Dyninst::x86_64::rax);
+  is.saveRegs.push_back(Dyninst::x86_64::rdx);
+  is.saveRegs.push_back(Dyninst::x86_64::rdi);
+  is.saveRegs.push_back(Dyninst::x86_64::r11);
+  is.saveRegs.push_back(Dyninst::x86_64::r10);
+
+  is.trampGuard = false;
+  is.redZone = false;
+
+  is.saveRegs.push_back(Dyninst::x86_64::rsi);
+  is.saveRegs.push_back(Dyninst::x86_64::rcx);
+  is.saveRegs.push_back(Dyninst::x86_64::r8);
+  is.saveRegs.push_back(Dyninst::x86_64::r9);
+}
 int main(int argc, char* argv[]) {
   google::InitGoogleLogging(argv[0]);
 
@@ -154,6 +170,7 @@ int main(int argc, char* argv[]) {
   std::map<std::string, BPatch_function*> instrumentation_fns;
 
   PopulateFunctions(binary_edit, parser, instrumentation_fns);
+  SetInstrumentationSpec();
 
   PatchMgr::Ptr patcher = Dyninst::PatchAPI::convert(parser.app);
 
