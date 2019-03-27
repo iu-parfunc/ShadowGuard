@@ -92,9 +92,6 @@ void Instrument(const Parser& parser, PatchMgr::Ptr patcher,
         function->getName(funcname, 2048);
 
         ParseAPI::Function* f = ParseAPI::convert(function);
-        if (f->retstatus() == ParseAPI::NORETURN)
-          continue;
-
         // We should only instrument functions in .text
         ParseAPI::CodeRegion* codereg = f->region();
         ParseAPI::SymtabCodeRegion* symRegion =
