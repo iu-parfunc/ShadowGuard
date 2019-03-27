@@ -44,45 +44,22 @@ cc_library(
 )
 
 cc_binary(
-    name = "sizeof",
+    name = "stack_depth",
     srcs = [
-        "sizeof.cc",
+        "parse.cc",
+        "parse.h",
+        "stack_depth.cc",
     ],
     deps = [
-        "@asmjit//:asmjit",
         "@com_github_gflags_gflags//:gflags",
-        "@dyninst//:dyninst",
         "@glog//:glog",
+       	"@dyninst//:dyninst",
     ],
 )
 
-cc_binary(
-    name = "reg_test",
+cc_library(
+    name = "depth",
     srcs = [
-        "reg_test.cc",
-	"parse.cc",
-	"parse.h",
-    ],
-    deps = [
-        "@dyninst//:dyninst",
-    ],
-)
-
-cc_binary(
-    name = "icall_test",
-    srcs = [
-        "icall_test.cc",
-	"parse.cc",
-	"parse.h",
-    ],
-    deps = [
-        "@dyninst//:dyninst",
-    ],
-)
-
-cc_binary(
-    name = "icall",
-    srcs = [
-        "icall.cc",
+        "depth.cc",
     ],
 )
