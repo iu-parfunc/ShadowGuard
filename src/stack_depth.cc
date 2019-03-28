@@ -16,6 +16,9 @@ using namespace Dyninst;
 using namespace Dyninst::PatchAPI;
 
 DEFINE_int32(stack_size, 24, "Stack size.");
+DEFINE_int32(capture_at, 64,
+             "Capture stack at the specified call stack depth.");
+
 InstSpec is;
 
 void InstrumentFunction(
@@ -24,6 +27,8 @@ void InstrumentFunction(
   BPatch_Vector<BPatch_snippet*> args;
   BPatch_constExpr size((int32_t)FLAGS_stack_size);
   args.push_back(&size);
+  BPatch_constExpr capture_at((int32_t)FLAGS_capture_at);
+  args.push_back(&capture_at);
 
   BPatch_binaryEdit* binary_edit = ((BPatch_binaryEdit*)parser.app);
 
@@ -146,6 +151,7 @@ void SetInstrumentationSpec() {
 
   is.trampGuard = false;
   is.redZone = false;
+  is.raLoc = Dyninst::x86_64::r10;
 
   is.saveRegs.push_back(Dyninst::x86_64::rsi);
   is.saveRegs.push_back(Dyninst::x86_64::rcx);
