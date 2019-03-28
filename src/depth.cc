@@ -18,6 +18,7 @@ void _litecfi_inc_depth(int32_t stack_size, int32_t capture_at) {
   __lib_stack[__lib_depth] = return_addr;
 
   if (__lib_depth == (uint64_t)capture_at) {
+    // printf("%d  :  %p\n", __lib_depth, return_addr);
     memcpy(__lib_stack_snapshot, __lib_stack, (size_t)capture_at * 8);
   }
 

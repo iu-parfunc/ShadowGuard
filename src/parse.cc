@@ -1,10 +1,21 @@
 
 #include "parse.h"
+#include "gflags/gflags.h"
+#include "glog/logging.h"
+
+DECLARE_string(shadow_stack_protection);
 
 Parser InitParser(std::string binary) {
   BPatch* parser = new BPatch;
   // Open binary and its linked shared libraries for parsing
-  BPatch_addressSpace* app = parser->openBinary(binary.c_str(), true);
+  BPatch_addressSpace* app;
+  if (FLAGS_shadow_stack_protection == "sfi") {
+    app = parser->openBinary(binary.c_str(), false);
+    ((BPatch_binaryEdit*)app)->memoryWriteSanitizing(32);  // 32-bit sanitizing
+  } else {
+    app = parser->openBinary(binary.c_str(), true);
+  }
+
   BPatch_image* image = app->getImage();
 
   return {parser, app, image};
@@ -28,11 +39,15 @@ bool IsSharedLibrary(BPatch_object* object) {
   return false;
 }
 
-bool IsSystemCode(BPatch_object *object) {
+bool IsSystemCode(BPatch_object* object) {
   std::string name = std::string(object->pathName());
-  if (name.find("libm.so.6") != std::string::npos) return true;
-  if (name.find("libc.so.6") != std::string::npos) return true;
-  if (name.find("libpthread.so.0") != std::string::npos) return true;
-  if (name.find("ld-linux-x86-64.so.2") != std::string::npos) return true;
+  if (name.find("libm.so.6") != std::string::npos)
+    return true;
+  if (name.find("libc.so.6") != std::string::npos)
+    return true;
+  if (name.find("libpthread.so.0") != std::string::npos)
+    return true;
+  if (name.find("ld-linux-x86-64.so.2") != std::string::npos)
+    return true;
   return false;
 }

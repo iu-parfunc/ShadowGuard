@@ -38,7 +38,7 @@ DEFINE_string(
     "   * savegpr: Relocation + saving & restoring GPRs\n"
     " Less context sensitive and precise than other techniques.\n");
 
-DEFINE_string(shadow_stack_protection, "sfi",
+DEFINE_string(shadow_stack_protection, "none",
               "\n Applicable only when `shadow-stack` is set to mem."
               " Specifies protection mechanism for the memory region used as"
               " the backing store for the shadow stack.\n"
@@ -70,7 +70,7 @@ DEFINE_int32(reserved_from, 8,
              "\n The register number starting to be reserved for CFI\n");
 
 DEFINE_int32(qwords_per_reg, 4,
-        "\n Number of qwords per vector register used for CFI\n");
+             "\n Number of qwords per vector register used for CFI\n");
 
 static bool ValidateShadowStackFlag(const char* flagname,
                                     const std::string& value) {
@@ -113,6 +113,11 @@ int main(int argc, char* argv[]) {
   std::string binary(argv[1]);
 
   Parser parser = InitParser(binary);
+
+  if (FLAGS_shadow_stack_protection == "sfi") {
+    ((BPatch_binaryEdit*)parser.app)->writeFile((binary + "_cfi").c_str());
+    return 0;
+  }
 
   std::map<std::string, Code*>* cache = AnalyseRegisterUsage(binary, parser);
 
