@@ -240,52 +240,72 @@ void SharedLibraryInstrumentation(
     return;
   }
   if (FLAGS_shadow_stack == "savegpr") {
-    // Noop instrumentation
-    std::vector<BPatch_point*>* entries = function->findPoint(BPatch_entry);
-    BPatch_nullExpr snippet;
-    handle = nullptr;
-    handle = binary_edit->insertSnippet(snippet, *entries, BPatch_callBefore,
-                                        BPatch_lastSnippet, &is[0]);
-    DCHECK(handle != nullptr)
-        << "Failed instrumenting nop entry instrumentation.";
+    function->relocateFunction();
 
-    std::vector<BPatch_point*>* exits = function->findPoint(BPatch_exit);
-    if (exits == nullptr || exits->size() == 0) {
-      fprintf(stderr, "Function %s does not have exits\n",
+    if (!info.ShouldSkip()) {
+      // Noop instrumentation
+      std::vector<BPatch_point*>* entries = function->findPoint(BPatch_entry);
+      BPatch_nullExpr snippet;
+      handle = nullptr;
+      handle = binary_edit->insertSnippet(snippet, *entries, BPatch_callBefore,
+                                          BPatch_lastSnippet, &is[0]);
+      DCHECK(handle != nullptr)
+          << "Failed instrumenting nop entry instrumentation.";
+
+      std::vector<BPatch_point*>* exits = function->findPoint(BPatch_exit);
+      if (exits == nullptr || exits->size() == 0) {
+        fprintf(stderr, "Function %s does not have exits\n",
+                function->getName().c_str());
+        return;
+      }
+      handle = nullptr;
+      handle = binary_edit->insertSnippet(snippet, *exits, BPatch_callAfter,
+                                          BPatch_lastSnippet, &is[0]);
+      DCHECK(handle != nullptr)
+          << "Failed instrumenting nop entry instrumentation.";
+    } else {
+      fprintf(stderr,
+              "Skip function %s because it does not write to memory or write "
+              "to SP\n",
               function->getName().c_str());
-      return;
     }
-    handle = nullptr;
-    handle = binary_edit->insertSnippet(snippet, *exits, BPatch_callAfter,
-                                        BPatch_lastSnippet, &is[0]);
-    DCHECK(handle != nullptr)
-        << "Failed instrumenting nop entry instrumentation.";
     return;
   }
 
-  if (FLAGS_shadow_stack == "dispatch" || FLAGS_shadow_stack == "empty") {
-    // Noop instrumentation
-    std::vector<BPatch_point*>* entries = function->findPoint(BPatch_entry);
+  if (FLAGS_shadow_stack == "empty" || FLAGS_shadow_stack == "callout") {
+    function->relocateFunction();
 
-    // BPatch_nullExpr snippet;
-    BPatch_funcCallExpr nop_push(*(instrumentation_fns["push"]), args);
-    handle = binary_edit->insertSnippet(nop_push, *entries, BPatch_callBefore,
-                                        BPatch_lastSnippet, &is_init);
-    DCHECK(handle != nullptr)
-        << "Failed instrumenting nop entry instrumentation.";
+    if (!info.ShouldSkip()) {
+      InstSpec* isPtr = FLAGS_shadow_stack == "empty" ? &is_init : &is[0];
 
-    std::vector<BPatch_point*>* exits = function->findPoint(BPatch_exit);
-    if (exits == nullptr || exits->size() == 0) {
-      fprintf(stderr, "Function %s does not have exits\n",
+      // Noop instrumentation
+      std::vector<BPatch_point*>* entries = function->findPoint(BPatch_entry);
+
+      // BPatch_nullExpr snippet;
+      BPatch_funcCallExpr nop_push(*(instrumentation_fns["push"]), args);
+      handle = binary_edit->insertSnippet(nop_push, *entries, BPatch_callBefore,
+                                          BPatch_lastSnippet, isPtr);
+      DCHECK(handle != nullptr)
+          << "Failed instrumenting nop entry instrumentation.";
+
+      std::vector<BPatch_point*>* exits = function->findPoint(BPatch_exit);
+      if (exits == nullptr || exits->size() == 0) {
+        fprintf(stderr, "Function %s does not have exits\n",
+                function->getName().c_str());
+        return;
+      }
+
+      BPatch_funcCallExpr nop_pop(*(instrumentation_fns["pop"]), args);
+      handle = binary_edit->insertSnippet(nop_pop, *exits, BPatch_callAfter,
+                                          BPatch_lastSnippet, isPtr);
+      DCHECK(handle != nullptr)
+          << "Failed instrumenting nop entry instrumentation.";
+    } else {
+      fprintf(stderr,
+              "Skip function %s because it does not write to memory or write "
+              "to SP\n",
               function->getName().c_str());
-      return;
     }
-
-    BPatch_funcCallExpr nop_pop(*(instrumentation_fns["pop"]), args);
-    handle = binary_edit->insertSnippet(nop_pop, *exits, BPatch_callAfter,
-                                        BPatch_lastSnippet, &is_init);
-    DCHECK(handle != nullptr)
-        << "Failed instrumenting nop entry instrumentation.";
     return;
   }
   function->relocateFunction();
@@ -674,25 +694,39 @@ void PopulateRegisterStackOperations(
     std::map<std::string, BPatch_function*>& fns) {
   DCHECK(binary_edit->loadLibrary("libtls.so")) << "Failed to load tls library";
 
-  std::string fn_prefix = "litecfi_ctx_save";
-  std::string key_prefix = "ctx_save";
-  fns[key_prefix] = FindFunctionByName(parser.image, fn_prefix);
+  std::string fn = "";
+  std::string key = "";
 
-  fn_prefix = "litecfi_ctx_restore";
-  key_prefix = "ctx_restore";
-  fns[key_prefix] = FindFunctionByName(parser.image, fn_prefix);
+  if (FLAGS_shadow_stack == "empty" || FLAGS_shadow_stack == "callout") {
+    fn = "litecfi_empty";
+    key = "push";
 
-  fn_prefix = "litecfi_register_spill";
-  key_prefix = "register_spill";
-  fns[key_prefix] = FindFunctionByName(parser.image, fn_prefix);
+    fns[key] = FindFunctionByName(parser.image, fn);
 
-  fn_prefix = "litecfi_register_restore";
-  key_prefix = "register_restore";
-  fns[key_prefix] = FindFunctionByName(parser.image, fn_prefix);
+    key = "pop";
+    fns[key] = FindFunctionByName(parser.image, fn);
+    return;
+  }
 
-  fn_prefix = "litecfi_stack_print_stats";
-  key_prefix = "print_stats";
-  fns[key_prefix] = FindFunctionByName(parser.image, fn_prefix);
+  fn = "litecfi_ctx_save";
+  key = "ctx_save";
+  fns[key] = FindFunctionByName(parser.image, fn);
+
+  fn = "litecfi_ctx_restore";
+  key = "ctx_restore";
+  fns[key] = FindFunctionByName(parser.image, fn);
+
+  fn = "litecfi_register_spill";
+  key = "register_spill";
+  fns[key] = FindFunctionByName(parser.image, fn);
+
+  fn = "litecfi_register_restore";
+  key = "register_restore";
+  fns[key] = FindFunctionByName(parser.image, fn);
+
+  fn = "litecfi_stack_print_stats";
+  key = "print_stats";
+  fns[key] = FindFunctionByName(parser.image, fn);
 
   // std::string fn_name = "litecfi_mem_initialize";
   // fns["tls_init"] = FindFunctionByName(parser.image, fn_name);

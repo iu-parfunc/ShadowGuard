@@ -32,10 +32,13 @@ DEFINE_string(
     "   * mem : Uses a memory region as backing store\n"
     "   * xor : Uses a xor check based technique to validate the return "
     "chain.\n"
-    "   * dispatch : Makes shadow stack with only a dispatch to a jump table.\n"
-    "   * empty : Makes an empty shadow stack.\n"
     "   * reloc : Only perform relocation.\n"
-    "   * savegpr: Relocation + saving & restoring GPRs\n"
+    "   * empty : Relocation + call to empty function. Skips non memory "
+    "accessing functions.\n"
+    "   * savegpr: Relocation + saving & restoring GPRs. Skips non memory "
+    "accessing functions.\n"
+    "   * callout : Relocation + saving & restoring GPRs + call to empty "
+    "function. Skips non memory accessing functions.\n"
     " Less context sensitive and precise than other techniques.\n");
 
 DEFINE_string(shadow_stack_protection, "none",
@@ -74,7 +77,7 @@ DEFINE_int32(qwords_per_reg, 4,
 
 static bool ValidateShadowStackFlag(const char* flagname,
                                     const std::string& value) {
-  if (value == "avx512" || value == "mem" || value == "dispatch" ||
+  if (value == "avx512" || value == "mem" || value == "callout" ||
       value == "reloc" || value == "empty" || value == "savegpr" ||
       value == "avx_v2" || value == "avx_v3") {
     return true;

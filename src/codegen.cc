@@ -170,9 +170,15 @@ std::string CodegenStackPop(RegisterUsageInfo info) {
 }
 
 std::string CodegenEmptyFunction() {
-  std::string prolog = FunctionProlog("empty", false);
-  std::string epilog = FunctionEpilog("empty");
-  return prolog + epilog;
+  std::string prolog = FunctionProlog("litecfi_empty", true);
+
+  std::string code = "ret\n";
+
+  std::string epilog = "";
+  epilog += "ASM_SIZE(litecfi_empty)\n";
+  epilog += "CFI_ENDPROC\n\n";
+
+  return prolog + code + epilog;
 }
 
 std::string Codegen(RegisterUsageInfo info) {
