@@ -112,12 +112,13 @@ int main(int argc, char* argv[]) {
 
   std::string binary(argv[1]);
 
-  Parser parser = InitParser(binary);
-
   if (FLAGS_shadow_stack_protection == "sfi") {
+    Parser parser = InitParser(binary, /* libs */ false, /* sanitize */ true);
     ((BPatch_binaryEdit*)parser.app)->writeFile((binary + "_cfi").c_str());
     return 0;
   }
+
+  Parser parser = InitParser(binary, /* libs */ true, /* sanitize */ false);
 
   std::map<std::string, Code*>* cache = AnalyseRegisterUsage(binary, parser);
 

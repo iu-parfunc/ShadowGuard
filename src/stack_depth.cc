@@ -168,7 +168,7 @@ int main(int argc, char* argv[]) {
 
   std::string binary(argv[1]);
 
-  Parser parser = InitParser(binary);
+  Parser parser = InitParser(binary, /* libs */ false, /* sanitize */ false);
   BPatch_binaryEdit* binary_edit = ((BPatch_binaryEdit*)parser.app);
   std::map<std::string, BPatch_function*> instrumentation_fns;
 

@@ -1,19 +1,15 @@
 
 #include "parse.h"
-#include "gflags/gflags.h"
-#include "glog/logging.h"
 
-DECLARE_string(shadow_stack_protection);
-
-Parser InitParser(std::string binary) {
+Parser InitParser(std::string binary, bool libs, bool sanitize) {
   BPatch* parser = new BPatch;
   // Open binary and its linked shared libraries for parsing
   BPatch_addressSpace* app;
-  if (FLAGS_shadow_stack_protection == "sfi") {
-    app = parser->openBinary(binary.c_str(), false);
+  if (sanitize) {
+    app = parser->openBinary(binary.c_str(), libs);
     ((BPatch_binaryEdit*)app)->memoryWriteSanitizing(32);  // 32-bit sanitizing
   } else {
-    app = parser->openBinary(binary.c_str(), true);
+    app = parser->openBinary(binary.c_str(), libs);
   }
 
   BPatch_image* image = app->getImage();
