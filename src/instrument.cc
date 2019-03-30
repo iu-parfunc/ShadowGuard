@@ -561,7 +561,8 @@ void InstrumentFunction(
 
   // Instrument for initializing the stack in the init function
   if (is_init_function) {
-    if (FLAGS_shadow_stack == "avx_v2" || FLAGS_shadow_stack == "avx_v3") {
+    if (FLAGS_shadow_stack == "avx_v2" || FLAGS_shadow_stack == "avx_v3" ||
+        FLAGS_shadow_stack == "mem") {
       BPatch_binaryEdit* binary_edit = ((BPatch_binaryEdit*)parser.app);
       BPatch_Vector<BPatch_snippet*> args;
       BPatch_funcCallExpr stack_init(*(instrumentation_fns["stack_init"]),
@@ -738,8 +739,13 @@ void PopulateRegisterStackOperations(
     fns["push"] = FindFunctionByName(parser.image, kStackPushFunction);
     fns["pop"] = FindFunctionByName(parser.image, kStackPopFunction);
   } else {
-    fns["stack_init"] =
-        FindFunctionByName(parser.image, "litecfi_avx2_stack_init");
+    if (FLAGS_shadow_stack == "mem") {
+      fns["stack_init"] =
+          FindFunctionByName(parser.image, "litecfi_init_mem_region");
+    } else {
+      fns["stack_init"] =
+          FindFunctionByName(parser.image, "litecfi_avx2_stack_init");
+    }
   }
 }
 

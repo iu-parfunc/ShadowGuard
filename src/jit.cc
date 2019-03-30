@@ -119,7 +119,7 @@ std::string JitStackInit(RegisterUsageInfo info, AssemblerHolder& ah) {
     return JitAvx512StackInit(info, ah);
   } else if (FLAGS_shadow_stack == "mem") {
     // TODO(chamibuddhika) Implement this
-    // JitMemoryStackPush(info, a);
+    // JitMemoryStackInit(info, ah);
   } else if (FLAGS_shadow_stack == "dispatch") {
     return JitNopInit(info, ah);
   }
@@ -146,7 +146,7 @@ std::string JitStackPush(RegisterUsageInfo info, AssemblerHolder& ah) {
     return JitAvx512StackPush(info, ah);
   } else if (FLAGS_shadow_stack == "mem") {
     // TODO(chamibuddhika) Implement this
-    // JitMemoryStackPush(info, a);
+    JitMemoryStackPush(info, ah);
   } else if (FLAGS_shadow_stack == "dispatch") {
     return JitNopPush(info, ah);
   } else if (FLAGS_shadow_stack == "empty") {
@@ -168,7 +168,7 @@ std::string JitStackPop(RegisterUsageInfo info, AssemblerHolder& ah) {
     return JitAvx512StackPop(info, ah);
   } else if (FLAGS_shadow_stack == "mem") {
     // TODO(chamibuddhika) Implement this
-    // JitMemoryStackPop(info, a);
+    JitMemoryStackPop(info, ah);
   } else if (FLAGS_shadow_stack == "dispatch") {
     return JitNopPop(info, ah);
   } else if (FLAGS_shadow_stack == "empty") {

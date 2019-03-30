@@ -13,6 +13,29 @@
 DECLARE_string(shadow_stack);
 DECLARE_bool(stats);
 
+std::string MemRegionInit() {
+  std::string includes = "";
+  includes += "#include <asm/prctl.h>\n";
+  includes += "#include <stdint.h>\n";
+  includes += "#include <stdlib.h>\n";
+  includes += "#include <sys/prctl.h>\n";
+  includes += "#include <sys/syscall.h>\n";
+  includes += "#include <sys/types.h>\n";
+  includes += "#include <unistd.h>\n";
+
+  std::string mem_init_fn = "";
+  mem_init_fn += "void litecfi_init_mem_region() {\n";
+  mem_init_fn += "  unsigned long addr = (unsigned long)malloc(1024);\n";
+  mem_init_fn += "  if (syscall(SYS_arch_prctl, ARCH_SET_GS, addr) < 0)\n";
+  mem_init_fn += "    abort();\n";
+  mem_init_fn += "  addr += 8;\n";
+  mem_init_fn +=
+      "  asm volatile(\"mov %0, %%gs:0;\n\t\" : : \"a\"(value) :);\n";
+  mem_init_fn += "}\n";
+
+  return includes + mem_init_fn;
+}
+
 std::string Header() {
   std::string header = "";
   header += ".intel_syntax noprefix\n\n";
@@ -209,8 +232,12 @@ std::string Codegen(RegisterUsageInfo info) {
 
   std::string soname = "libstack.so";
 
-  std::string compile_so =
-      "gcc -fpic -shared -o " + soname + " " + temp_dir + "/" + "*.S";
+  std::ofstream mem_init_c(temp_dir + "/" + "__litecfi_mem_init.c");
+  mem_init_c << MemRegionInit();
+  mem_init_c.close();
+
+  std::string compile_so = "gcc -fpic -shared -o " + soname + " " + temp_dir +
+                           "/" + "*.S" + " " + temp_dir + "/" + "*.c";
 
   if (system(compile_so.c_str()) != 0) {
     return "";
