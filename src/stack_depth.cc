@@ -45,7 +45,10 @@ void InstrumentFunction(
 
   // Exit instrumentation
   std::vector<BPatch_point*>* exits = function->findPoint(BPatch_exit);
-  if (function->getName() == "main") {
+  if (function->getName() == "main" || 
+     // Special hack for sgcc benchmark. The main
+     // of sgcc has just one instruction: jmp toplev_main
+     function->getName() == "toplev_main") {
     // Print internal statistics related to stack and program exit
     BPatch_function* fn = instrumentation_fns["print_stats"];
     BPatch_funcCallExpr print_stats(*fn, args);
