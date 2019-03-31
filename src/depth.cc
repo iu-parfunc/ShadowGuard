@@ -7,7 +7,7 @@
 #define TLS_VAR __thread 
 //#define TLS_VAR
 
-#define STACK_SIZE 50000
+#define STACK_SIZE 1024
 
 static TLS_VAR uint64_t __lib_depth = 0;
 static TLS_VAR uint64_t __lib_max_depth = 0;
@@ -17,19 +17,15 @@ static TLS_VAR uint64_t __lib_stack[STACK_SIZE] = {0};
 static TLS_VAR uint64_t __lib_stack_snapshot[STACK_SIZE] = {0};
 
 void _litecfi_inc_depth(int32_t stack_size, int32_t capture_at) {
-  uint64_t return_addr;
+  uint64_t* return_addr;
 
   asm("movq %%r10, %0;\n\t" : "=a"(return_addr) : :);
 
-  __lib_stack[__lib_depth] = return_addr;
+  if (__lib_depth < STACK_SIZE)
+    __lib_stack[__lib_depth] = *return_addr;
 
   if (__lib_depth == (uint64_t)capture_at) {
-    // printf("%d  :  %p\n", __lib_depth, return_addr);
     memcpy(__lib_stack_snapshot, __lib_stack, (size_t)capture_at * 8);
-  }
-
-  if (__lib_depth == STACK_SIZE) {
-      fprintf(stderr, "stack depth tracking has reached size limit %d\n", STACK_SIZE);
   }
 
   __lib_depth++;
