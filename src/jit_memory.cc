@@ -16,8 +16,9 @@ std::string JitMemoryStackPush(RegisterUsageInfo& info, AssemblerHolder& ah) {
 
   // Get gs:ptr to rax
   asmjit::X86Mem shadow_ptr;
+  shadow_ptr.setSize(8);
   shadow_ptr.setSegment(gs);
-  shadow_ptr.adjusted(0);
+  shadow_ptr = shadow_ptr.adjusted(0);
   a->mov(rax, shadow_ptr);
   a->add(shadow_ptr, asmjit::imm(8));
 
@@ -36,12 +37,13 @@ std::string JitMemoryStackPop(RegisterUsageInfo& info, AssemblerHolder& ah) {
 
   // Get gs:ptr to rax
   asmjit::X86Mem shadow_ptr;
+  shadow_ptr.setSize(8);
   shadow_ptr.setSegment(gs);
-  shadow_ptr.adjusted(0);
+  shadow_ptr = shadow_ptr.adjusted(0);
   a->mov(rax, shadow_ptr);
 
   a->mov(rcx, ptr(rax, -8));
-  a->sub(shadow_ptr, asmjit::imm(4));
+  a->sub(shadow_ptr, asmjit::imm(8));
 
   a->cmp(rcx, ptr(rsp, 16));
   a->jnz(error);

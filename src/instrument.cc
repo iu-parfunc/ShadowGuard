@@ -26,6 +26,9 @@
 using namespace Dyninst;
 using namespace Dyninst::PatchAPI;
 
+uint32_t kSkippedFunctions = 0;
+uint32_t kInstrumentedFunctions = 0;
+
 DECLARE_string(instrument);
 DECLARE_bool(libs);
 DECLARE_string(shadow_stack);
@@ -308,6 +311,23 @@ void SharedLibraryInstrumentation(
     }
     return;
   }
+
+  if (FLAGS_shadow_stack == "mem") {
+    if (FLAGS_threat_model == "trust_system" && isSystemCode) {
+      return;
+    }
+    function->relocateFunction();
+    RegisterUsageInfo dummy;
+    Snippet::Ptr stack_push =
+        StackPushSnippet::create(new StackPushSnippet(dummy));
+    InsertInstrumentation(function, Point::FuncEntry, stack_push, patcher);
+
+    Snippet::Ptr stack_pop =
+        StackPopSnippet::create(new StackPopSnippet(dummy));
+    InsertInstrumentation(function, Point::FuncExit, stack_pop, patcher);
+    return;
+  }
+
   function->relocateFunction();
 
   std::vector<uint8_t> collisions =
@@ -333,9 +353,12 @@ void SharedLibraryInstrumentation(
         stderr,
         "Skip function %s because it does not write to memory or write to SP\n",
         function->getName().c_str());
+    kSkippedFunctions++;
   }
+
   if (!info.ShouldSkip() &&
       (FLAGS_threat_model != "trust_system" || !isSystemCode)) {
+    kInstrumentedFunctions++;
 
     if (FLAGS_shadow_stack == "avx_v2" || FLAGS_shadow_stack == "avx_v3") {
       RegisterUsageInfo unused;
@@ -732,6 +755,12 @@ void PopulateRegisterStackOperations(
   // std::string fn_name = "litecfi_mem_initialize";
   // fns["tls_init"] = FindFunctionByName(parser.image, fn_name);
 
+  if (FLAGS_shadow_stack == "mem") {
+    fns["stack_init"] =
+        FindFunctionByName(parser.image, "litecfi_init_mem_region");
+    return;
+  }
+
   // In avx_v2 and up implementations, the stack push & pop related functions
   // are hidden symbols in libstack.so. We set up call pointers
   // in stack init. So, do not look for stack push & pop functions
@@ -739,13 +768,8 @@ void PopulateRegisterStackOperations(
     fns["push"] = FindFunctionByName(parser.image, kStackPushFunction);
     fns["pop"] = FindFunctionByName(parser.image, kStackPopFunction);
   } else {
-    if (FLAGS_shadow_stack == "mem") {
-      fns["stack_init"] =
-          FindFunctionByName(parser.image, "litecfi_init_mem_region");
-    } else {
-      fns["stack_init"] =
-          FindFunctionByName(parser.image, "litecfi_avx2_stack_init");
-    }
+    fns["stack_init"] =
+        FindFunctionByName(parser.image, "litecfi_avx2_stack_init");
   }
 }
 
@@ -814,6 +838,10 @@ void Instrument(std::string binary, std::map<std::string, Code*>* const cache,
     InstrumentCodeObject(object, cache, parser, patcher, instrumentation_fns,
                          init_fns);
   }
+
+  printf("[Instrumentation] Skipped Functions : %d\n", kSkippedFunctions);
+  printf("[Instrumentation] Instrumented Functions : %d\n",
+         kInstrumentedFunctions);
 
   binary_edit->writeFile((binary + "_cfi").c_str());
 }
