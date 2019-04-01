@@ -151,7 +151,6 @@ std::string JitStackPush(RegisterUsageInfo info, AssemblerHolder& ah) {
     return JitNopPush(info, ah);
   } else if (FLAGS_shadow_stack == "empty") {
     return JitEmpty(ah);
-:
   }
 
   return "";
