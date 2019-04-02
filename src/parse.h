@@ -13,7 +13,7 @@ struct Parser {
   BPatch_image* image;
 };
 
-Parser InitParser(std::string binary, bool libs, bool sanitize);
+Parser* InitParser(std::string binary, bool libs, bool sanitize);
 
 bool IsSharedLibrary(BPatch_object* object);
 bool IsSystemCode(BPatch_object* object);

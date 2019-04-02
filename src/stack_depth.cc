@@ -45,10 +45,10 @@ void InstrumentFunction(
 
   // Exit instrumentation
   std::vector<BPatch_point*>* exits = function->findPoint(BPatch_exit);
-  if (function->getName() == "main" || 
-     // Special hack for sgcc benchmark. The main
-     // of sgcc has just one instruction: jmp toplev_main
-     function->getName() == "toplev_main") {
+  if (function->getName() == "main" ||
+      // Special hack for sgcc benchmark. The main
+      // of sgcc has just one instruction: jmp toplev_main
+      function->getName() == "toplev_main") {
     // Print internal statistics related to stack and program exit
     BPatch_function* fn = instrumentation_fns["print_stats"];
     BPatch_funcCallExpr print_stats(*fn, args);
@@ -171,16 +171,17 @@ int main(int argc, char* argv[]) {
 
   std::string binary(argv[1]);
 
-  Parser parser = InitParser(binary, /* libs */ false, /* sanitize */ false);
-  BPatch_binaryEdit* binary_edit = ((BPatch_binaryEdit*)parser.app);
+  Parser* parser = InitParser(binary, /* libs */ false, /* sanitize */ false);
+  BPatch_binaryEdit* binary_edit = ((BPatch_binaryEdit*)parser->app);
   std::map<std::string, BPatch_function*> instrumentation_fns;
 
-  PopulateFunctions(binary_edit, parser, instrumentation_fns);
+  PopulateFunctions(binary_edit, const_cast<Parser&>(*parser),
+                    instrumentation_fns);
   SetInstrumentationSpec();
 
-  PatchMgr::Ptr patcher = Dyninst::PatchAPI::convert(parser.app);
+  PatchMgr::Ptr patcher = Dyninst::PatchAPI::convert(parser->app);
 
-  Instrument(parser, patcher, instrumentation_fns);
+  Instrument(const_cast<Parser&>(*parser), patcher, instrumentation_fns);
 
   binary_edit->writeFile((binary + "_depth").c_str());
 }

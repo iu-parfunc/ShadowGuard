@@ -1,7 +1,7 @@
 
 #include "parse.h"
 
-Parser InitParser(std::string binary, bool libs, bool sanitize) {
+Parser* InitParser(std::string binary, bool libs, bool sanitize) {
   BPatch* parser = new BPatch;
   // Open binary and its linked shared libraries for parsing
   BPatch_addressSpace* app;
@@ -14,7 +14,12 @@ Parser InitParser(std::string binary, bool libs, bool sanitize) {
 
   BPatch_image* image = app->getImage();
 
-  return {parser, app, image};
+  Parser* p = new Parser();
+  p->parser = parser;
+  p->app = app;
+  p->image = image;
+
+  return p;
 }
 
 bool IsSharedLibrary(BPatch_object* object) {

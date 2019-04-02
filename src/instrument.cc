@@ -32,6 +32,7 @@ uint32_t kInstrumentedFunctions = 0;
 DECLARE_string(instrument);
 DECLARE_bool(libs);
 DECLARE_string(shadow_stack);
+DECLARE_string(shadow_stack_protection);
 DECLARE_bool(skip);
 DECLARE_bool(stats);
 DECLARE_bool(vv);
@@ -238,6 +239,7 @@ void SharedLibraryInstrumentation(
   BPatch_Vector<BPatch_snippet*> args;
   BPatch_binaryEdit* binary_edit = ((BPatch_binaryEdit*)parser.app);
   BPatchSnippetHandle* handle;
+
   if (FLAGS_shadow_stack == "reloc") {
     function->relocateFunction();
     return;
@@ -570,6 +572,12 @@ void InstrumentFunction(
     PatchMgr::Ptr patcher,
     std::map<std::string, BPatch_function*>& instrumentation_fns,
     bool is_init_function, bool isSystemCode) {
+
+  if (FLAGS_shadow_stack_protection == "sfi") {
+    function->relocateFunction();
+    return;
+  }
+
   // Gets the function name in ParseAPI function instance
   std::string fn_name = Dyninst::PatchAPI::convert(function)->name();
   auto it = lib->register_usage.find(fn_name);
