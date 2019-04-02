@@ -49,11 +49,13 @@ void _litecfi_sub_depth(int32_t stack_size, int32_t capture_at) {
     fprintf(stderr, "Something strange is happening.\n");
   }
   __lib_depth--;
+  /*
   if (__lib_depth < STACK_SIZE && __lib_depth > 1) {
     if (__lib_stack[__lib_depth] != *return_addr) {
       fprintf(stderr, "return address does not match: RA on stack %p, RA in __lib_stack %p\n", *return_addr, __lib_stack[__lib_depth]);
     }
   }
+  */
 }
 
 void _litecfi_print_stats(int32_t stack_size, int32_t capture_at) {
