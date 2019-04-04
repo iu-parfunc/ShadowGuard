@@ -118,9 +118,9 @@ int main(int argc, char* argv[]) {
   Parser* parser;
   if (FLAGS_shadow_stack_protection == "sfi") {
     parser = InitParser(binary, /* libs */ false, /* sanitize */ true);
+  } else {
+    parser = InitParser(binary, /* libs */ true, /* sanitize */ false);
   }
-
-  parser = InitParser(binary, /* libs */ true, /* sanitize */ false);
 
   std::map<std::string, Code*>* cache =
       AnalyseRegisterUsage(binary, const_cast<Parser&>(*parser));
