@@ -1,0 +1,44 @@
+==== Trace Compresssion Statistics For Different Trace Compression Schemes ====
+
+Description
+-----------
+
+CR1 = Max depth of stack for compressed recursive invocations
+CR2 = Max depth of stack for mutually recursive invocations
+CR1 (%)/ CR1 Compression Ratio = (1 - (CR1 Compressed Depth / Full Depth)) (%)
+CR2 (%)/ CR2 Compression Ratio = (1 - (CR2 Compressed Depth / Full Depth)) (%)
+
+Traces correspond to following spec command invocations
+
+sgcc_1 : sgcc_base.mytest-m64 gcc-pp.c -O5 -fipa-pta -o gcc-pp.opts-O5_-fipa-pta.s
+
+sgcc_2 : sgcc_base.mytest-m64 gcc-pp.c -O5 -finline-limit=1000 \
+-fselective-scheduling -fselective-scheduling2 \
+-o gcc-pp.opts-O5_-finline-limit_1000_-fselective-scheduling_-fselective-scheduling2.s
+
+sgcc_3 : sgcc_base.mytest-m64 gcc-pp.c -O5 -finline-limit=24000 -fgcse \
+-fgcse-las -fgcse-lm -fgcse-sm -o gcc-pp.opts-O5_-finline-limit_24000_-fgcse_-fgcse-las_-fgcse-lm_-fgcse-sm.s
+
+perlbench_1 : perlbench_s_base.mytest-m64 -I./lib checkspam.pl 2500 5 25 11 150 1 1 1 1
+perlbench_2 : perlbench_s_base.mytest-m64 -I./lib diffmail.pl 4 800 10 17 19 300
+perlbench_3 : perlbench_s_base.mytest-m64 -I./lib splitmail.pl 6400 12 26 16 100 0
+
+deepsjeng : deepsjeng_s_base.mytest-m64 ref.txt
+xz : xz_s_base.mytest-m64 cpu2006docs.tar.xz 6643
+
+
+Results
+-------
+               Full    CR1_depth  CR2_depth  CR1       CR2     
+sgcc_1 :       1340    12         12         99.10     99.10
+sgcc_2 :       361     18         18         95.01     95.01       
+sgcc_3 :       361     18         18         95.01     95.01 
+perlbench_1 :  92      78         78         15.22     15.22 
+perlbench_2 :  70      19         19         72.86     72.86 
+perlbench_3 :  122     104        12         14.75     90.16
+deepsjeng :    64      22         18         65.62     71.88 
+xz :           15      15         15         0.00      0.00
+mcf :          35      6          6          82.86     82.86
+x264_1 :         13      13         13         0.00      0.00
+x264_2 :         11      11         11         0.00      0.00
+x264_3 :         13      13         13         0.00      0.00
