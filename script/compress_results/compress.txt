@@ -4,9 +4,9 @@ Description
 -----------
 
 CR1 = Max depth of stack for compressed recursive invocations
-CR2 = Max depth of stack for mutually recursive invocations
-CR1 (%)/ CR1 Compression Ratio = (1 - (CR1 Compressed Depth / Full Depth)) (%)
-CR2 (%)/ CR2 Compression Ratio = (1 - (CR2 Compressed Depth / Full Depth)) (%)
+CR2 = Max depth of stack for compressed  mutually recursive invocations
+CR1 (%)/ CR1 Compression Ratio = (1 - (CR1 / Full Depth)) (%)
+CR2 (%)/ CR2 Compression Ratio = (1 - (CR2 / Full Depth)) (%)
 
 Traces correspond to following spec command invocations
 
