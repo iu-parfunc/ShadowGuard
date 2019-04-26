@@ -15,6 +15,12 @@
 DEFINE_string(output, "func.txt",
               "\n List of functions with stack protector enabled.\n");
 
+struct Summary {
+  long total_functions;
+  long protected_functions;
+  double protected_ratio;
+};
+
 bool IsStackCookieAccessed(Dyninst::ParseAPI::Block* block) {
   std::map<Dyninst::Offset, Dyninst::InstructionAPI::Instruction> insns;
   block->getInsns(insns);
@@ -42,12 +48,13 @@ bool IsStackCookieAccessed(Dyninst::ParseAPI::Block* block) {
   return false;
 }
 
-void DiscoverStackProtectedFunctions(Parser* parser) {
+Summary DiscoverStackProtectedFunctions(Parser* parser) {
   std::vector<BPatch_object*> objects;
   parser->image->getObjects(objects);
 
   std::vector<std::string> protected_functions;
 
+  long total_functions = 0;
   for (auto object : objects) {
     if (IsSharedLibrary(object))
       continue;
@@ -56,6 +63,8 @@ void DiscoverStackProtectedFunctions(Parser* parser) {
         Dyninst::ParseAPI::convert(object);
 
     for (auto function : code_object->funcs()) {
+      total_functions++;
+
       Dyninst::ParseAPI::Block* entry = function->entry();
 
       if (IsStackCookieAccessed(entry))
@@ -70,6 +79,9 @@ void DiscoverStackProtectedFunctions(Parser* parser) {
   }
 
   outfile.close();
+
+  return {total_functions, protected_functions.size(),
+          (double)protected_functions.size() / total_functions};
 }
 
 int main(int argc, char* argv[]) {
@@ -85,7 +97,11 @@ int main(int argc, char* argv[]) {
   Parser* parser;
   parser = InitParser(binary, /* libs */ false, /* sanitize */ true);
 
-  DiscoverStackProtectedFunctions(parser);
+  Summary summary = DiscoverStackProtectedFunctions(parser);
+
+  std::cout << "Protected functions : " << summary.protected_functions << "\n";
+  std::cout << "Total functions : " << summary.total_functions << "\n";
+  std::cout << "Protected (%) : " << summary.protected_ratio * 100 << "\n";
 
   return 0;
 }
