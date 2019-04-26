@@ -11,6 +11,7 @@ deps () {
   fi
 
   if [ ! -d "thirdparty/dyninst-10.0.0/install" ]; then
+    cd thirdparty/dyninst-10.0.0/;\
     mkdir install;\
     mkdir -p build;\
     cd build
