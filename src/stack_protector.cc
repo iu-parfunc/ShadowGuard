@@ -16,8 +16,8 @@ DEFINE_string(output, "func.txt",
               "\n List of functions with stack protector enabled.\n");
 
 struct Summary {
-  long total_functions;
-  long protected_functions;
+  uint64_t total_functions;
+  uint64_t protected_functions;
   double protected_ratio;
 };
 

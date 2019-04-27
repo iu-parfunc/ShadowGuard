@@ -1,5 +1,7 @@
 
+#include <fstream>
 #include <memory>
+#include <set>
 #include <string>
 
 #include "BPatch.h"
@@ -14,6 +16,33 @@
 #include "utils.h"
 
 DECLARE_bool(vv);
+DECLARE_string(instrument_list);
+
+// Functions to instrument
+std::set<std::string> kInstrumentFunctions;
+
+bool RegisterUsageInfo::ShouldSkip() {
+  if (FLAGS_instrument_list != "none") {
+    if (kInstrumentFunctions.size() == 0) {
+      std::ifstream instrument(FLAGS_instrument_list);
+      std::string line;
+      while (std::getline(instrument, line)) {
+        if (line != "" || line != "\n") {
+          kInstrumentFunctions.insert(line);
+        }
+      }
+    }
+
+    auto it = kInstrumentFunctions.find(name_);
+    if (it != kInstrumentFunctions.end()) {
+      return false;
+    }
+
+    return true;
+  }
+
+  return !writesMemory_ && !writesSP_ && !containsCall_;
+}
 
 // -------------- RegisterUsageInfo ------------------
 
@@ -166,8 +195,7 @@ const std::vector<bool>& RegisterUsageInfo::GetUnusedMmxMask() {
 
 void PopulateFunctionRegisterUsage(Dyninst::ParseAPI::Function* const function,
                                    std::set<std::string>* const used,
-                                   bool& write_mem,
-                                   bool& write_sp,
+                                   bool& write_mem, bool& write_sp,
                                    bool& contains_call) {
   if (FLAGS_vv) {
     StdOut(Color::YELLOW) << "     Function : " << function->name() << Endl;
@@ -182,12 +210,12 @@ void PopulateFunctionRegisterUsage(Dyninst::ParseAPI::Function* const function,
 
     for (auto const& ins : insns) {
       write_mem |= ins.second.writesMemory();
-      contains_call |= (ins.second.getCategory() == Dyninst::InstructionAPI::c_CallInsn);
+      contains_call |=
+          (ins.second.getCategory() == Dyninst::InstructionAPI::c_CallInsn);
       std::set<Dyninst::InstructionAPI::RegisterAST::Ptr> read;
       std::set<Dyninst::InstructionAPI::RegisterAST::Ptr> written;
       ins.second.getReadSet(read);
       ins.second.getWriteSet(written);
-
 
       for (auto const& read_register : read) {
         std::string normalized_name =
@@ -196,7 +224,8 @@ void PopulateFunctionRegisterUsage(Dyninst::ParseAPI::Function* const function,
         used->insert(normalized_name);
       }
 
-      bool isRet = (ins.second.getCategory() == Dyninst::InstructionAPI::c_ReturnInsn);
+      bool isRet =
+          (ins.second.getCategory() == Dyninst::InstructionAPI::c_ReturnInsn);
 
       for (auto const& written_register : written) {
         std::string normalized_name =
@@ -219,6 +248,7 @@ void AnalyseFunctionRegisterUsage(Dyninst::ParseAPI::Function* const function,
   // First check in the cache
   auto it = lib->register_usage.find(function->name());
   if (it != lib->register_usage.end()) {
+    it->second->name_ = function->name();
     if (FLAGS_vv) {
       StdOut(Color::YELLOW)
           << "     Function (cached) : " << function->name() << Endl;
@@ -232,13 +262,15 @@ void AnalyseFunctionRegisterUsage(Dyninst::ParseAPI::Function* const function,
   bool writesMem = false;
   bool writesSP = false;
   bool containsCall = false;
-  PopulateFunctionRegisterUsage(function, &registers, writesMem, writesSP, containsCall);
+  PopulateFunctionRegisterUsage(function, &registers, writesMem, writesSP,
+                                containsCall);
 
   RegisterUsageInfo* info = new RegisterUsageInfo();
   info->used_ = registers;
   info->writesMemory_ = writesMem;
   info->writesSP_ = writesSP;
   info->containsCall_ = containsCall;
+  info->name_ = function->name();
 
   // Update the cache
   lib->register_usage.insert(

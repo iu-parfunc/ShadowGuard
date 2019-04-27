@@ -69,13 +69,13 @@ void _litecfi_print_stats(int32_t stack_size, int32_t capture_at) {
   printf("[Statistics] Stack size : %d\n", stack_size);
   printf("[Statistics] Maximum call stack depth : %lu\n", __lib_max_depth);
   printf("[Statistics] Number of overflows : %lu\n\n", __lib_overflows);
-  printf("[Statistics] Stack trace at depth %d : \n", __lib_max_depth);
+  printf("[Statistics] Stack trace at depth %lu : \n", __lib_max_depth);
 
   assert(__lib_max_depth < STACK_SIZE);
 
   // Print one element past the stack snapshot (which should be null) for
   // visual verification that we got all the elements printed out
-  for (int i = 0; i <= __lib_max_depth; i++) {
-    printf("   %p\n", __lib_stack_snapshot[i]);
+  for (unsigned long i = 0; i <= __lib_max_depth; i++) {
+    printf("   %p\n", (void*)__lib_stack_snapshot[i]);
   }
 }

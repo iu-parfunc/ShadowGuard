@@ -30,7 +30,10 @@ class RegisterUsageInfo {
   // Whether a function calls other function
   bool containsCall_;
 
-  bool ShouldSkip() { return !writesMemory_ && !writesSP_ && !containsCall_; }
+  // Name of the function
+  std::string name_;
+
+  bool ShouldSkip();
 
  private:
   // Register masks
