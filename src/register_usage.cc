@@ -17,28 +17,45 @@
 
 DECLARE_bool(vv);
 DECLARE_string(instrument_list);
+DECLARE_string(skip_list);
 
 // Functions to instrument
 std::set<std::string> kInstrumentFunctions;
 
+// Functions to skip
+std::set<std::string> kSkipFunctions;
+
+void PopulateFunctions(std::set<std::string>& functions, std::string file) {
+  std::ifstream instrument(file);
+  std::string line;
+  while (std::getline(instrument, line)) {
+    if (line != "" || line != "\n") {
+      functions.insert(line);
+    }
+  }
+}
+
 bool RegisterUsageInfo::ShouldSkip() {
   if (FLAGS_instrument_list != "none") {
     if (kInstrumentFunctions.size() == 0) {
-      std::ifstream instrument(FLAGS_instrument_list);
-      std::string line;
-      while (std::getline(instrument, line)) {
-        if (line != "" || line != "\n") {
-          kInstrumentFunctions.insert(line);
-        }
-      }
+      PopulateFunctions(kInstrumentFunctions, FLAGS_instrument_list);
     }
 
     auto it = kInstrumentFunctions.find(name_);
     if (it != kInstrumentFunctions.end()) {
       return false;
     }
-
     return true;
+  } else if (FLAGS_skip_list != "none") {
+    if (kSkipFunctions.size() == 0) {
+      PopulateFunctions(kSkipFunctions, FLAGS_skip_list);
+    }
+
+    auto it = kSkipFunctions.find(name_);
+    if (it != kSkipFunctions.end()) {
+      return true;
+    }
+    return false;
   }
 
   return !writesMemory_ && !writesSP_ && !containsCall_;

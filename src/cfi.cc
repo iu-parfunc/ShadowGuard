@@ -24,6 +24,10 @@ DEFINE_string(instrument_list, "none",
               "File containing the list of functions to "
               "be instrumented.");
 
+DEFINE_string(skip_list, "none",
+              "File containing the list of functions to "
+              "be skipped.");
+
 DEFINE_string(
     shadow_stack, "avx_v3",
     "\n Shadow stack implementation mechanism for backward-edge protection.\n"
