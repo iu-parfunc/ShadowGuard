@@ -30,20 +30,6 @@ cc_binary(
 )
 
 cc_binary(
-    name = "stack_depth",
-    srcs = [
-        "parse.cc",
-        "parse.h",
-        "stack_depth.cc",
-    ],
-    deps = [
-        "@com_github_gflags_gflags//:gflags",
-        "@glog//:glog",
-       	"@dyninst//:dyninst",
-    ],
-)
-
-cc_binary(
     name = "stack_protector",
     srcs = [
 	"parse.cc",
