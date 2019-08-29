@@ -3,22 +3,22 @@
 
 #include "asmjit/asmjit.h"
 #include "jit_internal.h"
-#include "register_utils.h"
+// #include "register_utils.h"
 
 using namespace asmjit::x86;
 
 std::string JitMemoryStackPush(RegisterUsageInfo& info, AssemblerHolder& ah) {
-  asmjit::X86Assembler* a = ah.GetAssembler();
+  asmjit::x86::Assembler* a = ah.GetAssembler();
 
   a->push(rax);
   a->push(rcx);
   a->mov(rcx, ptr(rsp, 16));
 
   // Get gs:ptr to rax
-  asmjit::X86Mem shadow_ptr;
+  asmjit::x86::Mem shadow_ptr;
   shadow_ptr.setSize(8);
   shadow_ptr.setSegment(gs);
-  shadow_ptr = shadow_ptr.adjusted(0);
+  shadow_ptr = shadow_ptr.cloneAdjusted(0);
   a->mov(rax, shadow_ptr);
   a->add(shadow_ptr, asmjit::imm(8));
 
@@ -29,17 +29,17 @@ std::string JitMemoryStackPush(RegisterUsageInfo& info, AssemblerHolder& ah) {
 }
 
 std::string JitMemoryStackPop(RegisterUsageInfo& info, AssemblerHolder& ah) {
-  asmjit::X86Assembler* a = ah.GetAssembler();
+  asmjit::x86::Assembler* a = ah.GetAssembler();
   asmjit::Label error = a->newLabel();
 
   a->push(rax);
   a->push(rcx);
 
   // Get gs:ptr to rax
-  asmjit::X86Mem shadow_ptr;
+  asmjit::x86::Mem shadow_ptr;
   shadow_ptr.setSize(8);
   shadow_ptr.setSegment(gs);
-  shadow_ptr = shadow_ptr.adjusted(0);
+  shadow_ptr = shadow_ptr.cloneAdjusted(0);
   a->mov(rax, shadow_ptr);
 
   a->mov(rcx, ptr(rax, -8));

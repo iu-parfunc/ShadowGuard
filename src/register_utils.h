@@ -7,14 +7,16 @@
 
 struct AvxRegister {
   // AVX portion
-  asmjit::X86Xmm xmm;
+  asmjit::x86::Xmm xmm;
   // AVX2 portion
-  asmjit::X86Ymm ymm;
+  asmjit::x86::Ymm ymm;
   // AVX512 portion
-  asmjit::X86Zmm zmm;
+  asmjit::x86::Zmm zmm;
 };
 
-std::string GetAvx2Register(asmjit::X86Xmm reg);
+/*
+std::string GetAvx2Register(asmjit::x86::Xmm reg);
+*/
 
 AvxRegister GetNextUnusedAvx2Register(RegisterUsageInfo& info);
 AvxRegister GetNextUnusedAvx512Register(RegisterUsageInfo& info);

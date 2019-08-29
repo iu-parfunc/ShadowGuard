@@ -317,12 +317,14 @@ void PopulateRegisterUsage(const std::vector<BPatch_object*>& objects,
       cache->insert(std::pair<std::string, Code*>(object->pathName(), lib));
     }
 
+    /*
     Dyninst::ParseAPI::CodeObject* code_object =
         Dyninst::ParseAPI::convert(object);
 
     for (auto function : code_object->funcs()) {
       AnalyseFunctionRegisterUsage(function, lib);
     }
+    */
   }
 }
 

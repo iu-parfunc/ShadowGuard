@@ -35,6 +35,7 @@ std::string MemRegionInit() {
   return includes + mem_init_fn;
 }
 
+/*
 std::string Header() {
   std::string header = "";
   header += ".intel_syntax noprefix\n\n";
@@ -86,13 +87,12 @@ GenerateFunction(std::string fn_name, RegisterUsageInfo& info,
                  std::string overflow_slot = "", bool global = true) {
   std::string prolog = FunctionProlog(fn_name, global);
 
-  /* Generate function body */
-  AssemblerHolder ah;
-  std::string code = codegen(info, ah);
+AssemblerHolder ah;
+std::string code = codegen(info, ah);
 
-  std::string epilog = FunctionEpilog(fn_name);
+std::string epilog = FunctionEpilog(fn_name);
 
-  return prolog + code + overflow_slot + epilog;
+return prolog + code + overflow_slot + epilog;
 }
 
 std::string CodegenStackInit(RegisterUsageInfo info) {
@@ -202,6 +202,7 @@ std::string CodegenEmptyFunction() {
 
   return prolog + code + epilog;
 }
+*/
 
 std::string Codegen(RegisterUsageInfo info) {
   std::string temp_dir = "/tmp/.litecfi_tmp";
@@ -214,6 +215,7 @@ std::string Codegen(RegisterUsageInfo info) {
     return "";
   }
 
+  /*
   std::ofstream libstack_stream(temp_dir + "/" + "__litecfi_stack_x86_64.S");
   if (FLAGS_shadow_stack == "avx_v3") {
     std::string libstack = Header() + CodegenStackInit(info) +
@@ -228,6 +230,7 @@ std::string Codegen(RegisterUsageInfo info) {
   }
 
   libstack_stream.close();
+  */
 
   std::string soname = "libstack.so";
 
@@ -235,8 +238,12 @@ std::string Codegen(RegisterUsageInfo info) {
   mem_init_c << MemRegionInit();
   mem_init_c.close();
 
+  std::string compile_so =
+      "gcc -fpic -shared -o " + soname + " " + temp_dir + "/" + "*.c";
+  /*
   std::string compile_so = "gcc -fpic -shared -o " + soname + " " + temp_dir +
                            "/" + "*.S" + " " + temp_dir + "/" + "*.c";
+                           */
 
   if (system(compile_so.c_str()) != 0) {
     return "";

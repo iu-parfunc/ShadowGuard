@@ -4,8 +4,6 @@ cc_binary(
     srcs = [
         "cache.cc",
 	"cache.h",
-	"call_graph.h",
-        "call_graph_impl.h",
         "cfi.cc",
 	"codegen.cc",
 	"codegen.h",
@@ -13,18 +11,12 @@ cc_binary(
 	"instrument.h",
         "jit.cc",
 	"jit.h",
-	"jit_avxv2.cc",
-	"jit_avxv3.cc",
-	"jit_avx512.cc",
 	"jit_memory.cc",
 	"jit_internal.h",
-	"jit_nop.cc",
 	"parse.cc",
 	"parse.h",
         "register_usage.cc",
         "register_usage.h",
-	"register_utils.cc",
-	"register_utils.h",
 	"utils.cc",
 	"utils.h",
     ],
@@ -33,15 +25,8 @@ cc_binary(
         "@com_github_gflags_gflags//:gflags",
        	"@dyninst//:dyninst",
         "@glog//:glog",
-	"//src:tls",
     ],
-)
-
-cc_library(
-    name = "tls",
-    srcs = [
-        "thread_local.c",
-    ],
+    linkopts = ["-lrt"],
 )
 
 cc_binary(
@@ -81,13 +66,5 @@ cc_binary(
     ],
     deps = [
        	"@dyninst//:dyninst",
-    ],
-)
-
-
-cc_library(
-    name = "depth",
-    srcs = [
-        "depth.cc",
     ],
 )

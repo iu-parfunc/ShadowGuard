@@ -2,7 +2,6 @@
 #include <map>
 #include <string>
 
-#include "call_graph.h"
 #include "gflags/gflags.h"
 #include "glog/logging.h"
 #include "instrument.h"
@@ -29,25 +28,10 @@ DEFINE_string(skip_list, "none",
               "be skipped.");
 
 DEFINE_string(
-    shadow_stack, "avx_v3",
+    shadow_stack, "mem",
     "\n Shadow stack implementation mechanism for backward-edge protection.\n"
     "\n Valid values are\n"
-    "   * avx_v2 : Uses avx2 register file as backing store (v2"
-    "implementation)\n"
-    "   * avx_v3 : Uses avx2 register file as backing store (v3 "
-    "implementation)\n"
-    "   * avx512 : Uses avx512 register file as backing store\n"
-    "   * mem : Uses a memory region as backing store\n"
-    "   * xor : Uses a xor check based technique to validate the return "
-    "chain.\n"
-    "   * reloc : Only perform relocation.\n"
-    "   * empty : Relocation + call to empty function. Skips non memory "
-    "accessing functions.\n"
-    "   * savegpr: Relocation + saving & restoring GPRs. Skips non memory "
-    "accessing functions.\n"
-    "   * callout : Relocation + saving & restoring GPRs + call to empty "
-    "function. Skips non memory accessing functions.\n"
-    " Less context sensitive and precise than other techniques.\n");
+    "   * mem : Uses a memory region as backing store\n");
 
 DEFINE_string(shadow_stack_protection, "none",
               "\n Applicable only when `shadow-stack` is set to mem."
@@ -77,17 +61,9 @@ DEFINE_string(
     install, "./bin/",
     "\n Installation path of the hardened binary and its dependencies.\n");
 
-DEFINE_int32(reserved_from, 8,
-             "\n The register number starting to be reserved for CFI\n");
-
-DEFINE_int32(qwords_per_reg, 4,
-             "\n Number of qwords per vector register used for CFI\n");
-
 static bool ValidateShadowStackFlag(const char* flagname,
                                     const std::string& value) {
-  if (value == "avx512" || value == "mem" || value == "callout" ||
-      value == "reloc" || value == "empty" || value == "savegpr" ||
-      value == "avx_v2" || value == "avx_v3") {
+  if (value == "mem") {
     return true;
   }
 
@@ -105,13 +81,6 @@ static bool ValidateShadowStackProtectionFlag(const char* flagname,
 DEFINE_validator(shadow_stack, &ValidateShadowStackFlag);
 
 DEFINE_validator(shadow_stack_protection, &ValidateShadowStackProtectionFlag);
-
-void PrintVector(const std::vector<bool>& vec) {
-  for (unsigned int i = 0; i < vec.size(); i++) {
-    printf("%d", vec[i]);
-  }
-  printf("\n");
-}
 
 int main(int argc, char* argv[]) {
   google::InitGoogleLogging(argv[0]);

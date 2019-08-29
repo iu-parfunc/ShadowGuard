@@ -12,10 +12,13 @@ DECLARE_int32(qwords_per_reg);
 
 using namespace asmjit::x86;
 
-std::string GetAvx2Register(asmjit::X86Xmm reg) {
+/*
+std::string GetAvx2Register(asmjit::x86::Xmm reg) {
   return "xmm" + std::to_string(reg.getId());
 }
+*/
 
+/*
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wreturn-type"
 AvxRegister GetAvx2Register(uint8_t index) {
@@ -125,6 +128,7 @@ AvxRegister GetAvx512Register(uint8_t index) {
 
   DCHECK(false);
 }
+*/
 
 // Get the first unused avx register
 AvxRegister GetNextUnusedAvx2Register(RegisterUsageInfo& info) {
