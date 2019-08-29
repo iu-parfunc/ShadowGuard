@@ -37,44 +37,12 @@ DECLARE_string(threat_model);
 
 // Trampoline specification
 static InstSpec is_init;
-static InstSpec is_empty;
-static InstSpec is[9];
 
 void SetupInstrumentationSpec() {
   // Suppose we instrument a call to stack init at entry of A;
   // If A does not use r11, we dont need to save r11 (_start does not)
   is_init.trampGuard = false;
   is_init.redZone = false;
-
-  is_empty.trampGuard = false;
-  is_empty.redZone = false;
-  is_empty.saveRegs.push_back(Dyninst::x86_64::r11);
-  is_empty.saveRegs.push_back(Dyninst::x86_64::r10);
-
-  // Setup the trampoline specification
-  is[0].saveRegs.push_back(Dyninst::x86_64::rax);
-  is[0].saveRegs.push_back(Dyninst::x86_64::rdx);
-  is[0].saveRegs.push_back(Dyninst::x86_64::rdi);
-  is[0].saveRegs.push_back(Dyninst::x86_64::r11);
-  is[0].saveRegs.push_back(Dyninst::x86_64::r10);
-
-  is[0].raLoc = Dyninst::x86_64::r10;
-  is[0].trampGuard = false;
-  is[0].redZone = false;
-
-  is[1] = is[0];
-  is[2] = is[1];
-  is[2].saveRegs.push_back(Dyninst::x86_64::rsi);
-  is[3] = is[2];
-  is[3].saveRegs.push_back(Dyninst::x86_64::rdx);
-  is[4] = is[3];
-  is[4].saveRegs.push_back(Dyninst::x86_64::rcx);
-  is[5] = is[4];
-  is[5].saveRegs.push_back(Dyninst::x86_64::r8);
-  is[6] = is[5];
-  is[6].saveRegs.push_back(Dyninst::x86_64::r9);
-  is[7] = is[6];
-  is[8] = is[7];
 }
 
 class StackOpSnippet : public Dyninst::PatchAPI::Snippet {
@@ -85,11 +53,16 @@ class StackOpSnippet : public Dyninst::PatchAPI::Snippet {
     AssemblerHolder ah;
     jit_fn_(info_, ah);
 
-    int size = ah.GetCode()->codeSize();
+    size_t size = ah.GetCode()->codeSize();
     char* temp_buf = (char*)malloc(size);
 
-    size = ah.GetCode()->relocateToBase((uint64_t)temp_buf);
+    ah.GetCode()->relocateToBase((uint64_t)temp_buf);
+
+    size = ah.GetCode()->codeSize();
     buf.copy(temp_buf, size);
+
+    ah.GetCode()->copyFlattenedData(temp_buf, size,
+                                    asmjit::CodeHolder::kCopyWithPadding);
     return true;
   }
 
@@ -312,6 +285,8 @@ void Instrument(std::string binary, std::map<std::string, Code*>* const cache,
 
   PatchMgr::Ptr patcher = Dyninst::PatchAPI::convert(parser.app);
   BPatch_binaryEdit* binary_edit = ((BPatch_binaryEdit*)parser.app);
+
+  SetupInstrumentationSpec();
 
   std::map<std::string, BPatch_function*> instrumentation_fns;
   RegisterUsageInfo info;
