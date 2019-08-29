@@ -59,10 +59,10 @@ class StackOpSnippet : public Dyninst::PatchAPI::Snippet {
     ah.GetCode()->relocateToBase((uint64_t)temp_buf);
 
     size = ah.GetCode()->codeSize();
-    buf.copy(temp_buf, size);
-
     ah.GetCode()->copyFlattenedData(temp_buf, size,
                                     asmjit::CodeHolder::kCopyWithPadding);
+
+    buf.copy(temp_buf, size);
     return true;
   }
 
