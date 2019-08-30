@@ -211,7 +211,7 @@ int main(int argc, char **argv) {
     for (auto f: co->funcs()) {
         FuncSummary &s = funcSummary[f];
         if (s.skipInstrumentation()) {
-            printf("%s at %lx\n", f->name().c_str(), f->addr());
+            //printf("%s at %lx\n", f->name().c_str(), f->addr());
             ++count;
         } 
     }
@@ -225,7 +225,7 @@ int main(int argc, char **argv) {
     for (auto f: co->funcs()) {
         FuncSummary &s = stackAnalysisSummary[f];
         if (s.skipInstrumentation()) {
-            printf("%s at %lx\n", f->name().c_str(), f->addr());
+            //printf("%s at %lx\n", f->name().c_str(), f->addr());
             ++count;
         } 
     }
@@ -238,18 +238,18 @@ int main(int argc, char **argv) {
     for (auto f: co->funcs()) {
         InterProcSummary &s = interProcSummary[f];
         if (s.skipInstrumentation()) {
-            printf("%s at %lx\n", f->name().c_str(), f->addr());
+            //printf("%s at %lx\n", f->name().c_str(), f->addr());
             ++count;
         }
     }
     printf("%d functions skipped\n\n", count);
-
-    printf("Instrument functions\n");
+    count = 0;
     for (auto f: co->funcs()) {
         InterProcSummary &s = interProcSummary[f];
         if (!s.skipInstrumentation()) {
-            printf("%s\n", f->name().c_str());
+            //printf("%s\n", f->name().c_str());
+            count++;
         }
     }
-
+    printf("Instrument %d functions\n", count);
 }
