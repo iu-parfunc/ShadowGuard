@@ -4,20 +4,20 @@ deps () {
 
   root_dir=`pwd`
   # Fetch
-  if [ ! -d "thirdparty/dyninst-10.0.0" ]; then
-    git clone https://github.com/mxz297/dyninst.git thirdparty/dyninst-10.0.0
-    cd thirdparty/dyninst-10.0.0/;\
+  if [ ! -d "thirdparty/dyninst-10.1.0" ]; then
+    git clone https://github.com/mxz297/dyninst.git thirdparty/dyninst-10.1.0
+    cd thirdparty/dyninst-10.1.0/;\
     git checkout liteCFI
   fi
 
-  if [ ! -d "thirdparty/dyninst-10.0.0/install" ]; then
-    cd thirdparty/dyninst-10.0.0/;\
+  if [ ! -d "thirdparty/dyninst-10.1.0/install" ]; then
+    cd thirdparty/dyninst-10.1.0/;\
     mkdir install;\
     mkdir -p build;\
     cd build
 
     # Configure
-    cmake -DPATH_BOOST= -DLIBELF_INCLUDE_DIR= -DLIBELF_INCLUDE_DIR= -DLIBDWARF_INCLUDE_DIR= -DLIBDWARF_LIBRARIES= -DCMAKE_INSTALL_PREFIX=`pwd`/../install -G 'Unix Makefiles' ..
+    cmake -DCMAKE_INSTALL_PREFIX=`pwd`/../install -G 'Unix Makefiles' ..
 
     # Build
     #   Dyninst build tends to succeed with a retry after an initial build failure.
@@ -84,7 +84,7 @@ clean () {
 
 realclean () {
   rm -rf thirdparty/asmjit
-  rm -rf thirdparty/dyninst-10.0.0
+  rm -rf thirdparty/dyninst-10.1.0
   bazel clean
 }
 

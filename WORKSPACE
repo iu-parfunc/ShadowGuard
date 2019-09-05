@@ -27,7 +27,7 @@ git_repository(
 
 new_local_repository (
     name = "dyninst",
-    path = "thirdparty/dyninst-10.0.0",
+    path = "thirdparty/dyninst-10.1.0",
     build_file = '@//thirdparty:dyninst.BUILD',
 )
 
