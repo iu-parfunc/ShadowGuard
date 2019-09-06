@@ -116,7 +116,6 @@ void InsertInstrumentation(
           << Endl;
     }
 
-    function->relocateFunction();
     RegisterUsageInfo dummy;
     Snippet::Ptr stack_push =
         StackPushSnippet::create(new StackPushSnippet(dummy));
@@ -125,6 +124,17 @@ void InsertInstrumentation(
     Snippet::Ptr stack_pop =
         StackPopSnippet::create(new StackPopSnippet(dummy));
     InsertSnippet(function, Point::FuncExit, stack_pop, patcher);
+
+    BPatch_binaryEdit* binary_edit = ((BPatch_binaryEdit*)parser.app);
+    BPatch_nullExpr nopSnippet;
+    vector<BPatch_point*> points;
+    function->getEntryPoints(points);
+    binary_edit->insertSnippet(nopSnippet, points, BPatch_callBefore, BPatch_lastSnippet, &is_init);
+
+    points.clear();
+    function->getExitPoints(points);
+    binary_edit->insertSnippet(nopSnippet, points, BPatch_callAfter, BPatch_lastSnippet, &is_init);
+
     return;
   }
 }

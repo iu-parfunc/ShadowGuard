@@ -6,6 +6,5 @@ cc_library(
         glob(["install/include/boost/**/*.*"]),
     includes = ["install/include", "install/include/elfutils",
          "install/include/tbb/", "install/include/boost"],
-    linkopts = ["-lboost_system"],
     visibility = ["//visibility:public"],
 )
