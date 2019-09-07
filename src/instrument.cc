@@ -37,12 +37,18 @@ DECLARE_string(threat_model);
 
 // Trampoline specification
 static InstSpec is_init;
+static InstSpec is_empty;
 
 void SetupInstrumentationSpec() {
   // Suppose we instrument a call to stack init at entry of A;
   // If A does not use r11, we dont need to save r11 (_start does not)
   is_init.trampGuard = false;
   is_init.redZone = false;
+  is_init.saveRegs.push_back(x86_64::rax);
+  is_init.saveRegs.push_back(x86_64::rdx);
+
+  is_empty.trampGuard = false;
+  is_empty.redZone = false;
 }
 
 class StackOpSnippet : public Dyninst::PatchAPI::Snippet {
@@ -129,11 +135,11 @@ void InsertInstrumentation(
     BPatch_nullExpr nopSnippet;
     vector<BPatch_point*> points;
     function->getEntryPoints(points);
-    binary_edit->insertSnippet(nopSnippet, points, BPatch_callBefore, BPatch_lastSnippet, &is_init);
+    binary_edit->insertSnippet(nopSnippet, points, BPatch_callBefore, BPatch_lastSnippet, &is_empty);
 
     points.clear();
     function->getExitPoints(points);
-    binary_edit->insertSnippet(nopSnippet, points, BPatch_callAfter, BPatch_lastSnippet, &is_init);
+    binary_edit->insertSnippet(nopSnippet, points, BPatch_callAfter, BPatch_lastSnippet, &is_empty);
 
     return;
   }
