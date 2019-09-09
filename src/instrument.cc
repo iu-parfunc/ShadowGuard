@@ -30,6 +30,7 @@ DECLARE_string(instrument);
 DECLARE_bool(libs);
 DECLARE_string(shadow_stack);
 DECLARE_string(shadow_stack_protection);
+DECLARE_string(output);
 DECLARE_bool(skip);
 DECLARE_bool(stats);
 DECLARE_bool(vv);
@@ -135,11 +136,13 @@ void InsertInstrumentation(
     BPatch_nullExpr nopSnippet;
     vector<BPatch_point*> points;
     function->getEntryPoints(points);
-    binary_edit->insertSnippet(nopSnippet, points, BPatch_callBefore, BPatch_lastSnippet, &is_empty);
+    binary_edit->insertSnippet(nopSnippet, points, BPatch_callBefore,
+                               BPatch_lastSnippet, &is_empty);
 
     points.clear();
     function->getExitPoints(points);
-    binary_edit->insertSnippet(nopSnippet, points, BPatch_callAfter, BPatch_lastSnippet, &is_empty);
+    binary_edit->insertSnippet(nopSnippet, points, BPatch_callAfter,
+                               BPatch_lastSnippet, &is_empty);
 
     return;
   }
@@ -340,5 +343,9 @@ void Instrument(std::string binary, std::map<std::string, Code*>* const cache,
                          init_fns);
   }
 
-  binary_edit->writeFile((binary + "_cfi").c_str());
+  if (FLAGS_output.empty()) {
+    binary_edit->writeFile((binary + "_cfi").c_str());
+  } else {
+    binary_edit->writeFile(FLAGS_output.c_str());
+  }
 }

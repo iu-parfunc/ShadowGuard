@@ -52,6 +52,8 @@ DEFINE_string(
     " So, only instrument system code for context switch, no CFI checks\n"
     "   * trust_none : Instrument all code for CFI checks\n");
 
+DEFINE_string(output, "", "\n Output binary.\n");
+
 DEFINE_string(cache, "./libs/",
               "\n Path to the cache of hardened shared libraries."
               " Once a shared library dependency is encountered the tool will"
