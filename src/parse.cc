@@ -1,7 +1,7 @@
 
 #include "parse.h"
 
-Parser* InitParser(std::string binary, bool libs, bool sanitize) {
+litecfi::Parser* InitParser(std::string binary, bool libs, bool sanitize) {
   BPatch* parser = new BPatch;
   // Open binary and its linked shared libraries for parsing
   BPatch_addressSpace* app;
@@ -14,7 +14,7 @@ Parser* InitParser(std::string binary, bool libs, bool sanitize) {
 
   BPatch_image* image = app->getImage();
 
-  Parser* p = new Parser();
+  litecfi::Parser* p = new litecfi::Parser();
   p->parser = parser;
   p->app = app;
   p->image = image;

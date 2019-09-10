@@ -94,7 +94,7 @@ int main(int argc, char* argv[]) {
 
   std::string binary(argv[1]);
 
-  Parser* parser;
+  litecfi::Parser* parser;
   if (FLAGS_shadow_stack_protection == "sfi") {
     parser = InitParser(binary, /* libs */ false, /* sanitize */ true);
   } else {
@@ -102,9 +102,9 @@ int main(int argc, char* argv[]) {
   }
 
   std::map<std::string, Code*>* cache =
-      AnalyseRegisterUsage(binary, const_cast<Parser&>(*parser));
+      AnalyseRegisterUsage(binary, const_cast<litecfi::Parser&>(*parser));
 
-  Instrument(binary, cache, const_cast<Parser&>(*parser));
+  Instrument(binary, cache, const_cast<litecfi::Parser&>(*parser));
 
   return 0;
 }

@@ -15,6 +15,8 @@ cc_binary(
 	"jit_internal.h",
 	"parse.cc",
 	"parse.h",
+        "passes.h",
+        "pass_manager.h",
         "register_usage.cc",
         "register_usage.h",
 	"utils.cc",

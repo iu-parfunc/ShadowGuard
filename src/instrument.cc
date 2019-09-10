@@ -18,6 +18,8 @@
 #include "glog/logging.h"
 #include "jit.h"
 #include "parse.h"
+#include "pass_manager.h"
+#include "passes.h"
 #include "utils.h"
 
 #include "Module.h"
@@ -107,8 +109,8 @@ void InsertSnippet(BPatch_function* function, Point::Type location,
 }
 
 void InsertInstrumentation(
-    BPatch_function* function, RegisterUsageInfo* info, const Parser& parser,
-    PatchMgr::Ptr patcher,
+    BPatch_function* function, RegisterUsageInfo* info,
+    const litecfi::Parser& parser, PatchMgr::Ptr patcher,
     std::map<std::string, BPatch_function*>& instrumentation_fns,
     bool isSystemCode) {
 
@@ -149,10 +151,11 @@ void InsertInstrumentation(
 }
 
 void InstrumentFunction(
-    BPatch_function* function, Code* lib, const Parser& parser,
+    BPatch_function* function, Code* lib, const litecfi::Parser& parser,
     PatchMgr::Ptr patcher,
     std::map<std::string, BPatch_function*>& instrumentation_fns,
-    bool is_init_function, bool isSystemCode) {
+    const std::map<uint64_t, Function*>& skippable, bool is_init_function,
+    bool isSystemCode) {
 
   // REMOVE(chamibuddhika)
   // auto it = lib->register_usage.find(fn_name);
@@ -180,8 +183,14 @@ void InstrumentFunction(
     }
   }
 
-  InsertInstrumentation(function, info, parser, patcher, instrumentation_fns,
-                        isSystemCode);
+  if (skippable.find(static_cast<uint64_t>(reinterpret_cast<uintptr_t>(
+          function->getBaseAddr()))) == skippable.end()) {
+    InsertInstrumentation(function, info, parser, patcher, instrumentation_fns,
+                          isSystemCode);
+  } else {
+    StdOut(Color::YELLOW, FLAGS_vv)
+        << "Skipping function : " << function->getName() << Endl;
+  }
 }
 
 static void GetIFUNCs(BPatch_module* module,
@@ -197,10 +206,11 @@ static void GetIFUNCs(BPatch_module* module,
 }
 
 void InstrumentModule(
-    BPatch_module* module, Code* const lib, const Parser& parser,
+    BPatch_module* module, Code* const lib, const litecfi::Parser& parser,
     PatchMgr::Ptr patcher,
     std::map<std::string, BPatch_function*>& instrumentation_fns,
-    const std::set<std::string>& init_fns, bool isSystemCode) {
+    const std::set<std::string>& init_fns,
+    const std::map<uint64_t, Function*>& skippable, bool isSystemCode) {
   char funcname[2048];
   std::vector<BPatch_function*>* functions = module->getProcedures();
 
@@ -214,7 +224,7 @@ void InstrumentModule(
     std::string func(funcname);
     if (init_fns.find(func) != init_fns.end()) {
       InstrumentFunction(function, lib, parser, patcher, instrumentation_fns,
-                         true, isSystemCode);
+                         skippable, true, isSystemCode);
       continue;
     }
 
@@ -232,13 +242,13 @@ void InstrumentModule(
       continue;
 
     InstrumentFunction(function, lib, parser, patcher, instrumentation_fns,
-                       false, isSystemCode);
+                       skippable, false, isSystemCode);
   }
 }
 
 void InstrumentCodeObject(
     BPatch_object* object, std::map<std::string, Code*>* const cache,
-    const Parser& parser, PatchMgr::Ptr patcher,
+    const litecfi::Parser& parser, PatchMgr::Ptr patcher,
     std::map<std::string, BPatch_function*>& instrumentation_fns,
     const std::set<std::string>& init_fns) {
   if (!IsSharedLibrary(object)) {
@@ -262,13 +272,27 @@ void InstrumentCodeObject(
   std::vector<BPatch_module*> modules;
   object->modules(modules);
 
+  // Do the static analysis on this code and obtain skippable functions.
+  CodeObject* co = Dyninst::ParseAPI::convert(object);
+  co->parse();
+
+  PassManager* pm = new PassManager;
+  pm->AddPass(new LeafAnalysisPass())
+      ->AddPass(new StackAnalysisPass())
+      ->AddPass(new NonLeafSafeWritesPass());
+  std::set<Function*> safe = pm->Run(co);
+  std::map<uint64_t, Function*> skippable;
+  for (auto f : safe) {
+    skippable[f->addr()] = f;
+  }
+
   for (auto it = modules.begin(); it != modules.end(); it++) {
     char modname[2048];
     BPatch_module* module = *it;
     module->getName(modname, 2048);
 
     InstrumentModule(module, lib, parser, patcher, instrumentation_fns,
-                     init_fns, isSystemCode);
+                     init_fns, skippable, isSystemCode);
   }
 }
 
@@ -285,7 +309,7 @@ BPatch_function* FindFunctionByName(BPatch_image* image, std::string name) {
 }
 
 void PopulateRegisterStackOperations(
-    BPatch_binaryEdit* binary_edit, const Parser& parser,
+    BPatch_binaryEdit* binary_edit, const litecfi::Parser& parser,
     std::map<std::string, BPatch_function*>& fns) {
   fns["stack_init"] =
       FindFunctionByName(parser.image, "litecfi_init_mem_region");
@@ -293,7 +317,7 @@ void PopulateRegisterStackOperations(
 }
 
 void Instrument(std::string binary, std::map<std::string, Code*>* const cache,
-                const Parser& parser) {
+                const litecfi::Parser& parser) {
   StdOut(Color::BLUE, FLAGS_vv) << "\n\nInstrumentation Pass" << Endl;
   StdOut(Color::BLUE, FLAGS_vv) << "====================" << Endl;
 

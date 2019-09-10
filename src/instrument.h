@@ -8,6 +8,6 @@
 #include "register_usage.h"
 
 void Instrument(std::string binary, std::map<std::string, Code*>* const cache,
-                const Parser& parser);
+                const litecfi::Parser& parser);
 
 #endif  // LITECFI_INSTRUMENT_H_

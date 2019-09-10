@@ -2,6 +2,7 @@
 #define LITECFI_PASS_MANAGER_H_
 
 #include <map>
+#include <set>
 #include <string>
 
 #include "CodeObject.h"
@@ -85,16 +86,16 @@ class PassManager {
     return this;
   }
 
-  std::vector<Function*> Run(CodeObject* co) {
+  std::set<Function*> Run(CodeObject* co) {
     for (Pass* p : passes_) {
       p->RunPass(co, summaries_);
     }
 
-    std::vector<Function*> safe;
+    std::set<Function*> safe;
     Pass* last = passes_.back();
     for (auto& it : summaries_) {
       if (last->IsSafeFunction(it.second)) {
-        safe.push_back(it.first);
+        safe.insert(it.first);
       }
     }
 

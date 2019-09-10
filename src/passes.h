@@ -1,6 +1,15 @@
 #ifndef LITECFI_PASSES_H_
 #define LITECFI_PASSES_H_
 
+#include "Absloc.h"
+#include "AbslocInterface.h"
+#include "CFG.h"
+#include "CodeObject.h"
+#include "CodeSource.h"
+#include "Expression.h"
+#include "Instruction.h"
+#include "InstructionDecoder.h"
+#include "Register.h"
 #include "pass_manager.h"
 
 class LeafAnalysisPass : public Pass {

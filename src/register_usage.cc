@@ -328,8 +328,8 @@ void PopulateRegisterUsage(const std::vector<BPatch_object*>& objects,
   }
 }
 
-std::map<std::string, Code*>* AnalyseRegisterUsage(std::string binary,
-                                                   const Parser& parser) {
+std::map<std::string, Code*>*
+AnalyseRegisterUsage(std::string binary, const litecfi::Parser& parser) {
   StdOut(Color::BLUE, FLAGS_vv) << "Register Analysis Pass" << Endl;
   StdOut(Color::BLUE, FLAGS_vv) << "======================" << Endl;
 

@@ -48,7 +48,7 @@ bool IsStackCookieAccessed(Dyninst::ParseAPI::Block* block) {
   return false;
 }
 
-Summary DiscoverStackProtectedFunctions(Parser* parser) {
+Summary DiscoverStackProtectedFunctions(litecfi::Parser* parser) {
   std::vector<BPatch_object*> objects;
   parser->image->getObjects(objects);
 
@@ -94,7 +94,7 @@ int main(int argc, char* argv[]) {
 
   std::string binary(argv[1]);
 
-  Parser* parser;
+  litecfi::Parser* parser;
   parser = InitParser(binary, /* libs */ false, /* sanitize */ true);
 
   Summary summary = DiscoverStackProtectedFunctions(parser);

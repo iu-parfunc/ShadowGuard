@@ -56,7 +56,7 @@ struct Code {
 // Find unused registers across all functions in the application and update the
 // call graph with the register usage information. This also includes linked
 // shared library functions.
-std::map<std::string, Code*>* AnalyseRegisterUsage(std::string binary,
-                                                   const Parser& parser);
+std::map<std::string, Code*>*
+AnalyseRegisterUsage(std::string binary, const litecfi::Parser& parser);
 
 #endif  // LITECFI_REGISTER_USAGE_H_

@@ -36,6 +36,6 @@ int main(int argc, char **argv) {
   pm->AddPass(new LeafAnalysisPass())
       ->AddPass(new StackAnalysisPass())
       ->AddPass(new NonLeafSafeWritesPass());
-  std::vector<Function *> safe = pm->Run(co);
+  std::set<Function *> safe = pm->Run(co);
   return 0;
 }
