@@ -54,12 +54,12 @@ const std::string AnsiColor::BOLD_MAGENTA = "\033[1;35m";
 const std::string AnsiColor::BOLD_CYAN = "\033[1;36m";
 const std::string AnsiColor::BOLD_WHITE = "\033[1;37m";
 
-#define ColoredMessage(color, ansi_color) \
-  case color:                             \
+#define ColoredMessage(color, ansi_color)                                      \
+  case color:                                                                  \
     return std::cout << AnsiColor::END << ansi_color;
 
-#define UncoloredMessage() \
-  case Color::NONE:        \
+#define UncoloredMessage()                                                     \
+  case Color::NONE:                                                            \
     return std::cout << AnsiColor::END;
 
 std::ostream* dev_null = nullptr;

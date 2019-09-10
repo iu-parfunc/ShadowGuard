@@ -54,3 +54,17 @@ cc_binary(
        	"@dyninst//:dyninst",
     ],
 )
+
+cc_binary(
+    name = "analyse",
+    srcs = [
+        "analyse.cc",
+        "passes.h",
+        "pass_manager.h",
+	"utils.cc",
+	"utils.h",
+    ],
+    deps = [
+        "@dyninst//:dyninst",
+    ],
+)
