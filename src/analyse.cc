@@ -35,7 +35,8 @@ int main(int argc, char **argv) {
   PassManager *pm = new PassManager;
   pm->AddPass(new LeafAnalysisPass())
       ->AddPass(new StackAnalysisPass())
-      ->AddPass(new NonLeafSafeWritesPass());
+      ->AddPass(new NonLeafSafeWritesPass())
+      ->AddPass(new DeadRegisterAnalysisPass());
   std::set<Function *> safe = pm->Run(co);
   return 0;
 }

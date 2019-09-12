@@ -17,6 +17,10 @@ struct FuncSummary {
   bool containsPLTCall;
   bool containsUnknownCF;
   std::set<Function*> callees;
+  // Set of registers dead at function entry.
+  std::set<std::string> dead_at_entry;
+  // Set of registers dead at each of the function exits.
+  std::map<Block*, std::set<std::string>> dead_at_exit;
 
   void Print() {
     printf("writesMemory=%d ", writesMemory);

@@ -9,7 +9,10 @@
 #include "Expression.h"
 #include "Instruction.h"
 #include "InstructionDecoder.h"
+#include "Location.h"
 #include "Register.h"
+#include "bitArray.h"
+#include "liveness.h"
 #include "pass_manager.h"
 
 class LeafAnalysisPass : public Pass {
@@ -140,7 +143,7 @@ class NonLeafSafeWritesPass : public Pass {
              "Skips functions that itself and its callee do not write "
              "unknown memory or adjust SP.") {}
 
-  virtual void
+  void
   RunGlobalAnalysis(CodeObject* co,
                     std::map<Function*, FuncSummary*>& summaries) override {
     for (auto f : co->funcs()) {
@@ -178,8 +181,71 @@ class NonLeafSafeWritesPass : public Pass {
     }
   }
 
-  virtual bool IsSafeFunction(FuncSummary* s) {
+  bool IsSafeFunction(FuncSummary* s) {
     return !s->writesMemory && !s->adjustSP;
+  }
+};
+
+class DeadRegisterAnalysisPass : public Pass {
+ public:
+  DeadRegisterAnalysisPass()
+      : Pass("Dead Register Analysis",
+             "Analyses dead registers at function entry and exit.") {}
+
+  std::set<std::string> GetDeadRegisters(Function* f, Block* b,
+                                         LivenessAnalyzer::Type type) {
+    // Construct a liveness analyzer based on the address width of the mutatee.
+    // 32−bit code and 64−bit code have different ABI.
+    LivenessAnalyzer la(f->obj()->cs()->getAddressWidth());
+    // Construct a liveness query location.
+    Location loc(f, b);
+
+    std::set<std::string> dead;
+
+    // Query live registers.
+    bitArray live;
+    if (!la.query(loc, type, live)) {
+      return dead;
+    }
+
+    // Check all dead caller-saved registers.
+    std::vector<MachRegister> regs;
+    regs.push_back(x86_64::rsi);
+    regs.push_back(x86_64::rdi);
+    regs.push_back(x86_64::rdx);
+    regs.push_back(x86_64::rcx);
+    regs.push_back(x86_64::r8);
+    regs.push_back(x86_64::r9);
+    regs.push_back(x86_64::r10);
+    regs.push_back(x86_64::r11);
+
+    if (type == LivenessAnalyzer::Before) {
+      StdOut(Color::GREEN) << "   >> Dead registers at function entry : "
+                           << f->name() << Endl;
+    } else {
+      StdOut(Color::GREEN) << "   >> Dead registers at function exit : "
+                           << f->name() << Endl;
+    }
+
+    StdOut(Color::GREEN) << "       ";
+    for (auto reg : regs) {
+      if (!live.test(la.getIndex(reg))) {
+        dead.insert(reg.name());
+        StdOut(Color::GREEN) << reg.name() << ", ";
+      }
+    }
+    StdOut(Color::GREEN) << Endl;
+
+    return dead;
+  }
+
+  void RunLocalAnalysis(CodeObject* co, Function* f, FuncSummary* s) override {
+    s->dead_at_entry =
+        GetDeadRegisters(f, f->entry(), LivenessAnalyzer::Before);
+
+    for (auto b : f->exitBlocks()) {
+      s->dead_at_exit[b] = GetDeadRegisters(f, b, LivenessAnalyzer::After);
+    }
   }
 };
 
