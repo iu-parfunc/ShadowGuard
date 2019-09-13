@@ -47,10 +47,12 @@ asmjit::CodeHolder* AssemblerHolder::GetCode() { return code_; }
 
 asmjit::x86::Gp GetRaHolder() { return asmjit::x86::r10; }
 
-std::string JitStackPush(RegisterUsageInfo info, AssemblerHolder& ah) {
-  return JitMemoryStackPush(info, ah);
+std::string JitStackPush(RegisterUsageInfo info, FuncSummary* s,
+                         AssemblerHolder& ah) {
+  return JitMemoryStackPush(info, s, ah);
 }
 
-std::string JitStackPop(RegisterUsageInfo info, AssemblerHolder& ah) {
-  return JitMemoryStackPop(info, ah);
+std::string JitStackPop(RegisterUsageInfo info, FuncSummary* s,
+                        AssemblerHolder& ah) {
+  return JitMemoryStackPop(info, s, ah);
 }

@@ -56,11 +56,12 @@ void SetupInstrumentationSpec() {
 
 class StackOpSnippet : public Dyninst::PatchAPI::Snippet {
  public:
-  explicit StackOpSnippet(RegisterUsageInfo info) : info_(info) {}
+  explicit StackOpSnippet(RegisterUsageInfo info, FuncSummary* summary)
+      : info_(info), summary_(summary) {}
 
   bool generate(Dyninst::PatchAPI::Point* pt, Dyninst::Buffer& buf) override {
     AssemblerHolder ah;
-    jit_fn_(info_, ah);
+    jit_fn_(info_, summary_, ah);
 
     size_t size = ah.GetCode()->codeSize();
     char* temp_buf = (char*)malloc(size);
@@ -76,22 +77,26 @@ class StackOpSnippet : public Dyninst::PatchAPI::Snippet {
   }
 
  protected:
-  std::string (*jit_fn_)(RegisterUsageInfo, AssemblerHolder&);
+  std::string (*jit_fn_)(RegisterUsageInfo, FuncSummary* summary,
+                         AssemblerHolder&);
 
  private:
   RegisterUsageInfo info_;
+  FuncSummary* summary_;
 };
 
 class StackPushSnippet : public StackOpSnippet {
  public:
-  explicit StackPushSnippet(RegisterUsageInfo info) : StackOpSnippet(info) {
+  explicit StackPushSnippet(RegisterUsageInfo info, FuncSummary* summary)
+      : StackOpSnippet(info, summary) {
     jit_fn_ = JitStackPush;
   }
 };
 
 class StackPopSnippet : public StackOpSnippet {
  public:
-  explicit StackPopSnippet(RegisterUsageInfo info) : StackOpSnippet(info) {
+  explicit StackPopSnippet(RegisterUsageInfo info, FuncSummary* summary)
+      : StackOpSnippet(info, summary) {
     jit_fn_ = JitStackPop;
   }
 };
@@ -112,7 +117,7 @@ void InsertInstrumentation(
     BPatch_function* function, RegisterUsageInfo* info,
     const litecfi::Parser& parser, PatchMgr::Ptr patcher,
     std::map<std::string, BPatch_function*>& instrumentation_fns,
-    bool isSystemCode) {
+    const std::map<uint64_t, FuncSummary*>& analyses, bool isSystemCode) {
 
   if (FLAGS_shadow_stack == "mem") {
     if (FLAGS_threat_model == "trust_system" && isSystemCode) {
@@ -125,13 +130,26 @@ void InsertInstrumentation(
           << Endl;
     }
 
+    FuncSummary* summary = nullptr;
+    auto it = analyses.find(static_cast<uint64_t>(
+        reinterpret_cast<uintptr_t>(function->getBaseAddr())));
+    if (it != analyses.end()) {
+      summary = (*it).second;
+    }
+
+    if (summary != nullptr && summary->safe) {
+      StdOut(Color::RED, FLAGS_vv)
+          << "      Skipping function : " << function->getName() << Endl;
+      return;
+    }
+
     RegisterUsageInfo dummy;
     Snippet::Ptr stack_push =
-        StackPushSnippet::create(new StackPushSnippet(dummy));
+        StackPushSnippet::create(new StackPushSnippet(dummy, summary));
     InsertSnippet(function, Point::FuncEntry, stack_push, patcher);
 
     Snippet::Ptr stack_pop =
-        StackPopSnippet::create(new StackPopSnippet(dummy));
+        StackPopSnippet::create(new StackPopSnippet(dummy, summary));
     InsertSnippet(function, Point::FuncExit, stack_pop, patcher);
 
     BPatch_binaryEdit* binary_edit = ((BPatch_binaryEdit*)parser.app);
@@ -154,7 +172,7 @@ void InstrumentFunction(
     BPatch_function* function, Code* lib, const litecfi::Parser& parser,
     PatchMgr::Ptr patcher,
     std::map<std::string, BPatch_function*>& instrumentation_fns,
-    const std::map<uint64_t, Function*>& skippable, bool is_init_function,
+    const std::map<uint64_t, FuncSummary*>& analyses, bool is_init_function,
     bool isSystemCode) {
 
   // REMOVE(chamibuddhika)
@@ -183,14 +201,8 @@ void InstrumentFunction(
     }
   }
 
-  if (skippable.find(static_cast<uint64_t>(reinterpret_cast<uintptr_t>(
-          function->getBaseAddr()))) == skippable.end()) {
-    InsertInstrumentation(function, info, parser, patcher, instrumentation_fns,
-                          isSystemCode);
-  } else {
-    StdOut(Color::YELLOW, FLAGS_vv)
-        << "Skipping function : " << function->getName() << Endl;
-  }
+  InsertInstrumentation(function, info, parser, patcher, instrumentation_fns,
+                        analyses, isSystemCode);
 }
 
 static void GetIFUNCs(BPatch_module* module,
@@ -210,7 +222,7 @@ void InstrumentModule(
     PatchMgr::Ptr patcher,
     std::map<std::string, BPatch_function*>& instrumentation_fns,
     const std::set<std::string>& init_fns,
-    const std::map<uint64_t, Function*>& skippable, bool isSystemCode) {
+    const std::map<uint64_t, FuncSummary*>& analyses, bool isSystemCode) {
   char funcname[2048];
   std::vector<BPatch_function*>* functions = module->getProcedures();
 
@@ -224,7 +236,7 @@ void InstrumentModule(
     std::string func(funcname);
     if (init_fns.find(func) != init_fns.end()) {
       InstrumentFunction(function, lib, parser, patcher, instrumentation_fns,
-                         skippable, true, isSystemCode);
+                         analyses, true, isSystemCode);
       continue;
     }
 
@@ -242,7 +254,7 @@ void InstrumentModule(
       continue;
 
     InstrumentFunction(function, lib, parser, patcher, instrumentation_fns,
-                       skippable, false, isSystemCode);
+                       analyses, false, isSystemCode);
   }
 }
 
@@ -279,11 +291,12 @@ void InstrumentCodeObject(
   PassManager* pm = new PassManager;
   pm->AddPass(new LeafAnalysisPass())
       ->AddPass(new StackAnalysisPass())
-      ->AddPass(new NonLeafSafeWritesPass());
-  std::set<Function*> safe = pm->Run(co);
-  std::map<uint64_t, Function*> skippable;
-  for (auto f : safe) {
-    skippable[f->addr()] = f;
+      ->AddPass(new NonLeafSafeWritesPass())
+      ->AddPass(new DeadRegisterAnalysisPass());
+  std::set<FuncSummary*> summaries = pm->Run(co);
+  std::map<uint64_t, FuncSummary*> analyses;
+  for (auto f : summaries) {
+    analyses[f->func->addr()] = f;
   }
 
   for (auto it = modules.begin(); it != modules.end(); it++) {
@@ -292,7 +305,7 @@ void InstrumentCodeObject(
     module->getName(modname, 2048);
 
     InstrumentModule(module, lib, parser, patcher, instrumentation_fns,
-                     init_fns, skippable, isSystemCode);
+                     init_fns, analyses, isSystemCode);
   }
 }
 

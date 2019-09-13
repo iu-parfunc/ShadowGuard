@@ -13,6 +13,8 @@ DEFINE_bool(vv, false, "Log verbose output.");
 
 DEFINE_bool(skip, false, "Skip codegen.");
 
+DEFINE_bool(optimize_regs, false, "Optimize register usage in jitted code.");
+
 DEFINE_bool(stats, false,
             "Instrument to collect internal stack usage "
             "statistics at runtime.");

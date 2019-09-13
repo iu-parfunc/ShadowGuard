@@ -12,6 +12,10 @@ using namespace Dyninst;
 using namespace Dyninst::ParseAPI;
 
 struct FuncSummary {
+  Function* func;
+
+  bool safe;
+
   bool writesMemory;
   bool adjustSP;
   bool containsPLTCall;
@@ -59,6 +63,7 @@ class Pass {
       FuncSummary* s = summaries[f];
       if (s == nullptr) {
         s = new FuncSummary();
+        s->func = f;
         summaries[f] = s;
       }
       RunLocalAnalysis(co, f, s);
@@ -90,25 +95,28 @@ class PassManager {
     return this;
   }
 
-  std::set<Function*> Run(CodeObject* co) {
+  std::set<FuncSummary*> Run(CodeObject* co) {
     for (Pass* p : passes_) {
       p->RunPass(co, summaries_);
     }
 
-    std::set<Function*> safe;
+    std::set<FuncSummary*> s;
     Pass* last = passes_.back();
+    long safe_count = 0;
     for (auto& it : summaries_) {
-      if (last->IsSafeFunction(it.second)) {
-        safe.insert(it.first);
+      it.second->safe = last->IsSafeFunction(it.second);
+      s.insert(it.second);
+      if (it.second->safe) {
+        safe_count++;
       }
     }
 
     StdOut(Color::BLUE) << "\nSummary: " << Endl;
-    StdOut(Color::BLUE) << "  Safe Functions Found : " << safe.size() << Endl;
+    StdOut(Color::BLUE) << "  Safe Functions Found : " << safe_count << Endl;
     StdOut(Color::BLUE) << "  Non Safe Functions : "
-                        << co->funcs().size() - safe.size() << Endl;
+                        << co->funcs().size() - safe_count << Endl;
 
-    return safe;
+    return s;
   }
 
  private:

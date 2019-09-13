@@ -67,6 +67,7 @@ cc_binary(
 	"utils.h",
     ],
     deps = [
+        "@com_github_gflags_gflags//:gflags",
         "@dyninst//:dyninst",
     ],
 )

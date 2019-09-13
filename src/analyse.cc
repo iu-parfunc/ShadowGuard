@@ -7,6 +7,7 @@
 #include "Instruction.h"
 #include "InstructionDecoder.h"
 #include "Register.h"
+#include "gflags/gflags.h"
 #include "pass_manager.h"
 #include "passes.h"
 
@@ -15,6 +16,8 @@ using namespace Dyninst;
 using namespace Dyninst::ParseAPI;
 using namespace Dyninst::InstructionAPI;
 using namespace Dyninst::DataflowAPI;
+
+DEFINE_bool(vv, false, "Log verbose output.");
 
 int main(int argc, char **argv) {
   if (argc < 2 || argc > 3) {
@@ -37,6 +40,6 @@ int main(int argc, char **argv) {
       ->AddPass(new StackAnalysisPass())
       ->AddPass(new NonLeafSafeWritesPass())
       ->AddPass(new DeadRegisterAnalysisPass());
-  std::set<Function *> safe = pm->Run(co);
+  std::set<FuncSummary *> safe = pm->Run(co);
   return 0;
 }

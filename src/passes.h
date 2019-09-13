@@ -14,6 +14,9 @@
 #include "bitArray.h"
 #include "liveness.h"
 #include "pass_manager.h"
+#include "utils.h"
+
+DECLARE_bool(vv);
 
 class LeafAnalysisPass : public Pass {
  public:
@@ -219,22 +222,25 @@ class DeadRegisterAnalysisPass : public Pass {
     regs.push_back(x86_64::r10);
     regs.push_back(x86_64::r11);
 
-    if (type == LivenessAnalyzer::Before) {
-      StdOut(Color::GREEN) << "   >> Dead registers at function entry : "
-                           << f->name() << Endl;
-    } else {
-      StdOut(Color::GREEN) << "   >> Dead registers at function exit : "
-                           << f->name() << Endl;
+    if (FLAGS_vv) {
+      if (type == LivenessAnalyzer::Before) {
+        StdOut(Color::GREEN)
+            << "   >> Dead registers at function entry : " << f->name() << Endl;
+      } else {
+        StdOut(Color::GREEN)
+            << "   >> Dead registers at function exit : " << f->name() << Endl;
+      }
+
+      StdOut(Color::GREEN) << "       ";
     }
 
-    StdOut(Color::GREEN) << "       ";
     for (auto reg : regs) {
       if (!live.test(la.getIndex(reg))) {
         dead.insert(reg.name());
-        StdOut(Color::GREEN) << reg.name() << ", ";
+        StdOut(Color::GREEN, FLAGS_vv) << reg.name() << ", ";
       }
     }
-    StdOut(Color::GREEN) << Endl;
+    StdOut(Color::GREEN, FLAGS_vv) << Endl;
 
     return dead;
   }
