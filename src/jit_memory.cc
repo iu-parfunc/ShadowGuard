@@ -101,6 +101,7 @@ std::string JitMemoryStackPop(RegisterUsageInfo& info, FuncSummary* s,
                               AssemblerHolder& ah) {
   Assembler* a = ah.GetAssembler();
   asmjit::Label error = a->newLabel();
+  asmjit::Label success = a->newLabel();
 
   TempRegisters t = SaveTempRegisters(a, s->dead_at_entry);
 
@@ -121,10 +122,10 @@ std::string JitMemoryStackPop(RegisterUsageInfo& info, FuncSummary* s,
   a->jnz(error);
 
   RestoreTempRegisters(a, t);
-
-  a->ret();
+  a->jmp(success);
   a->bind(error);
   a->int3();
+  a->bind(success);
 
   return "";
 }
