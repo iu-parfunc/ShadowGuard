@@ -28,6 +28,7 @@ std::string MemRegionInit() {
   mem_init_fn += "  unsigned long addr = (unsigned long)malloc(1024);\n";
   mem_init_fn += "  if (syscall(SYS_arch_prctl, ARCH_SET_GS, addr) < 0)\n";
   mem_init_fn += "    abort();\n";
+  mem_init_fn += "  *((unsigned long*)addr) = 0;\n";
   mem_init_fn += "  addr += 8;\n";
   mem_init_fn += "  asm volatile(\"mov %0, %%gs:0;\" : : \"a\"(addr) :);\n";
   mem_init_fn += "}\n";
