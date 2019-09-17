@@ -101,6 +101,18 @@ class StackPopSnippet : public StackOpSnippet {
   }
 };
 
+bool IsNonreturningCall(Point* point) {
+    PatchBlock* exitBlock = point->block();
+    assert(exitBlock);
+    bool call = false;
+    bool callFT = false;
+    for (auto e : exitBlock->targets()) {
+        if (e->type() == CALL) call = true;
+        if (e->type() == CALL_FT) callFT = true;
+    }
+    return (call && !callFT);
+}
+
 void InsertSnippet(BPatch_function* function, Point::Type location,
                    Snippet::Ptr snippet, PatchMgr::Ptr patcher) {
   std::vector<Point*> points;
@@ -109,6 +121,10 @@ void InsertSnippet(BPatch_function* function, Point::Type location,
 
   for (auto it = points.begin(); it != points.end(); ++it) {
     Point* point = *it;
+    // Do not instrument function exits that are calls to non-returning functions
+    // because the stack frame may still not be tear down, causing the instrumentation
+    // to get wrong return address
+    if (location == Point::FuncExit && IsNonreturningCall(point)) continue;
     point->pushBack(snippet);
   }
 }

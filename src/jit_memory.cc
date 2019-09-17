@@ -101,7 +101,7 @@ std::string JitMemoryStackPop(RegisterUsageInfo& info, FuncSummary* s,
                               AssemblerHolder& ah) {
   Assembler* a = ah.GetAssembler();
   asmjit::Label error = a->newLabel();
-  asmjit::Label not_match = a->newLabel();
+  asmjit::Label success = a->newLabel();
   asmjit::Label loop = a->newLabel();
 
   TempRegisters t = SaveTempRegisters(a, s->dead_at_entry);
@@ -119,14 +119,9 @@ std::string JitMemoryStackPop(RegisterUsageInfo& info, FuncSummary* s,
   a->bind(loop);
   a->mov(ra_holder, ptr(s_ptr, -8));
   a->sub(shadow_ptr, asmjit::imm(8));
-
   a->cmp(ra_holder, ptr(rsp, 16));
-  a->jne(not_match);
+  a->je(success);
 
-  RestoreTempRegisters(a, t);
-
-  a->ret();
-  a->bind(not_match);
   a->mov(s_ptr, shadow_ptr);
   a->cmp(dword_ptr(s_ptr), 0);
   a->je(error);
@@ -134,6 +129,9 @@ std::string JitMemoryStackPop(RegisterUsageInfo& info, FuncSummary* s,
 
   a->bind(error);
   a->int3();
+
+  a->bind(success);
+  RestoreTempRegisters(a, t);
 
   return "";
 }
