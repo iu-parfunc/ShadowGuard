@@ -122,7 +122,7 @@ std::string JitMemoryStackPop(RegisterUsageInfo& info, FuncSummary* s,
   a->cmp(ra_holder, ptr(rsp, 16));
   a->je(success);
 
-  a->mov(s_ptr, shadow_ptr);
+  a->sub(s_ptr, asmjit::imm(8));
   a->cmp(dword_ptr(s_ptr), 0);
   a->je(error);
   a->jmp(loop);

@@ -23,11 +23,26 @@ std::string MemRegionInit() {
   includes += "#include <sys/types.h>\n";
   includes += "#include <unistd.h>\n";
 
+  // Sets up the thread shadow stack.
+  //
+  // Format of the stack is
+  //
+  //           |   .   |
+  //           |   .   |
+  //           ---------
+  //           |  RA1  | First stack entry
+  //           ---------
+  //           |  0x0  | Guard Word (To catch underflows)
+  //           ---------
+  // gs:0x0 -> |  SP   | Stack Pointer
+  //           ---------
+
   std::string mem_init_fn = "";
   mem_init_fn += "void litecfi_init_mem_region() {\n";
   mem_init_fn += "  unsigned long addr = (unsigned long)malloc(1024);\n";
   mem_init_fn += "  if (syscall(SYS_arch_prctl, ARCH_SET_GS, addr) < 0)\n";
   mem_init_fn += "    abort();\n";
+  mem_init_fn += "  addr += 8;\n";
   mem_init_fn += "  *((unsigned long*)addr) = 0;\n";
   mem_init_fn += "  addr += 8;\n";
   mem_init_fn += "  asm volatile(\"mov %0, %%gs:0;\" : : \"a\"(addr) :);\n";
