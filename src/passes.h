@@ -25,7 +25,8 @@ class LeafAnalysisPass : public Pass {
              "Skips leaf functions that does not write memory or "
              "adjust SP.") {}
 
-  void RunLocalAnalysis(CodeObject* co, Function* f, FuncSummary* s) override {
+  void RunLocalAnalysis(CodeObject* co, Function* f, FuncSummary* s,
+                        PassResult* result) override {
     std::map<Dyninst::Offset, Dyninst::InstructionAPI::Instruction> insns;
 
     for (auto b : f->blocks()) {
@@ -33,7 +34,7 @@ class LeafAnalysisPass : public Pass {
 
       for (auto const& ins : insns) {
         // Call instructions always write to memory
-        // But they create new frames, so the writes are ignored
+        // But they create new frames, so the writes are ignored.
         bool isCall =
             (ins.second.getCategory() == Dyninst::InstructionAPI::c_CallInsn);
         if (isCall)
@@ -88,7 +89,8 @@ class StackAnalysisPass : public Pass {
              "Skips leaf functions that do not write unknown memory or "
              "adjust SP.") {}
 
-  void RunLocalAnalysis(CodeObject* co, Function* f, FuncSummary* s) override {
+  void RunLocalAnalysis(CodeObject* co, Function* f, FuncSummary* s,
+                        PassResult* result) override {
     s->writesMemory = false;
     // If a function adjust SP in a weird way
     // so that Dyninst's stack analyasis cannot determine where
@@ -106,17 +108,17 @@ class StackAnalysisPass : public Pass {
 
       for (auto const& ins : insns) {
         if (ins.second.writesMemory()) {
-          // Assignment is essentially SSA
-          // So, an instruction may have multiple SSAs
+          // Assignment is essentially SSA.
+          // So, an instruction may have multiple SSAs.
           std::vector<Assignment::Ptr> assigns;
           converter.convert(ins.second, ins.first, f, b, assigns);
           for (auto a : assigns) {
-            AbsRegion& out = a->out();  // The lhs
+            AbsRegion& out = a->out();  // The lhs.
             Absloc loc = out.absloc();
             switch (loc.type()) {
             case Absloc::Stack:
               // If the stack location is in the previous frame,
-              // it is a dangerous write
+              // it is a dangerous write.
               if (loc.off() >= 0)
                 s->writesMemory = true;
               break;
@@ -129,7 +131,7 @@ class StackAnalysisPass : public Pass {
               // That's why it will have a statically determined address.
               break;
             case Absloc::Register:
-              // Not a memory write
+              // Not a memory write.
               break;
             }
           }
@@ -146,13 +148,13 @@ class NonLeafSafeWritesPass : public Pass {
              "Skips functions that itself and its callee do not write "
              "unknown memory or adjust SP.") {}
 
-  void
-  RunGlobalAnalysis(CodeObject* co,
-                    std::map<Function*, FuncSummary*>& summaries) override {
+  void RunGlobalAnalysis(CodeObject* co,
+                         std::map<Function*, FuncSummary*>& summaries,
+                         PassResult* result) override {
     for (auto f : co->funcs()) {
       FuncSummary* s = summaries[f];
       // Make conservative assumptions about PLT callees
-      // and indirect callees
+      // and indirect callees.
       s->writesMemory =
           s->writesMemory || s->containsPLTCall || s->containsUnknownCF;
       s->adjustSP = s->adjustSP || s->containsPLTCall || s->containsUnknownCF;
@@ -198,7 +200,7 @@ class DeadRegisterAnalysisPass : public Pass {
   std::set<std::string> GetDeadRegisters(Function* f, Block* b,
                                          LivenessAnalyzer::Type type) {
     // Construct a liveness analyzer based on the address width of the mutatee.
-    // 32−bit code and 64−bit code have different ABI.
+    // 32bit code and 64bit code have different ABI.
     LivenessAnalyzer la(f->obj()->cs()->getAddressWidth());
     // Construct a liveness query location.
     Location loc(f, b);
@@ -245,7 +247,8 @@ class DeadRegisterAnalysisPass : public Pass {
     return dead;
   }
 
-  void RunLocalAnalysis(CodeObject* co, Function* f, FuncSummary* s) override {
+  void RunLocalAnalysis(CodeObject* co, Function* f, FuncSummary* s,
+                        PassResult* result) override {
     s->dead_at_entry =
         GetDeadRegisters(f, f->entry(), LivenessAnalyzer::Before);
 
