@@ -20,7 +20,12 @@ struct FuncSummary {
   bool adjustSP;
   bool containsPLTCall;
   bool containsUnknownCF;
+  // Callees of this function.
   std::set<Function*> callees;
+  // Callers of this function.
+  std::set<Function*> callers;
+  // If this function is at a loop head.
+  bool loop_head;
   // Set of registers dead at function entry.
   std::set<std::string> dead_at_entry;
   // Set of registers dead at each of the function exits.
@@ -79,13 +84,7 @@ class Pass {
     result.pass_results.push_back(pr);
 
     for (auto f : co->funcs()) {
-      FuncSummary* s = summaries[f];
-      if (s == nullptr) {
-        s = new FuncSummary();
-        s->func = f;
-        summaries[f] = s;
-      }
-      RunLocalAnalysis(co, f, s, pr);
+      RunLocalAnalysis(co, f, summaries[f], pr);
     }
 
     RunGlobalAnalysis(co, summaries, pr);
@@ -117,6 +116,15 @@ class PassManager {
   }
 
   std::set<FuncSummary*> Run(CodeObject* co) {
+    for (auto f : co->funcs()) {
+      FuncSummary* s = summaries_[f];
+      if (s == nullptr) {
+        s = new FuncSummary();
+        s->func = f;
+        summaries_[f] = s;
+      }
+    }
+
     for (Pass* p : passes_) {
       p->RunPass(co, summaries_, result_);
     }

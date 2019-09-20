@@ -308,7 +308,8 @@ void InstrumentCodeObject(
   co->parse();
 
   PassManager* pm = new PassManager;
-  pm->AddPass(new LeafAnalysisPass())
+  pm->AddPass(new CallGraphPass())
+      ->AddPass(new LeafAnalysisPass())
       ->AddPass(new StackAnalysisPass())
       ->AddPass(new NonLeafSafeWritesPass())
       ->AddPass(new DeadRegisterAnalysisPass());

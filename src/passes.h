@@ -18,6 +18,69 @@
 
 DECLARE_bool(vv);
 
+class CallGraphPass : public Pass {
+ public:
+  CallGraphPass()
+      : Pass("Call Graph Generation", "Generates the application call graph.") {
+  }
+
+  void RunGlobalAnalysis(CodeObject* co,
+                         std::map<Function*, FuncSummary*>& summaries,
+                         PassResult* result) override {
+    std::set<Function*> visited;
+    for (auto f : co->funcs()) {
+      auto it = visited.find(f);
+      if (it == visited.end()) {
+        VisitFunction(co, summaries[f], summaries, visited);
+      }
+    }
+  }
+
+ private:
+  void UpdateCallees(CodeObject* co, Function* f, FuncSummary* s) {
+    for (auto b : f->blocks()) {
+      for (auto e : b->targets()) {
+        if (e->sinkEdge() && e->type() != RET) {
+          s->containsUnknownCF = true;
+          continue;
+        }
+        if (e->type() != CALL)
+          continue;
+        if (co->cs()->linkage().find(e->trg()->start()) !=
+            co->cs()->linkage().end()) {
+          s->containsPLTCall = true;
+          continue;
+        }
+        std::vector<Function*> funcs;
+        e->trg()->getFuncs(funcs);
+        Function* callee = NULL;
+        for (auto call_trg : funcs) {
+          if (call_trg->entry() == e->trg()) {
+            callee = call_trg;
+            break;
+          }
+        }
+        if (callee)
+          s->callees.insert(callee);
+      }
+    }
+  }
+
+  void VisitFunction(CodeObject* co, FuncSummary* s,
+                     std::map<Function*, FuncSummary*>& summaries,
+                     std::set<Function*>& visited) {
+    visited.insert(s->func);
+    UpdateCallees(co, s->func, s);
+    for (auto f : s->callees) {
+      summaries[f]->callers.insert(s->func);
+      auto it = visited.find(f);
+      if (it == visited.end()) {
+        VisitFunction(co, summaries[f], summaries, visited);
+      }
+    }
+  }
+};
+
 class LeafAnalysisPass : public Pass {
  public:
   LeafAnalysisPass()
@@ -52,31 +115,6 @@ class LeafAnalysisPass : public Pass {
           if (written_register->getID().isStackPointer())
             s->adjustSP = true;
         }
-      }
-
-      for (auto e : b->targets()) {
-        if (e->sinkEdge() && e->type() != RET) {
-          s->containsUnknownCF = true;
-          continue;
-        }
-        if (e->type() != CALL)
-          continue;
-        if (co->cs()->linkage().find(e->trg()->start()) !=
-            co->cs()->linkage().end()) {
-          s->containsPLTCall = true;
-          continue;
-        }
-        std::vector<Function*> funcs;
-        e->trg()->getFuncs(funcs);
-        Function* callee = NULL;
-        for (auto call_trg : funcs) {
-          if (call_trg->entry() == e->trg()) {
-            callee = call_trg;
-            break;
-          }
-        }
-        if (callee)
-          s->callees.insert(callee);
       }
     }
   }
