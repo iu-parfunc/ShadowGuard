@@ -71,3 +71,18 @@ cc_binary(
         "@dyninst//:dyninst",
     ],
 )
+
+cc_library(
+    name = "analysis",
+    srcs = [
+        "passes.h",
+        "pass_manager.h",
+	"utils.cc",
+	"utils.h",
+    ],
+    deps = [
+        "@dyninst//:dyninst",
+        "@com_github_gflags_gflags//:gflags",
+    ],
+    visibility = ["//visibility:public"],
+)

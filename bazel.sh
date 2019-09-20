@@ -78,6 +78,11 @@ build () {
   fi
 }
 
+run_tests() {
+  cd tests; bazel clean; bazel test //tests:*
+  cd ..;./bazel-bin/tests/analysis_test
+}
+
 clean () {
   bazel clean
 }
@@ -100,6 +105,10 @@ case $key in
     ;;
     build)
     ACTION="build"
+    shift # past value
+    ;;
+    test)
+    ACTION="test"
     shift # past value
     ;;
     install)
@@ -141,6 +150,8 @@ if ! [ -z "$ACTION" ];then
     deps
   elif [ "$ACTION" == "build" ]; then
     build $MODE
+  elif [ "$ACTION" == "test" ]; then
+    run_tests
   elif [ "$ACTION" == "install" ]; then
     install $PREFIX
   elif [ "$ACTION" == "clean" ]; then
