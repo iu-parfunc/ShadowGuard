@@ -39,13 +39,13 @@ PassManager *GetPassManager() {
 }
 
 TEST(AnalysisTest, TestsSimpleLeaf) {
-  char binary[] = "bazel-bin/tests/simple_leaf";
+  char binary[] = "bazel-bin/tests/safe_leaf";
 
   PassManager *pm = GetPassManager();
   std::set<FuncSummary *> summaries = pm->Run(GetCodeObject(binary));
 
   for (auto s : summaries) {
-    if (MatchName(s->func->name(), "leaf_fn")) {
+    if (MatchName(s->func->name(), "safe_leaf_fn")) {
       EXPECT_EQ(s->safe, true);
       return;
     }
@@ -55,13 +55,13 @@ TEST(AnalysisTest, TestsSimpleLeaf) {
 }
 
 TEST(AnalysisTest, TestsCallsNonLeaf) {
-  char binary[] = "bazel-bin/tests/calls_non_leaf";
+  char binary[] = "bazel-bin/tests/safe_non_leaf";
 
   PassManager *pm = GetPassManager();
   std::set<FuncSummary *> summaries = pm->Run(GetCodeObject(binary));
 
   for (auto s : summaries) {
-    if (MatchName(s->func->name(), "calls_non_leaf_fn")) {
+    if (MatchName(s->func->name(), "safe_non_leaf_fn")) {
       EXPECT_EQ(s->safe, true);
       return;
     }

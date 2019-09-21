@@ -1,11 +1,11 @@
 cc_binary(
-    name = "simple_leaf",
-    srcs = [ "simple_leaf.cc"],
+    name = "safe_leaf",
+    srcs = [ "safe_leaf.cc"],
 )
 
 cc_binary(
-    name = "calls_non_leaf",
-    srcs = [ "calls_non_leaf.cc"],
+    name = "safe_non_leaf",
+    srcs = [ "safe_non_leaf.cc"],
 )
 
 cc_binary(
@@ -15,7 +15,8 @@ cc_binary(
     ],
     deps = [
 	"//src:analysis",
-        "//tests:simple_leaf",
+        "//tests:safe_leaf",
+        "//tests:safe_non_leaf",
         "@com_github_gflags_gflags//:gflags",
         "@gtest//:gtest_main",
        	"@dyninst//:dyninst",
