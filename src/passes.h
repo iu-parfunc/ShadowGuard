@@ -116,6 +116,11 @@ class LeafAnalysisPass : public Pass {
       }
     }
   }
+
+  bool IsSafeFunction(FuncSummary* s) override {
+    return !s->writesMemory && !s->adjustSP && !s->containsPLTCall &&
+           !s->containsUnknownCF && s->callees.empty();
+  }
 };
 
 class StackAnalysisPass : public Pass {
@@ -175,6 +180,11 @@ class StackAnalysisPass : public Pass {
       }
     }
   }
+
+  bool IsSafeFunction(FuncSummary* s) override {
+    return !s->writesMemory && !s->adjustSP && !s->containsPLTCall &&
+           !s->containsUnknownCF && s->callees.empty();
+  }
 };
 
 class NonLeafSafeWritesPass : public Pass {
@@ -220,10 +230,6 @@ class NonLeafSafeWritesPass : public Pass {
         }
       }
     }
-  }
-
-  bool IsSafeFunction(FuncSummary* s) {
-    return !s->writesMemory && !s->adjustSP;
   }
 };
 

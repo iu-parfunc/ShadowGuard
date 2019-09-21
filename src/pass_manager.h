@@ -72,7 +72,7 @@ class Pass {
 
   virtual bool IsSafeFunction(FuncSummary* s) {
     return !s->writesMemory && !s->adjustSP && !s->containsPLTCall &&
-           !s->containsUnknownCF && s->callees.empty();
+           !s->containsUnknownCF;
   }
 
   void RunPass(CodeObject* co, std::map<Function*, FuncSummary*>& summaries,
