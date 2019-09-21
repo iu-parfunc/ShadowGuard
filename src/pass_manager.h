@@ -6,10 +6,13 @@
 #include <string>
 
 #include "CodeObject.h"
+#include "gflags/gflags.h"
 #include "utils.h"
 
 using namespace Dyninst;
 using namespace Dyninst::ParseAPI;
+
+DECLARE_bool(vv);
 
 struct FuncSummary {
   Function* func;
@@ -74,9 +77,11 @@ class Pass {
 
   void RunPass(CodeObject* co, std::map<Function*, FuncSummary*>& summaries,
                AnalysisResult& result) {
-    StdOut(Color::YELLOW) << "------------------------------------" << Endl;
-    StdOut(Color::YELLOW) << "Running pass > " << pass_name_ << Endl;
-    StdOut(Color::YELLOW) << "  Description : " << description_ << Endl;
+    if (FLAGS_vv) {
+      StdOut(Color::YELLOW) << "------------------------------------" << Endl;
+      StdOut(Color::YELLOW) << "Running pass > " << pass_name_ << Endl;
+      StdOut(Color::YELLOW) << "  Description : " << description_ << Endl;
+    }
 
     PassResult* pr = new PassResult;
     pr->name = pass_name_;
@@ -99,8 +104,8 @@ class Pass {
 
     pr->data["Safe Functions"] = count;
 
-    StdOut(Color::YELLOW) << "  Safe Functions Found (cumulative) : " << count
-                          << Endl;
+    StdOut(Color::YELLOW, FLAGS_vv)
+        << "  Safe Functions Found (cumulative) : " << count << Endl;
   }
 
  protected:
@@ -140,10 +145,12 @@ class PassManager {
       }
     }
 
-    StdOut(Color::BLUE) << "\nSummary: " << Endl;
-    StdOut(Color::BLUE) << "  Safe Functions Found : " << safe_count << Endl;
-    StdOut(Color::BLUE) << "  Non Safe Functions : "
-                        << co->funcs().size() - safe_count << Endl;
+    if (FLAGS_vv) {
+      StdOut(Color::BLUE) << "\nSummary: " << Endl;
+      StdOut(Color::BLUE) << "  Safe Functions Found : " << safe_count << Endl;
+      StdOut(Color::BLUE) << "  Non Safe Functions : "
+                          << co->funcs().size() - safe_count << Endl;
+    }
     return s;
   }
 

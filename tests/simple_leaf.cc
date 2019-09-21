@@ -1,9 +1,10 @@
 
 #include <iostream>
 
-int leaf_fn() { return 42; }
+int leaf_fn(int* x) { return *x + 42; }
 
 int main() {
-  std::cout << leaf_fn();
+  int y = 53;
+  std::cout << leaf_fn(&y);
   return 0;
 }
