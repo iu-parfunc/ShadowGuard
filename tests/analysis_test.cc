@@ -15,17 +15,19 @@
 #include "src/passes.h"
 #include "gtest/gtest.h"
 
+using std::string;
+
 DEFINE_bool(vv, false, "Log verbose output.");
 
-CodeObject *GetCodeObject(char *binary) {
-  SymtabCodeSource *sts = new SymtabCodeSource(binary);
+CodeObject *GetCodeObject(const char *binary) {
+  SymtabCodeSource *sts = new SymtabCodeSource(const_cast<char *>(binary));
   CodeObject *co = new CodeObject(sts);
   co->parse();
   return co;
 }
 
-bool MatchName(std::string in_str, std::string matched) {
-  return in_str.find(matched) != std::string::npos;
+bool MatchName(string in_str, string matched) {
+  return in_str.find(matched) != string::npos;
 }
 
 PassManager *GetPassManager() {
@@ -38,34 +40,74 @@ PassManager *GetPassManager() {
   return pm;
 }
 
-TEST(AnalysisTest, TestsSimpleLeaf) {
-  char binary[] = "bazel-bin/tests/safe_leaf";
-
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wreturn-type"
+bool GetFunctionSafety(string binary, string function) {
   PassManager *pm = GetPassManager();
-  std::set<FuncSummary *> summaries = pm->Run(GetCodeObject(binary));
+  std::set<FuncSummary *> summaries = pm->Run(GetCodeObject(binary.c_str()));
 
   for (auto s : summaries) {
-    if (MatchName(s->func->name(), "safe_leaf_fn")) {
-      EXPECT_EQ(s->safe, true);
-      return;
+    if (MatchName(s->func->name(), function)) {
+      return s->safe;
     }
   }
 
-  ASSERT_TRUE(false);
+  EXPECT_TRUE(false);
+}
+#pragma GCC diagnostic pop
+
+TEST(AnalysisTest, TestsSafeLeaf) {
+  string binary = "bazel-bin/tests/safe_leaf";
+  string function = "safe_leaf_fn";
+
+  EXPECT_EQ(GetFunctionSafety(binary, function), true);
 }
 
-TEST(AnalysisTest, TestsCallsNonLeaf) {
-  char binary[] = "bazel-bin/tests/safe_non_leaf";
+TEST(AnalysisTest, TestsSafeNonLeaf) {
+  string binary = "bazel-bin/tests/safe_non_leaf";
+  string function = "safe_non_leaf_fn";
 
-  PassManager *pm = GetPassManager();
-  std::set<FuncSummary *> summaries = pm->Run(GetCodeObject(binary));
+  EXPECT_EQ(GetFunctionSafety(binary, function), true);
+}
 
-  for (auto s : summaries) {
-    if (MatchName(s->func->name(), "safe_non_leaf_fn")) {
-      EXPECT_EQ(s->safe, true);
-      return;
-    }
-  }
+TEST(AnalysisTest, TestsUnsafeLeaf) {
+  string binary = "bazel-bin/tests/unsafe_leaf";
+  string function = "unsafe_leaf_fn";
 
-  ASSERT_TRUE(false);
+  EXPECT_EQ(GetFunctionSafety(binary, function), false);
+}
+
+TEST(AnalysisTest, TestsUnsafeNonLeaf) {
+  string binary = "bazel-bin/tests/unsafe_non_leaf";
+  string function = "unsafe_non_leaf_fn";
+
+  EXPECT_EQ(GetFunctionSafety(binary, function), false);
+}
+
+TEST(AnalysisTest, TestsIndirectCall) {
+  string binary = "bazel-bin/tests/indirect_call";
+  string function = "indirect_call";
+
+  EXPECT_EQ(GetFunctionSafety(binary, function), false);
+}
+
+TEST(AnalysisTest, TestsIndirectCallTree) {
+  string binary = "bazel-bin/tests/indirect_call_tree";
+  string function = "indirect_call_tree";
+
+  EXPECT_EQ(GetFunctionSafety(binary, function), false);
+}
+
+TEST(AnalysisTest, TestsPltCall) {
+  string binary = "bazel-bin/tests/plt_call";
+  string function = "plt_call";
+
+  EXPECT_EQ(GetFunctionSafety(binary, function), false);
+}
+
+TEST(AnalysisTest, TestsPltCallTree) {
+  string binary = "bazel-bin/tests/plt_call_tree";
+  string function = "plt_call_tree";
+
+  EXPECT_EQ(GetFunctionSafety(binary, function), false);
 }
