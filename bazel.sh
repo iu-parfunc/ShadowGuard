@@ -79,7 +79,7 @@ build () {
 }
 
 run_tests() {
-  cd tests; bazel clean; bazel test //tests:*
+  cd tests; bazel clean; bazel test -c dbg //tests:*
   cd ..;./bazel-bin/tests/analysis_test
 }
 

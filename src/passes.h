@@ -164,7 +164,7 @@ class StackAnalysisPass : public Pass {
                 s->writesMemory = true;
               break;
             case Absloc::Unknown:
-              // Unknown memory writes
+              // Unknown memory writes.
               s->writesMemory = true;
               break;
             case Absloc::Heap:
@@ -222,7 +222,7 @@ class NonLeafSafeWritesPass : public Pass {
           new_s.adjustSP |= cs->adjustSP;
         }
 
-        if (new_s.adjustSP != s->adjustSP &&
+        if (new_s.adjustSP != s->adjustSP ||
             new_s.writesMemory != s->writesMemory) {
           s->adjustSP = new_s.adjustSP;
           s->writesMemory = new_s.writesMemory;
