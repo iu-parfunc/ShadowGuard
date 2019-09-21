@@ -54,7 +54,7 @@ TEST(AnalysisTest, TestsSimpleLeaf) {
   ASSERT_TRUE(false);
 }
 
-TEST(AnalysisTest, TestsCallsLeaf) {
+TEST(AnalysisTest, TestsCallsNonLeaf) {
   char binary[] = "bazel-bin/tests/calls_non_leaf";
 
   PassManager *pm = GetPassManager();
