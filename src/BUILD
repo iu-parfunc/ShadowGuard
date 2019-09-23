@@ -44,16 +44,6 @@ cc_binary(
 )
 
 cc_binary(
-    name = "stack_writes",
-    srcs = [
-        "stack_writes.cc",
-    ],
-    deps = [
-       	"@dyninst//:dyninst",
-    ],
-)
-
-cc_binary(
     name = "analyse",
     srcs = [
         "analyse.cc",
