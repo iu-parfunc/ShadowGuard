@@ -43,21 +43,6 @@ cc_binary(
     ],
 )
 
-cc_binary(
-    name = "analyse",
-    srcs = [
-        "analyse.cc",
-        "passes.h",
-        "pass_manager.h",
-	"utils.cc",
-	"utils.h",
-    ],
-    deps = [
-        "@com_github_gflags_gflags//:gflags",
-        "@dyninst//:dyninst",
-    ],
-)
-
 cc_library(
     name = "analysis",
     srcs = [
