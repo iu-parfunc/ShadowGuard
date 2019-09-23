@@ -2,8 +2,6 @@
 cc_binary(
     name = "cfi",
     srcs = [
-        "cache.cc",
-	"cache.h",
         "cfi.cc",
 	"codegen.cc",
 	"codegen.h",
@@ -17,8 +15,6 @@ cc_binary(
 	"parse.h",
         "passes.h",
         "pass_manager.h",
-        "register_usage.cc",
-        "register_usage.h",
 	"utils.cc",
 	"utils.h",
     ],

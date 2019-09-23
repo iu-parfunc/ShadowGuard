@@ -6,7 +6,6 @@
 #include "glog/logging.h"
 #include "instrument.h"
 #include "parse.h"
-#include "register_usage.h"
 #include "utils.h"
 
 DEFINE_bool(vv, false, "Log verbose output.");
