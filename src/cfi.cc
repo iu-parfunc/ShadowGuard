@@ -103,10 +103,7 @@ int main(int argc, char* argv[]) {
     parser = InitParser(binary, /* libs */ true, /* sanitize */ false);
   }
 
-  std::map<std::string, Code*>* cache =
-      AnalyseRegisterUsage(binary, const_cast<litecfi::Parser&>(*parser));
-
-  Instrument(binary, cache, const_cast<litecfi::Parser&>(*parser));
+  Instrument(binary, const_cast<litecfi::Parser&>(*parser));
 
   return 0;
 }

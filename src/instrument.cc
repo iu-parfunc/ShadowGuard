@@ -56,12 +56,11 @@ void SetupInstrumentationSpec() {
 
 class StackOpSnippet : public Dyninst::PatchAPI::Snippet {
  public:
-  explicit StackOpSnippet(RegisterUsageInfo info, FuncSummary* summary)
-      : info_(info), summary_(summary) {}
+  explicit StackOpSnippet(FuncSummary* summary) : summary_(summary) {}
 
   bool generate(Dyninst::PatchAPI::Point* pt, Dyninst::Buffer& buf) override {
     AssemblerHolder ah;
-    jit_fn_(info_, summary_, ah);
+    jit_fn_(summary_, ah);
 
     size_t size = ah.GetCode()->codeSize();
     char* temp_buf = (char*)malloc(size);
@@ -77,26 +76,22 @@ class StackOpSnippet : public Dyninst::PatchAPI::Snippet {
   }
 
  protected:
-  std::string (*jit_fn_)(RegisterUsageInfo, FuncSummary* summary,
-                         AssemblerHolder&);
+  std::string (*jit_fn_)(FuncSummary* summary, AssemblerHolder&);
 
  private:
-  RegisterUsageInfo info_;
   FuncSummary* summary_;
 };
 
 class StackPushSnippet : public StackOpSnippet {
  public:
-  explicit StackPushSnippet(RegisterUsageInfo info, FuncSummary* summary)
-      : StackOpSnippet(info, summary) {
+  explicit StackPushSnippet(FuncSummary* summary) : StackOpSnippet(summary) {
     jit_fn_ = JitStackPush;
   }
 };
 
 class StackPopSnippet : public StackOpSnippet {
  public:
-  explicit StackPopSnippet(RegisterUsageInfo info, FuncSummary* summary)
-      : StackOpSnippet(info, summary) {
+  explicit StackPopSnippet(FuncSummary* summary) : StackOpSnippet(summary) {
     jit_fn_ = JitStackPop;
   }
 };
@@ -133,8 +128,8 @@ void InsertSnippet(BPatch_function* function, Point::Type location,
 }
 
 void InsertInstrumentation(
-    BPatch_function* function, RegisterUsageInfo* info,
-    const litecfi::Parser& parser, PatchMgr::Ptr patcher,
+    BPatch_function* function, const litecfi::Parser& parser,
+    PatchMgr::Ptr patcher,
     std::map<std::string, BPatch_function*>& instrumentation_fns,
     const std::map<uint64_t, FuncSummary*>& analyses, bool isSystemCode) {
 
@@ -162,13 +157,12 @@ void InsertInstrumentation(
       return;
     }
 
-    RegisterUsageInfo dummy;
     Snippet::Ptr stack_push =
-        StackPushSnippet::create(new StackPushSnippet(dummy, summary));
+        StackPushSnippet::create(new StackPushSnippet(summary));
     InsertSnippet(function, Point::FuncEntry, stack_push, patcher);
 
     Snippet::Ptr stack_pop =
-        StackPopSnippet::create(new StackPopSnippet(dummy, summary));
+        StackPopSnippet::create(new StackPopSnippet(summary));
     InsertSnippet(function, Point::FuncExit, stack_pop, patcher);
 
     BPatch_binaryEdit* binary_edit = ((BPatch_binaryEdit*)parser.app);
@@ -188,19 +182,11 @@ void InsertInstrumentation(
 }
 
 void InstrumentFunction(
-    BPatch_function* function, Code* lib, const litecfi::Parser& parser,
+    BPatch_function* function, const litecfi::Parser& parser,
     PatchMgr::Ptr patcher,
     std::map<std::string, BPatch_function*>& instrumentation_fns,
     const std::map<uint64_t, FuncSummary*>& analyses, bool is_init_function,
     bool isSystemCode) {
-
-  // REMOVE(chamibuddhika)
-  // auto it = lib->register_usage.find(fn_name);
-  // DCHECK(it != lib->register_usage.end()) << "Could not find analysis "
-  // RegisterUsageInfo* info = it->second;
-
-  RegisterUsageInfo* info = nullptr;
-
   // Instrument for initializing the stack in the init function
   if (is_init_function) {
     if (FLAGS_shadow_stack == "mem") {
@@ -220,7 +206,7 @@ void InstrumentFunction(
     }
   }
 
-  InsertInstrumentation(function, info, parser, patcher, instrumentation_fns,
+  InsertInstrumentation(function, parser, patcher, instrumentation_fns,
                         analyses, isSystemCode);
 }
 
@@ -237,8 +223,7 @@ static void GetIFUNCs(BPatch_module* module,
 }
 
 void InstrumentModule(
-    BPatch_module* module, Code* const lib, const litecfi::Parser& parser,
-    PatchMgr::Ptr patcher,
+    BPatch_module* module, const litecfi::Parser& parser, PatchMgr::Ptr patcher,
     std::map<std::string, BPatch_function*>& instrumentation_fns,
     const std::set<std::string>& init_fns,
     const std::map<uint64_t, FuncSummary*>& analyses, bool isSystemCode) {
@@ -254,7 +239,7 @@ void InstrumentModule(
 
     std::string func(funcname);
     if (init_fns.find(func) != init_fns.end()) {
-      InstrumentFunction(function, lib, parser, patcher, instrumentation_fns,
+      InstrumentFunction(function, parser, patcher, instrumentation_fns,
                          analyses, true, isSystemCode);
       continue;
     }
@@ -272,14 +257,13 @@ void InstrumentModule(
     if (symR->getRegionName() != ".text")
       continue;
 
-    InstrumentFunction(function, lib, parser, patcher, instrumentation_fns,
-                       analyses, false, isSystemCode);
+    InstrumentFunction(function, parser, patcher, instrumentation_fns, analyses,
+                       false, isSystemCode);
   }
 }
 
 void InstrumentCodeObject(
-    BPatch_object* object, std::map<std::string, Code*>* const cache,
-    const litecfi::Parser& parser, PatchMgr::Ptr patcher,
+    BPatch_object* object, const litecfi::Parser& parser, PatchMgr::Ptr patcher,
     std::map<std::string, BPatch_function*>& instrumentation_fns,
     const std::set<std::string>& init_fns) {
   if (!IsSharedLibrary(object)) {
@@ -289,15 +273,6 @@ void InstrumentCodeObject(
     StdOut(Color::GREEN, FLAGS_vv)
         << "\n    Instrumenting " << object->pathName() << Endl;
   }
-
-  Code* lib = nullptr;
-  auto it = cache->find(object->pathName());
-  if (it != cache->end()) {
-    lib = it->second;
-  }
-
-  // REMOVE(chamibuddhika)
-  // DCHECK(lib) << "Couldn't find code object for : " << object->pathName(); //
 
   bool isSystemCode = IsSystemCode(object);
   std::vector<BPatch_module*> modules;
@@ -324,8 +299,8 @@ void InstrumentCodeObject(
     BPatch_module* module = *it;
     module->getName(modname, 2048);
 
-    InstrumentModule(module, lib, parser, patcher, instrumentation_fns,
-                     init_fns, analyses, isSystemCode);
+    InstrumentModule(module, parser, patcher, instrumentation_fns, init_fns,
+                     analyses, isSystemCode);
   }
 }
 
@@ -349,8 +324,7 @@ void PopulateRegisterStackOperations(
   return;
 }
 
-void Instrument(std::string binary, std::map<std::string, Code*>* const cache,
-                const litecfi::Parser& parser) {
+void Instrument(std::string binary, const litecfi::Parser& parser) {
   StdOut(Color::BLUE, FLAGS_vv) << "\n\nInstrumentation Pass" << Endl;
   StdOut(Color::BLUE, FLAGS_vv) << "====================" << Endl;
 
@@ -365,12 +339,10 @@ void Instrument(std::string binary, std::map<std::string, Code*>* const cache,
   SetupInstrumentationSpec();
 
   std::map<std::string, BPatch_function*> instrumentation_fns;
-  RegisterUsageInfo info;
-
   std::string instrumentation_library = "libstack.so";
 
   if (!FLAGS_skip) {
-    instrumentation_library = Codegen(const_cast<RegisterUsageInfo&>(info));
+    instrumentation_library = Codegen();
   }
 
   DCHECK(binary_edit->loadLibrary(instrumentation_library.c_str()))
@@ -396,7 +368,7 @@ void Instrument(std::string binary, std::map<std::string, Code*>* const cache,
       // init_fns.insert("__libc_start_main");
     }
 
-    InstrumentCodeObject(object, cache, parser, patcher, instrumentation_fns,
+    InstrumentCodeObject(object, parser, patcher, instrumentation_fns,
                          init_fns);
   }
 

@@ -8,11 +8,8 @@
 #include "gflags/gflags.h"
 #include "jit.h"
 #include "pass_manager.h"
-#include "register_usage.h"
 
-std::string JitMemoryStackPush(RegisterUsageInfo& info, FuncSummary* s,
-                               AssemblerHolder& ah);
-std::string JitMemoryStackPop(RegisterUsageInfo& info, FuncSummary* s,
-                              AssemblerHolder& ah);
+std::string JitMemoryStackPush(FuncSummary* s, AssemblerHolder& ah);
+std::string JitMemoryStackPop(FuncSummary* s, AssemblerHolder& ah);
 
 #endif  // LITECFI_JIT_INTERNAL_H_

@@ -5,7 +5,6 @@
 #include "gflags/gflags.h"
 #include "jit_internal.h"
 #include "utils.h"
-// #include "register_utils.h"
 
 using namespace asmjit::x86;
 
@@ -71,8 +70,7 @@ void RestoreTempRegisters(Assembler* a, TempRegisters t) {
   }
 }
 
-std::string JitMemoryStackPush(RegisterUsageInfo& info, FuncSummary* s,
-                               AssemblerHolder& ah) {
+std::string JitMemoryStackPush(FuncSummary* s, AssemblerHolder& ah) {
   Assembler* a = ah.GetAssembler();
 
   TempRegisters t = SaveTempRegisters(a, s->dead_at_entry);
@@ -97,8 +95,7 @@ std::string JitMemoryStackPush(RegisterUsageInfo& info, FuncSummary* s,
   return "";
 }
 
-std::string JitMemoryStackPop(RegisterUsageInfo& info, FuncSummary* s,
-                              AssemblerHolder& ah) {
+std::string JitMemoryStackPop(FuncSummary* s, AssemblerHolder& ah) {
   Assembler* a = ah.GetAssembler();
   asmjit::Label error = a->newLabel();
   asmjit::Label success = a->newLabel();

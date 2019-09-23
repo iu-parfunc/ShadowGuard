@@ -6,7 +6,6 @@
 
 #include "asmjit/asmjit.h"
 #include "pass_manager.h"
-#include "register_usage.h"
 
 class AssemblerHolder {
  public:
@@ -25,10 +24,8 @@ class AssemblerHolder {
   asmjit::StringLogger* logger_;
 };
 
-std::string JitStackPush(RegisterUsageInfo info, FuncSummary* s,
-                         AssemblerHolder& ah);
+std::string JitStackPush(FuncSummary* s, AssemblerHolder& ah);
 
-std::string JitStackPop(RegisterUsageInfo info, FuncSummary* s,
-                        AssemblerHolder& ah);
+std::string JitStackPop(FuncSummary* s, AssemblerHolder& ah);
 
 #endif  // LITECFI_JIT_H_

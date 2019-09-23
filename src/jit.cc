@@ -7,7 +7,6 @@
 #include "gflags/gflags.h"
 #include "glog/logging.h"
 #include "jit_internal.h"
-// #include "register_utils.h"
 #include "utils.h"
 
 using namespace asmjit::x86;
@@ -47,12 +46,10 @@ asmjit::CodeHolder* AssemblerHolder::GetCode() { return code_; }
 
 asmjit::x86::Gp GetRaHolder() { return asmjit::x86::r10; }
 
-std::string JitStackPush(RegisterUsageInfo info, FuncSummary* s,
-                         AssemblerHolder& ah) {
-  return JitMemoryStackPush(info, s, ah);
+std::string JitStackPush(FuncSummary* s, AssemblerHolder& ah) {
+  return JitMemoryStackPush(s, ah);
 }
 
-std::string JitStackPop(RegisterUsageInfo info, FuncSummary* s,
-                        AssemblerHolder& ah) {
-  return JitMemoryStackPop(info, s, ah);
+std::string JitStackPop(FuncSummary* s, AssemblerHolder& ah) {
+  return JitMemoryStackPop(s, ah);
 }
