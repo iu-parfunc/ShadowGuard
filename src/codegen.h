@@ -4,8 +4,6 @@
 
 #include <string>
 
-#include "register_usage.h"
-
-std::string Codegen(RegisterUsageInfo info);
+std::string Codegen();
 
 #endif  // LITECFI_CODEGEN_H_

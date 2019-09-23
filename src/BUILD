@@ -2,8 +2,8 @@
 cc_binary(
     name = "cfi",
     srcs = [
-        "cache.cc",
-	"cache.h",
+	"assembler.cc",
+	"assembler.h",
         "cfi.cc",
 	"codegen.cc",
 	"codegen.h",
@@ -11,14 +11,10 @@ cc_binary(
 	"instrument.h",
         "jit.cc",
 	"jit.h",
-	"jit_memory.cc",
-	"jit_internal.h",
 	"parse.cc",
 	"parse.h",
         "passes.h",
         "pass_manager.h",
-        "register_usage.cc",
-        "register_usage.h",
 	"utils.cc",
 	"utils.h",
     ],
@@ -44,31 +40,6 @@ cc_binary(
         "@com_github_gflags_gflags//:gflags",
         "@glog//:glog",
        	"@dyninst//:dyninst",
-    ],
-)
-
-cc_binary(
-    name = "stack_writes",
-    srcs = [
-        "stack_writes.cc",
-    ],
-    deps = [
-       	"@dyninst//:dyninst",
-    ],
-)
-
-cc_binary(
-    name = "analyse",
-    srcs = [
-        "analyse.cc",
-        "passes.h",
-        "pass_manager.h",
-	"utils.cc",
-	"utils.h",
-    ],
-    deps = [
-        "@com_github_gflags_gflags//:gflags",
-        "@dyninst//:dyninst",
     ],
 )
 
