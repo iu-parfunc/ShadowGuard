@@ -13,6 +13,7 @@
 #include "Point.h"
 #include "Snippet.h"
 #include "asmjit/asmjit.h"
+#include "assembler.h"
 #include "codegen.h"
 #include "gflags/gflags.h"
 #include "glog/logging.h"

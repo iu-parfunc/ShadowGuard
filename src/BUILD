@@ -2,6 +2,8 @@
 cc_binary(
     name = "cfi",
     srcs = [
+	"assembler.cc",
+	"assembler.h",
         "cfi.cc",
 	"codegen.cc",
 	"codegen.h",
@@ -9,8 +11,6 @@ cc_binary(
 	"instrument.h",
         "jit.cc",
 	"jit.h",
-	"jit_memory.cc",
-	"jit_internal.h",
 	"parse.cc",
 	"parse.h",
         "passes.h",

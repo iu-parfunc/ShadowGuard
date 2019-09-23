@@ -7,7 +7,6 @@
 #include <fstream>
 
 #include "jit.h"
-#include "jit_internal.h"
 #include "utils.h"
 
 DECLARE_string(shadow_stack);
