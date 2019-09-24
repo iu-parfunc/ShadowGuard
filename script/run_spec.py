@@ -41,16 +41,36 @@ def Run(config, test):
     p = Popen(cmd, stdout=PIPE, stderr=PIPE,  shell=True, cwd=SPEC_ROOT, executable='/bin/bash')
     msg, err = p.communicate()
     if Failed(msg + err):
-        return "Failed"
+        return "Fail"
     elif Passed(msg + err):
-        return "Passed"
+        return "Pass"
     else:
         return "Unknown"
 
+results = {}
 for compiler, config in config_list:
+    results[compiler] = {}
     for test in tests_list:
         ret = Run(config, test)
+        results[compiler][test] = ret
         print compiler, test, ret
+
+line = "| SPEC "
+for compiler, config in config_list:
+    line += " | {0}".format(compiler)
+line += " | "
+print line
+line = "| --- | "
+for compiler, config in config_list:
+    line += " --- | "
+print line
+
+for test in tests_list:
+    line = "| {0}".format(test)
+    for compiler, config in config_list:
+        line += " | {0}".format(results[compiler][test])
+    line += " |"
+    print line
 
 
 
