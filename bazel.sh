@@ -80,7 +80,7 @@ build () {
 
 run_tests() {
   cd tests; bazel clean; bazel test -c dbg //tests:*
-  cd ..;./bazel-bin/tests/analysis_test
+  cd ..;LD_LIBRARY_PATH=`pwd`/thirdparty/dyninst-10.1.0/install/lib/:$LD_LIBRARY_PATH ./bazel-bin/tests/analysis_test
 }
 
 clean () {
