@@ -280,7 +280,8 @@ class DeadRegisterAnalysisPass : public Pass {
         GetDeadRegisters(f, f->entry(), LivenessAnalyzer::Before);
 
     for (auto b : f->exitBlocks()) {
-      s->dead_at_exit[b] = GetDeadRegisters(f, b, LivenessAnalyzer::After);
+      s->dead_at_exit[b->end()] =
+          GetDeadRegisters(f, b, LivenessAnalyzer::After);
     }
   }
 };

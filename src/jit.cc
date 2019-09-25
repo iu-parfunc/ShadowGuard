@@ -70,7 +70,8 @@ void RestoreTempRegisters(Assembler* a, TempRegisters t) {
   }
 }
 
-std::string JitStackPush(FuncSummary* s, AssemblerHolder& ah) {
+std::string JitStackPush(Dyninst::PatchAPI::Point* pt, FuncSummary* s,
+                         AssemblerHolder& ah) {
   Assembler* a = ah.GetAssembler();
 
   TempRegisters t = SaveTempRegisters(a, s->dead_at_entry);
@@ -95,13 +96,22 @@ std::string JitStackPush(FuncSummary* s, AssemblerHolder& ah) {
   return "";
 }
 
-std::string JitStackPop(FuncSummary* s, AssemblerHolder& ah) {
+std::string JitStackPop(Dyninst::PatchAPI::Point* pt, FuncSummary* s,
+                        AssemblerHolder& ah) {
   Assembler* a = ah.GetAssembler();
   asmjit::Label error = a->newLabel();
   asmjit::Label success = a->newLabel();
   asmjit::Label loop = a->newLabel();
 
-  TempRegisters t = SaveTempRegisters(a, s->dead_at_entry);
+  TempRegisters t;
+  std::set<std::string> dead;
+
+  auto it = s->dead_at_exit.find(pt->addr());
+  if (it != s->dead_at_exit.end()) {
+    t = SaveTempRegisters(a, it->second);
+  } else {
+    t = SaveTempRegisters(a, dead);
+  }
 
   Gp s_ptr = t.tmp1;
   Gp ra_holder = t.tmp2;

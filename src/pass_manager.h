@@ -32,7 +32,7 @@ struct FuncSummary {
   // Set of registers dead at function entry.
   std::set<std::string> dead_at_entry;
   // Set of registers dead at each of the function exits.
-  std::map<Block*, std::set<std::string>> dead_at_exit;
+  std::map<Address, std::set<std::string>> dead_at_exit;
   // Unused caller saved registers. Currently only set for leaf functions.
   std::set<std::string> unused_caller_saved;
 

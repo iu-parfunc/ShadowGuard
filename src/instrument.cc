@@ -61,7 +61,7 @@ class StackOpSnippet : public Dyninst::PatchAPI::Snippet {
 
   bool generate(Dyninst::PatchAPI::Point* pt, Dyninst::Buffer& buf) override {
     AssemblerHolder ah;
-    jit_fn_(summary_, ah);
+    jit_fn_(pt, summary_, ah);
 
     size_t size = ah.GetCode()->codeSize();
     char* temp_buf = (char*)malloc(size);
@@ -77,7 +77,8 @@ class StackOpSnippet : public Dyninst::PatchAPI::Snippet {
   }
 
  protected:
-  std::string (*jit_fn_)(FuncSummary* summary, AssemblerHolder&);
+  std::string (*jit_fn_)(Dyninst::PatchAPI::Point* pt, FuncSummary* summary,
+                         AssemblerHolder&);
 
  private:
   FuncSummary* summary_;
