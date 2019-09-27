@@ -1,6 +1,13 @@
 # Using a multi-stage build since we use the private deploy key to fetch from github.
 # See https://vsupalov.com/build-docker-image-clone-private-repo-ssh-key/
 FROM gcc:8.3.0 as intermediate
+
+ENV BENCH "intspeed"
+ENV SIZE "test"
+
+# Change the shell to bash.
+SHELL ["/bin/bash", "-c"]
+
 RUN apt-get update && apt-get install -y git
 
 # Add credentials on build.
@@ -40,3 +47,14 @@ RUN cd /home/ \
     && curl -L -o benchmark.tar.gz https://www.dropbox.com/s/19xcn3rcai3cp5r/benchmark.tar.gz?dl=1 \
     && tar -zxvf benchmark.tar.gz \
     && cp shadow_guard/docker/gcc-config.cfg spec_cpu2017/config 
+
+RUN mkdir /home/results
+
+# Run the spec benchmarks.
+CMD /bin/bash -c "cd /home/shadow_guard/ \
+    && ./bazel.sh deps \
+    && ./bazel.sh build --debug \
+    && cd ../spec_cpu2017 \
+    && source shrc \
+    && runcpu --config=gcc-config.cfg --size=$SIZE $BENCH \
+    && cp result/* ../results/"
