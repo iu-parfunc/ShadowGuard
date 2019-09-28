@@ -47,8 +47,20 @@ def Run(config, test):
     else:
         return "Unknown"
 
+def CleanOldDirs():
+    cmd = "rm -rf benchspec/C*/*/run; "
+    cmd += "rm -rf benchspec/C*/*/build; "
+    cmd += "rm -rf benchspec/C*/*/exe "
+    print cmd
+    p = Popen(cmd, stdout=PIPE, stderr=PIPE,  shell=True, cwd=SPEC_ROOT, executable='/bin/bash')
+    msg, err = p.communicate()
+    if len(err) > 0:
+        print err
+
+
 results = {}
 for compiler, config in config_list:
+    CleanOldDirs()
     results[compiler] = {}
     for test in tests_list:
         ret = Run(config, test)

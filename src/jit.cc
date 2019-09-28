@@ -21,10 +21,11 @@ static std::map<std::string, Gp> kRegisterMap = {
 struct TempRegisters {
   Gp tmp1;
   Gp tmp2;
+  Gp tmp3;
   bool tmp1_saved;
   bool tmp2_saved;
 
-  TempRegisters() : tmp1(rax), tmp2(rcx), tmp1_saved(true), tmp2_saved(true) {}
+  TempRegisters() : tmp1(rdx), tmp2(rcx), tmp3(rax), tmp1_saved(true), tmp2_saved(true) {}
 };
 
 TempRegisters SaveTempRegisters(Assembler* a,
@@ -33,6 +34,7 @@ TempRegisters SaveTempRegisters(Assembler* a,
   if ((FLAGS_optimize_regs && dead_registers.empty()) || !FLAGS_optimize_regs) {
     a->push(t.tmp1);
     a->push(t.tmp2);
+    a->push(t.tmp3);
   } else {
     auto reg = dead_registers.begin();
     auto it = kRegisterMap.find(*reg);
@@ -61,6 +63,8 @@ TempRegisters SaveTempRegisters(Assembler* a,
 }
 
 void RestoreTempRegisters(Assembler* a, TempRegisters t) {
+  a->pop(t.tmp3);
+
   if (t.tmp2_saved) {
     a->pop(t.tmp2);
   }
@@ -75,11 +79,12 @@ std::string JitStackPush(Dyninst::PatchAPI::Point* pt, FuncSummary* s,
   Assembler* a = ah.GetAssembler();
 
   TempRegisters t = SaveTempRegisters(a, s->dead_at_entry);
+  a->lahf();
 
   Gp s_ptr = t.tmp1;
   Gp ra_holder = t.tmp2;
 
-  a->mov(ra_holder, ptr(rsp, 16));
+  a->mov(ra_holder, ptr(rsp, 24));
 
   // Get gs:ptr to rax
   asmjit::x86::Mem shadow_ptr;
@@ -90,7 +95,7 @@ std::string JitStackPush(Dyninst::PatchAPI::Point* pt, FuncSummary* s,
   a->add(shadow_ptr, asmjit::imm(8));
 
   a->mov(ptr(s_ptr), ra_holder);
-
+  a->sahf();
   RestoreTempRegisters(a, t);
 
   return "";
@@ -113,6 +118,8 @@ std::string JitStackPop(Dyninst::PatchAPI::Point* pt, FuncSummary* s,
     t = SaveTempRegisters(a, dead);
   }
 
+  a->lahf();
+
   Gp s_ptr = t.tmp1;
   Gp ra_holder = t.tmp2;
 
@@ -126,7 +133,7 @@ std::string JitStackPop(Dyninst::PatchAPI::Point* pt, FuncSummary* s,
   a->bind(loop);
   a->mov(ra_holder, ptr(s_ptr, -8));
   a->sub(shadow_ptr, asmjit::imm(8));
-  a->cmp(ra_holder, ptr(rsp, 16));
+  a->cmp(ra_holder, ptr(rsp, 24));
   a->je(success);
 
   a->sub(s_ptr, asmjit::imm(8));
@@ -138,6 +145,7 @@ std::string JitStackPop(Dyninst::PatchAPI::Point* pt, FuncSummary* s,
   a->int3();
 
   a->bind(success);
+  a->sahf();
   RestoreTempRegisters(a, t);
 
   return "";
