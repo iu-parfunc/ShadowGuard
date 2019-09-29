@@ -208,6 +208,17 @@ void InstrumentFunction(
     }
   }
 
+  /*
+  if (function->getName() == "register_tm_clones" ||
+      function->getName() == "deregister_tm_clones" ||
+      function->getName() == "__libc_csu_init" ||
+      function->getName() == "__libc_start_main") {
+    StdOut(Color::RED, FLAGS_vv)
+        << "      Skipping init function : " << function->getName() << Endl;
+    return;
+  }
+  */
+
   InsertInstrumentation(function, parser, patcher, instrumentation_fns,
                         analyses, isSystemCode);
 }

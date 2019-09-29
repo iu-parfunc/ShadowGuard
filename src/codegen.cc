@@ -11,6 +11,7 @@
 
 DECLARE_string(shadow_stack);
 DECLARE_bool(stats);
+DECLARE_bool(validate_frame);
 
 std::string MemRegionInit() {
   std::string includes = "";
@@ -31,7 +32,7 @@ std::string MemRegionInit() {
   //           ---------
   //           |  RA1  | First stack entry
   //           ---------
-  //           |  0x0  | Guard Word (To catch underflows)
+  //           |  0x0  | Guard Words [8 or 16 bytes](To catch underflows)
   //           ---------
   // gs:0x0 -> |  SP   | Stack Pointer
   //           ---------
@@ -44,6 +45,12 @@ std::string MemRegionInit() {
   mem_init_fn += "  addr += 8;\n";
   mem_init_fn += "  *((unsigned long*)addr) = 0;\n";
   mem_init_fn += "  addr += 8;\n";
+
+  if (FLAGS_validate_frame) {
+    mem_init_fn += "  *((unsigned long*)addr) = 0;\n";
+    mem_init_fn += "  addr += 8;\n";
+  }
+
   mem_init_fn += "  asm volatile(\"mov %0, %%gs:0;\" : : \"a\"(addr) :);\n";
   mem_init_fn += "}\n";
 

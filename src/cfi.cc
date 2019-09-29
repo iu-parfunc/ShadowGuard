@@ -14,6 +14,10 @@ DEFINE_bool(skip, false, "Skip codegen.");
 
 DEFINE_bool(optimize_regs, false, "Optimize register usage in jitted code.");
 
+DEFINE_bool(validate_frame, false,
+            "Validate stack frame in addition to the "
+            "return address");
+
 DEFINE_bool(stats, false,
             "Instrument to collect internal stack usage "
             "statistics at runtime.");
