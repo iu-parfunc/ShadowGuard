@@ -29,31 +29,22 @@
 using namespace Dyninst;
 using namespace Dyninst::PatchAPI;
 
-DECLARE_string(instrument);
 DECLARE_bool(libs);
-DECLARE_string(shadow_stack);
-DECLARE_string(shadow_stack_protection);
-DECLARE_string(output);
-DECLARE_bool(skip);
-DECLARE_bool(stats);
 DECLARE_bool(vv);
+
+DECLARE_string(output);
+DECLARE_string(shadow_stack);
 DECLARE_string(threat_model);
 
-// Trampoline specification
+// Thread local shadow stack initialization function name.
+static constexpr char kShadowStackInitFn[] = "litecfi_init_mem_region";
+// Init function which needs to be instrumented with a call the thread local
+// shadow stack initialzation function above.
+static constexpr char kInitFn[] = "_start";
+
+// Trampoline specifications.
 static InstSpec is_init;
 static InstSpec is_empty;
-
-void SetupInstrumentationSpec() {
-  // Suppose we instrument a call to stack init at entry of A;
-  // If A does not use r11, we dont need to save r11 (_start does not)
-  is_init.trampGuard = false;
-  is_init.redZone = false;
-  is_init.saveRegs.push_back(x86_64::rax);
-  is_init.saveRegs.push_back(x86_64::rdx);
-
-  is_empty.trampGuard = false;
-  is_empty.redZone = false;
-}
 
 class StackOpSnippet : public Dyninst::PatchAPI::Snippet {
  public:
@@ -122,31 +113,24 @@ void InsertSnippet(BPatch_function* function, Point::Type location,
     Point* point = *it;
     // Do not instrument function exits that are calls to non-returning
     // functions because the stack frame may still not be tear down, causing the
-    // instrumentation to get wrong return address
+    // instrumentation to get wrong return address.
     if (location == Point::FuncExit && IsNonreturningCall(point))
       continue;
     point->pushBack(snippet);
   }
 }
 
-void InsertInstrumentation(
-    BPatch_function* function, const litecfi::Parser& parser,
-    PatchMgr::Ptr patcher,
-    std::map<std::string, BPatch_function*>& instrumentation_fns,
-    const std::map<uint64_t, FuncSummary*>& analyses, bool isSystemCode) {
+void InstrumentFunction(BPatch_function* function,
+                        const litecfi::Parser& parser, PatchMgr::Ptr patcher,
+                        const std::map<uint64_t, FuncSummary*>& analyses) {
+  if (FLAGS_vv) {
+    StdOut(Color::YELLOW) << "     Function : "
+                          << Dyninst::PatchAPI::convert(function)->name()
+                          << Endl;
+  }
 
-  if (FLAGS_shadow_stack == "mem") {
-    if (FLAGS_threat_model == "trust_system" && isSystemCode) {
-      return;
-    }
-
-    if (FLAGS_vv) {
-      StdOut(Color::YELLOW)
-          << "     Function : " << Dyninst::PatchAPI::convert(function)->name()
-          << Endl;
-    }
-
-    FuncSummary* summary = nullptr;
+  FuncSummary* summary = nullptr;
+  if (FLAGS_shadow_stack == "light") {
     auto it = analyses.find(static_cast<uint64_t>(
         reinterpret_cast<uintptr_t>(function->getBaseAddr())));
     if (it != analyses.end()) {
@@ -158,163 +142,27 @@ void InsertInstrumentation(
           << "      Skipping function : " << function->getName() << Endl;
       return;
     }
-
-    Snippet::Ptr stack_push =
-        StackPushSnippet::create(new StackPushSnippet(summary));
-    InsertSnippet(function, Point::FuncEntry, stack_push, patcher);
-
-    Snippet::Ptr stack_pop =
-        StackPopSnippet::create(new StackPopSnippet(summary));
-    InsertSnippet(function, Point::FuncExit, stack_pop, patcher);
-
-    BPatch_binaryEdit* binary_edit = ((BPatch_binaryEdit*)parser.app);
-    BPatch_nullExpr nopSnippet;
-    vector<BPatch_point*> points;
-    function->getEntryPoints(points);
-    binary_edit->insertSnippet(nopSnippet, points, BPatch_callBefore,
-                               BPatch_lastSnippet, &is_empty);
-
-    points.clear();
-    function->getExitPoints(points);
-    binary_edit->insertSnippet(nopSnippet, points, BPatch_callAfter,
-                               BPatch_lastSnippet, &is_empty);
-
-    return;
-  }
-}
-
-void InstrumentFunction(
-    BPatch_function* function, const litecfi::Parser& parser,
-    PatchMgr::Ptr patcher,
-    std::map<std::string, BPatch_function*>& instrumentation_fns,
-    const std::map<uint64_t, FuncSummary*>& analyses, bool is_init_function,
-    bool isSystemCode) {
-  // Instrument for initializing the stack in the init function
-  if (is_init_function) {
-    if (FLAGS_shadow_stack == "mem") {
-      BPatch_binaryEdit* binary_edit = ((BPatch_binaryEdit*)parser.app);
-      BPatch_Vector<BPatch_snippet*> args;
-      BPatch_funcCallExpr stack_init(*(instrumentation_fns["stack_init"]),
-                                     args);
-      std::vector<BPatch_point*>* entries = function->findPoint(BPatch_entry);
-      BPatchSnippetHandle* handle = nullptr;
-      handle =
-          binary_edit->insertSnippet(stack_init, *entries, BPatch_callBefore,
-                                     BPatch_lastSnippet, &is_init);
-      DCHECK(handle != nullptr)
-          << "Failed to instrument init function for stack initialization.";
-
-      return;
-    }
   }
 
-  /*
-  if (function->getName() == "register_tm_clones" ||
-      function->getName() == "deregister_tm_clones" ||
-      function->getName() == "__libc_csu_init" ||
-      function->getName() == "__libc_start_main") {
-    StdOut(Color::RED, FLAGS_vv)
-        << "      Skipping init function : " << function->getName() << Endl;
-    return;
-  }
-  */
+  Snippet::Ptr stack_push =
+      StackPushSnippet::create(new StackPushSnippet(summary));
+  InsertSnippet(function, Point::FuncEntry, stack_push, patcher);
 
-  InsertInstrumentation(function, parser, patcher, instrumentation_fns,
-                        analyses, isSystemCode);
-}
+  Snippet::Ptr stack_pop =
+      StackPopSnippet::create(new StackPopSnippet(summary));
+  InsertSnippet(function, Point::FuncExit, stack_pop, patcher);
 
-static void GetIFUNCs(BPatch_module* module,
-                      std::set<Dyninst::Address>& addrs) {
-  SymtabAPI::Module* sym_mod = SymtabAPI::convert(module);
-  std::vector<SymtabAPI::Symbol*> ifuncs;
+  BPatch_binaryEdit* binary_edit = ((BPatch_binaryEdit*)parser.app);
+  BPatch_nullExpr nopSnippet;
+  vector<BPatch_point*> points;
+  function->getEntryPoints(points);
+  binary_edit->insertSnippet(nopSnippet, points, BPatch_callBefore,
+                             BPatch_lastSnippet, &is_empty);
 
-  // Dyninst represents IFUNC as ST_INDIRECT
-  sym_mod->getAllSymbolsByType(ifuncs, SymtabAPI::Symbol::ST_INDIRECT);
-  for (auto sit = ifuncs.begin(); sit != ifuncs.end(); ++sit) {
-    addrs.insert((Address)(*sit)->getOffset());
-  }
-}
-
-void InstrumentModule(
-    BPatch_module* module, const litecfi::Parser& parser, PatchMgr::Ptr patcher,
-    std::map<std::string, BPatch_function*>& instrumentation_fns,
-    const std::set<std::string>& init_fns,
-    const std::map<uint64_t, FuncSummary*>& analyses, bool isSystemCode) {
-  char funcname[2048];
-  std::vector<BPatch_function*>* functions = module->getProcedures();
-
-  std::set<Dyninst::Address> ifuncAddrs;
-  GetIFUNCs(module, ifuncAddrs);
-
-  for (auto it = functions->begin(); it != functions->end(); it++) {
-    BPatch_function* function = *it;
-    function->getName(funcname, 2048);
-
-    std::string func(funcname);
-    if (init_fns.find(func) != init_fns.end()) {
-      InstrumentFunction(function, parser, patcher, instrumentation_fns,
-                         analyses, true, isSystemCode);
-      continue;
-    }
-
-    ParseAPI::Function* f = ParseAPI::convert(function);
-    if (f->retstatus() == ParseAPI::NORETURN)
-      continue;
-
-    // We should only instrument functions in .text
-    ParseAPI::CodeRegion* codereg = f->region();
-    ParseAPI::SymtabCodeRegion* symRegion =
-        dynamic_cast<ParseAPI::SymtabCodeRegion*>(codereg);
-    assert(symRegion);
-    SymtabAPI::Region* symR = symRegion->symRegion();
-    if (symR->getRegionName() != ".text")
-      continue;
-
-    InstrumentFunction(function, parser, patcher, instrumentation_fns, analyses,
-                       false, isSystemCode);
-  }
-}
-
-void InstrumentCodeObject(
-    BPatch_object* object, const litecfi::Parser& parser, PatchMgr::Ptr patcher,
-    std::map<std::string, BPatch_function*>& instrumentation_fns,
-    const std::set<std::string>& init_fns) {
-  if (!IsSharedLibrary(object)) {
-    StdOut(Color::GREEN, FLAGS_vv) << "\n  >> Instrumenting main application "
-                                   << object->pathName() << Endl;
-  } else {
-    StdOut(Color::GREEN, FLAGS_vv)
-        << "\n    Instrumenting " << object->pathName() << Endl;
-  }
-
-  bool isSystemCode = IsSystemCode(object);
-  std::vector<BPatch_module*> modules;
-  object->modules(modules);
-
-  // Do the static analysis on this code and obtain skippable functions.
-  CodeObject* co = Dyninst::ParseAPI::convert(object);
-  co->parse();
-
-  PassManager* pm = new PassManager;
-  pm->AddPass(new CallGraphPass())
-      ->AddPass(new LeafAnalysisPass())
-      ->AddPass(new StackAnalysisPass())
-      ->AddPass(new NonLeafSafeWritesPass())
-      ->AddPass(new DeadRegisterAnalysisPass());
-  std::set<FuncSummary*> summaries = pm->Run(co);
-  std::map<uint64_t, FuncSummary*> analyses;
-  for (auto f : summaries) {
-    analyses[f->func->addr()] = f;
-  }
-
-  for (auto it = modules.begin(); it != modules.end(); it++) {
-    char modname[2048];
-    BPatch_module* module = *it;
-    module->getName(modname, 2048);
-
-    InstrumentModule(module, parser, patcher, instrumentation_fns, init_fns,
-                     analyses, isSystemCode);
-  }
+  points.clear();
+  function->getExitPoints(points);
+  binary_edit->insertSnippet(nopSnippet, points, BPatch_callAfter,
+                             BPatch_lastSnippet, &is_empty);
 }
 
 BPatch_function* FindFunctionByName(BPatch_image* image, std::string name) {
@@ -329,12 +177,124 @@ BPatch_function* FindFunctionByName(BPatch_image* image, std::string name) {
   return funcs[0];
 }
 
-void PopulateRegisterStackOperations(
-    BPatch_binaryEdit* binary_edit, const litecfi::Parser& parser,
-    std::map<std::string, BPatch_function*>& fns) {
-  fns["stack_init"] =
-      FindFunctionByName(parser.image, "litecfi_init_mem_region");
-  return;
+void InstrumentInitFunction(BPatch_function* function,
+                            const litecfi::Parser& parser) {
+  BPatch_binaryEdit* binary_edit = ((BPatch_binaryEdit*)parser.app);
+  BPatch_Vector<BPatch_snippet*> args;
+
+  auto stack_init_fn = FindFunctionByName(parser.image, kShadowStackInitFn);
+
+  BPatch_funcCallExpr stack_init(*stack_init_fn, args);
+  std::vector<BPatch_point*>* entries = function->findPoint(BPatch_entry);
+  BPatchSnippetHandle* handle = nullptr;
+  handle = binary_edit->insertSnippet(stack_init, *entries, BPatch_callBefore,
+                                      BPatch_lastSnippet, &is_init);
+  DCHECK(handle != nullptr)
+      << "Failed to instrument init function for stack initialization.";
+}
+
+static void GetIFUNCs(BPatch_module* module,
+                      std::set<Dyninst::Address>& addrs) {
+  SymtabAPI::Module* sym_mod = SymtabAPI::convert(module);
+  std::vector<SymtabAPI::Symbol*> ifuncs;
+
+  // Dyninst represents IFUNC as ST_INDIRECT.
+  sym_mod->getAllSymbolsByType(ifuncs, SymtabAPI::Symbol::ST_INDIRECT);
+  for (auto sit = ifuncs.begin(); sit != ifuncs.end(); ++sit) {
+    addrs.insert((Address)(*sit)->getOffset());
+  }
+}
+
+void InstrumentModule(BPatch_module* module, const litecfi::Parser& parser,
+                      PatchMgr::Ptr patcher,
+                      const std::map<uint64_t, FuncSummary*>& analyses) {
+  std::vector<BPatch_function*>* functions = module->getProcedures();
+
+  std::set<Dyninst::Address> ifuncAddrs;
+  GetIFUNCs(module, ifuncAddrs);
+
+  for (auto it = functions->begin(); it != functions->end(); it++) {
+    BPatch_function* function = *it;
+
+    char funcname[2048];
+    function->getName(funcname, 2048);
+    if (funcname == kInitFn) {
+      InstrumentInitFunction(function, parser);
+      continue;
+    }
+
+    ParseAPI::Function* f = ParseAPI::convert(function);
+    if (f->retstatus() == ParseAPI::NORETURN)
+      continue;
+
+    // We should only instrument functions in .text.
+    ParseAPI::CodeRegion* codereg = f->region();
+    ParseAPI::SymtabCodeRegion* symRegion =
+        dynamic_cast<ParseAPI::SymtabCodeRegion*>(codereg);
+    assert(symRegion);
+    SymtabAPI::Region* symR = symRegion->symRegion();
+    if (symR->getRegionName() != ".text")
+      continue;
+
+    InstrumentFunction(function, parser, patcher, analyses);
+  }
+}
+
+void InstrumentCodeObject(BPatch_object* object, const litecfi::Parser& parser,
+                          PatchMgr::Ptr patcher) {
+  if (!IsSharedLibrary(object)) {
+    StdOut(Color::GREEN, FLAGS_vv) << "\n  >> Instrumenting main application "
+                                   << object->pathName() << Endl;
+  } else {
+    StdOut(Color::GREEN, FLAGS_vv)
+        << "\n    Instrumenting " << object->pathName() << Endl;
+  }
+
+  if (FLAGS_threat_model == "trust_system" && IsSystemCode(object)) {
+    return;
+  }
+
+  std::vector<BPatch_module*> modules;
+  object->modules(modules);
+
+  std::map<uint64_t, FuncSummary*> analyses;
+  // Do the static analysis on this code and obtain skippable functions.
+  if (FLAGS_shadow_stack == "light") {
+    CodeObject* co = Dyninst::ParseAPI::convert(object);
+    co->parse();
+
+    PassManager* pm = new PassManager;
+    pm->AddPass(new CallGraphPass())
+        ->AddPass(new LeafAnalysisPass())
+        ->AddPass(new StackAnalysisPass())
+        ->AddPass(new NonLeafSafeWritesPass())
+        ->AddPass(new DeadRegisterAnalysisPass());
+    std::set<FuncSummary*> summaries = pm->Run(co);
+    std::map<uint64_t, FuncSummary*> analyses;
+    for (auto f : summaries) {
+      analyses[f->func->addr()] = f;
+    }
+  }
+
+  for (auto it = modules.begin(); it != modules.end(); it++) {
+    char modname[2048];
+    BPatch_module* module = *it;
+    module->getName(modname, 2048);
+
+    InstrumentModule(module, parser, patcher, analyses);
+  }
+}
+
+void SetupInstrumentationSpec() {
+  // Suppose we instrument a call to stack init at entry of A;
+  // If A does not use r11, we dont need to save r11 (_start does not).
+  is_init.trampGuard = false;
+  is_init.redZone = false;
+  is_init.saveRegs.push_back(x86_64::rax);
+  is_init.saveRegs.push_back(x86_64::rdx);
+
+  is_empty.trampGuard = false;
+  is_empty.redZone = false;
 }
 
 void Instrument(std::string binary, const litecfi::Parser& parser) {
@@ -351,38 +311,22 @@ void Instrument(std::string binary, const litecfi::Parser& parser) {
 
   SetupInstrumentationSpec();
 
-  std::map<std::string, BPatch_function*> instrumentation_fns;
   std::string instrumentation_library = "libstack.so";
 
-  if (!FLAGS_skip) {
-    instrumentation_library = Codegen();
-  }
+  instrumentation_library = Codegen();
 
   DCHECK(binary_edit->loadLibrary(instrumentation_library.c_str()))
       << "Failed to load instrumentation library";
-  PopulateRegisterStackOperations(binary_edit, parser, instrumentation_fns);
 
   for (auto it = objects.begin(); it != objects.end(); it++) {
     BPatch_object* object = *it;
 
-    // Skip other shared libraries for now
+    // Skip other shared libraries for now.
     if (!FLAGS_libs && IsSharedLibrary(object)) {
       continue;
     }
 
-    std::set<std::string> init_fns;
-    if (!IsSharedLibrary(object)) {
-      // This is the main program text. Mark some functions as premain
-      // initialization functions. These function entries will be instrumentated
-      // for stack initialization.
-      // init_fns.insert("__libc_init_first");
-      init_fns.insert("_start");
-      // init_fns.insert("__libc_csu_init");
-      // init_fns.insert("__libc_start_main");
-    }
-
-    InstrumentCodeObject(object, parser, patcher, instrumentation_fns,
-                         init_fns);
+    InstrumentCodeObject(object, parser, patcher);
   }
 
   if (FLAGS_output.empty()) {

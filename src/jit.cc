@@ -10,6 +10,7 @@ using namespace asmjit::x86;
 
 DECLARE_bool(optimize_regs);
 DECLARE_bool(validate_frame);
+DECLARE_string(shadow_stack);
 
 static std::map<std::string, Gp> kRegisterMap = {
     {"x86_64::rax", rax}, {"x86_64::rbx", rbx}, {"x86_64::rcx", rcx},
@@ -98,6 +99,7 @@ void RestoreTempRegisters(Assembler* a, TempRegisters t) {
 void SaveRa(const asmjit::x86::Mem& shadow_ptr, const Gp& sp_reg,
             const Gp& ra_reg, const TempRegisters& t, Assembler* a) {
   // Assembly:
+  //
   //   lahf
   //   mov 0x10(%rsp),%rcx
   //   mov %gs:0x0, %rax
@@ -140,7 +142,13 @@ std::string JitStackPush(Dyninst::PatchAPI::Point* pt, FuncSummary* s,
                          AssemblerHolder& ah) {
   Assembler* a = ah.GetAssembler();
 
-  TempRegisters t = SaveTempRegisters(a, s->dead_at_entry);
+  TempRegisters t;
+  if (FLAGS_shadow_stack == "full") {
+    std::set<std::string> dead;
+    t = SaveTempRegisters(a, dead);
+  } else {
+    t = SaveTempRegisters(a, s->dead_at_entry);
+  }
 
   Gp sp_reg = t.tmp1;
   Gp ra_reg = t.tmp2;
@@ -275,12 +283,17 @@ std::string JitStackPop(Dyninst::PatchAPI::Point* pt, FuncSummary* s,
   Assembler* a = ah.GetAssembler();
 
   TempRegisters t;
-  auto it = s->dead_at_exit.find(pt->addr());
-  if (it != s->dead_at_exit.end()) {
-    t = SaveTempRegisters(a, it->second);
-  } else {
+  if (FLAGS_shadow_stack == "full") {
     std::set<std::string> dead;
     t = SaveTempRegisters(a, dead);
+  } else {
+    auto it = s->dead_at_exit.find(pt->addr());
+    if (it != s->dead_at_exit.end()) {
+      t = SaveTempRegisters(a, it->second);
+    } else {
+      std::set<std::string> dead;
+      t = SaveTempRegisters(a, dead);
+    }
   }
 
   Gp sp_reg = t.tmp1;
