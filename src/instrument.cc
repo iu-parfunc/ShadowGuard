@@ -269,7 +269,6 @@ void InstrumentCodeObject(BPatch_object* object, const litecfi::Parser& parser,
         ->AddPass(new NonLeafSafeWritesPass())
         ->AddPass(new DeadRegisterAnalysisPass());
     std::set<FuncSummary*> summaries = pm->Run(co);
-    std::map<uint64_t, FuncSummary*> analyses;
 
     for (auto f : summaries) {
       analyses[f->func->addr()] = f;
