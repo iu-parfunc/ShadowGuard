@@ -217,9 +217,7 @@ void InstrumentModule(BPatch_module* module, const litecfi::Parser& parser,
   for (auto it = functions->begin(); it != functions->end(); it++) {
     BPatch_function* function = *it;
 
-    char funcname[2048];
-    function->getName(funcname, 2048);
-    if (funcname == kInitFn) {
+    if (function->getName() == kInitFn) {
       InstrumentInitFunction(function, parser);
       continue;
     }
