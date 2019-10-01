@@ -143,11 +143,11 @@ std::string JitStackPush(Dyninst::PatchAPI::Point* pt, FuncSummary* s,
   Assembler* a = ah.GetAssembler();
 
   TempRegisters t;
-  if (FLAGS_shadow_stack == "full") {
+  if (s != nullptr) {
+    t = SaveTempRegisters(a, s->dead_at_entry);
+  } else {
     std::set<std::string> dead;
     t = SaveTempRegisters(a, dead);
-  } else {
-    t = SaveTempRegisters(a, s->dead_at_entry);
   }
 
   Gp sp_reg = t.tmp1;
@@ -283,10 +283,7 @@ std::string JitStackPop(Dyninst::PatchAPI::Point* pt, FuncSummary* s,
   Assembler* a = ah.GetAssembler();
 
   TempRegisters t;
-  if (FLAGS_shadow_stack == "full") {
-    std::set<std::string> dead;
-    t = SaveTempRegisters(a, dead);
-  } else {
+  if (s != nullptr) {
     auto it = s->dead_at_exit.find(pt->addr());
     if (it != s->dead_at_exit.end()) {
       t = SaveTempRegisters(a, it->second);
@@ -294,6 +291,9 @@ std::string JitStackPop(Dyninst::PatchAPI::Point* pt, FuncSummary* s,
       std::set<std::string> dead;
       t = SaveTempRegisters(a, dead);
     }
+  } else {
+    std::set<std::string> dead;
+    t = SaveTempRegisters(a, dead);
   }
 
   Gp sp_reg = t.tmp1;
