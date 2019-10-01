@@ -3,14 +3,14 @@
 #include <string>
 
 #include "gflags/gflags.h"
-#include "glog/logging.h"
 #include "instrument.h"
 #include "parse.h"
 #include "utils.h"
 
 DEFINE_bool(vv, false, "Log verbose output.");
 
-DEFINE_bool(optimize_regs, false, "Optimize register usage in jitted code.");
+DEFINE_bool(optimize_regs, false,
+            "Optimize register usage in shadow stack instrumentation.");
 
 DEFINE_bool(validate_frame, false,
             "Validate stack frame in addition to the "
@@ -22,11 +22,15 @@ DEFINE_string(
     shadow_stack, "light",
     "\n Shadow stack implementation mechanism for backward-edge protection.\n"
     "\n Valid values are\n"
-    "   * light : Uses static analysis to skip checks on functions deemed "
-    "             safe\n"
-    "   * full : Instrument every function\n");
+    "   * light : Uses static analysis to skip run-time checks on functions "
+    "             deemed safe\n"
+    "   * full :  Add run-time checks at every function\n");
 
 DEFINE_string(output, "", "\n Output binary.\n");
+
+DEFINE_string(stats, "",
+              "\n File to log statistics related static analyses. Only used "
+              "with 'light' shadow stack option\n");
 
 DEFINE_string(
     threat_model, "trust_system",
@@ -49,8 +53,6 @@ static bool ValidateShadowStackFlag(const char* flagname,
 DEFINE_validator(shadow_stack, &ValidateShadowStackFlag);
 
 int main(int argc, char* argv[]) {
-  google::InitGoogleLogging(argv[0]);
-
   std::string usage("Usage : ./cfi <flags> binary");
   gflags::SetUsageMessage(usage);
 

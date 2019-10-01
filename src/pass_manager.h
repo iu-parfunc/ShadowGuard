@@ -1,6 +1,7 @@
 #ifndef LITECFI_PASS_MANAGER_H_
 #define LITECFI_PASS_MANAGER_H_
 
+#include <fstream>
 #include <map>
 #include <set>
 #include <string>
@@ -13,6 +14,7 @@ using namespace Dyninst;
 using namespace Dyninst::ParseAPI;
 
 DECLARE_bool(vv);
+DECLARE_string(stats);
 
 struct FuncSummary {
   Function* func;
@@ -136,20 +138,42 @@ class PassManager {
 
     std::set<FuncSummary*> s;
     Pass* last = passes_.back();
-    long safe_count = 0;
+
+    std::set<std::string> safe_fns;
     for (auto& it : summaries_) {
       it.second->safe = last->IsSafeFunction(it.second);
       s.insert(it.second);
       if (it.second->safe) {
-        safe_count++;
+        safe_fns.insert(it.second->func->name());
       }
+    }
+
+    long safe_fn_count = safe_fns.size();
+    long unsafe_fn_count = co->funcs().size() - safe_fn_count;
+
+    if (FLAGS_stats != "") {
+      // Stats file format:
+      //
+      // <safe_fn_count>,<unsafe_fn_count>
+      //
+      // safe_fn_1
+      // ..
+      // safe_fn_n
+      std::ofstream stats;
+      stats.open(FLAGS_stats);
+      stats << safe_fn_count << "," << unsafe_fn_count << "\n\n";
+      for (auto& fn : safe_fns) {
+        stats << fn << "\n";
+      }
+      stats.close();
     }
 
     if (FLAGS_vv) {
       StdOut(Color::BLUE) << "\nSummary: " << Endl;
-      StdOut(Color::BLUE) << "  Safe Functions Found : " << safe_count << Endl;
-      StdOut(Color::BLUE) << "  Non Safe Functions : "
-                          << co->funcs().size() - safe_count << Endl;
+      StdOut(Color::BLUE) << "  Safe Functions Found : " << safe_fn_count
+                          << Endl;
+      StdOut(Color::BLUE) << "  Non Safe Functions : " << unsafe_fn_count
+                          << Endl;
     }
     return s;
   }

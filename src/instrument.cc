@@ -35,6 +35,7 @@ DECLARE_bool(vv);
 DECLARE_string(output);
 DECLARE_string(shadow_stack);
 DECLARE_string(threat_model);
+DECLARE_string(stats);
 
 // Thread local shadow stack initialization function name.
 static constexpr char kShadowStackInitFn[] = "litecfi_init_mem_region";
@@ -271,6 +272,7 @@ void InstrumentCodeObject(BPatch_object* object, const litecfi::Parser& parser,
         ->AddPass(new DeadRegisterAnalysisPass());
     std::set<FuncSummary*> summaries = pm->Run(co);
     std::map<uint64_t, FuncSummary*> analyses;
+
     for (auto f : summaries) {
       analyses[f->func->addr()] = f;
     }

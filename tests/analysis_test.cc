@@ -18,6 +18,7 @@
 using std::string;
 
 DEFINE_bool(vv, false, "Log verbose output.");
+DEFINE_string(stats, "", "File to log statistics related to static anlaysis.");
 
 CodeObject *GetCodeObject(const char *binary) {
   SymtabCodeSource *sts = new SymtabCodeSource(const_cast<char *>(binary));

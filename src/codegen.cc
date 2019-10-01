@@ -10,7 +10,6 @@
 #include "utils.h"
 
 DECLARE_string(shadow_stack);
-DECLARE_bool(stats);
 DECLARE_bool(validate_frame);
 
 std::string MemRegionInit() {
