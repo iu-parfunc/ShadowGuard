@@ -78,7 +78,8 @@ def read_data_csv(data):
 
             bench = row['Benchmark']
             if not results[bench]:
-                results[bench] = BenchRawResult(bench)
+                bench_name = bench.split('.')[1]
+                results[bench] = BenchRawResult(bench_name)
 
             res = results[bench]
             res.base.append(float(row['Est. Base Run Time']))
@@ -124,7 +125,7 @@ def sort_benchs_by_order(benchs, order):
 
 SeriesData = namedtuple('SeriesData', ['overheads', 'errors'])
 
-benchmarks = ['605.mcf_s', '625.x264_s', '631.deepsjeng_s', '657.xz_s']
+benchmarks = ['mcf_s', 'x264_s', 'deepsjeng_s', 'xz_s', 'lbm_s']
 
 def get_plot_data(results_dir):
 
