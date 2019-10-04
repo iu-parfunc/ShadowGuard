@@ -94,7 +94,7 @@ class LeafAnalysisPass : public Pass {
       b->getInsns(insns);
 
       for (auto const& ins : insns) {
-        // Call instructions always write to memory
+        // Call instructions always write to memory.
         // But they create new frames, so the writes are ignored.
         bool isCall =
             (ins.second.getCategory() == Dyninst::InstructionAPI::c_CallInsn);

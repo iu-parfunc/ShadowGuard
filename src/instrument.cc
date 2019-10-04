@@ -217,10 +217,12 @@ void InstrumentModule(BPatch_module* module, const litecfi::Parser& parser,
   for (auto it = functions->begin(); it != functions->end(); it++) {
     BPatch_function* function = *it;
 
+    /*
     if (function->getName() == kInitFn) {
       InstrumentInitFunction(function, parser);
       continue;
     }
+    */
 
     ParseAPI::Function* f = ParseAPI::convert(function);
     if (f->retstatus() == ParseAPI::NORETURN)
@@ -310,12 +312,14 @@ void Instrument(std::string binary, const litecfi::Parser& parser) {
 
   SetupInstrumentationSpec();
 
+  /*
   std::string instrumentation_library = "libstack.so";
 
   instrumentation_library = Codegen();
 
   DCHECK(binary_edit->loadLibrary(instrumentation_library.c_str()))
       << "Failed to load instrumentation library";
+      */
 
   for (auto it = objects.begin(); it != objects.end(); it++) {
     BPatch_object* object = *it;

@@ -247,7 +247,7 @@ void ValidateRaAndFrame(const asmjit::x86::Mem& shadow_ptr, const Gp& sp_reg,
   // error:
   //   int3 | sigill
   // success:
-  //   shaf
+  //   sahf
   //   pop ...
   //   retq
 

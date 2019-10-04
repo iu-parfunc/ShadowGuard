@@ -44,6 +44,18 @@ cc_binary(
 )
 
 cc_library(
+    name = "stackrt",
+    srcs = [
+        "runtime.c",
+    ],
+    deps = [
+        "@dyninst//:dyninst",
+    ],
+    visibility = ["//visibility:public"],
+    linkopts = ["-ldl"],
+)
+
+cc_library(
     name = "analysis",
     srcs = [
         "passes.h",
