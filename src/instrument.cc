@@ -266,6 +266,7 @@ void InstrumentCodeObject(BPatch_object* object, const litecfi::Parser& parser,
 
     PassManager* pm = new PassManager;
     pm->AddPass(new CallGraphPass())
+        ->AddPass(new LargeFunctionFilterPass())
         ->AddPass(new LeafAnalysisPass())
         ->AddPass(new StackAnalysisPass())
         ->AddPass(new NonLeafSafeWritesPass())

@@ -34,6 +34,7 @@ bool MatchName(string in_str, string matched) {
 PassManager *GetPassManager() {
   PassManager *pm = new PassManager;
   pm->AddPass(new CallGraphPass())
+      ->AddPass(new LargeFunctionFilterPass())
       ->AddPass(new LeafAnalysisPass())
       ->AddPass(new StackAnalysisPass())
       ->AddPass(new NonLeafSafeWritesPass())

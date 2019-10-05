@@ -1,6 +1,8 @@
 #ifndef LITECFI_PASSES_H_
 #define LITECFI_PASSES_H_
 
+#include <algorithm>
+
 #include "Absloc.h"
 #include "AbslocInterface.h"
 #include "CFG.h"
@@ -12,6 +14,7 @@
 #include "Location.h"
 #include "Register.h"
 #include "bitArray.h"
+#include "glog/logging.h"
 #include "liveness.h"
 #include "pass_manager.h"
 #include "utils.h"
@@ -79,6 +82,42 @@ class CallGraphPass : public Pass {
   }
 };
 
+class LargeFunctionFilterPass : public Pass {
+ public:
+  LargeFunctionFilterPass()
+      : Pass("Large Function Filter",
+             "Filters out large functions from static anlaysis.") {}
+
+  void RunLocalAnalysis(CodeObject* co, Function* f, FuncSummary* s,
+                        PassResult* result) override {
+    Address start = f->addr();
+    Address end = 0;
+    for (auto b : f->exitBlocks()) {
+      end = std::max(end, b->end());
+    }
+
+    for (auto b : f->returnBlocks()) {
+      end = std::max(end, b->end());
+    }
+
+    if (end < start) {
+      return;
+    }
+
+    if (end - start > kCutoffSize_) {
+      StdOut(Color::RED, FLAGS_vv)
+          << "    Skipping large function " << f->name()
+          << " with size : " << end - start << Endl;
+
+      s->large_function = true;
+      // Bail out and conservatively assume the function is unsafe.
+      s->writesMemory = true;
+    }
+  }
+
+  static constexpr unsigned int kCutoffSize_ = 20000;
+};
+
 class LeafAnalysisPass : public Pass {
  public:
   LeafAnalysisPass()
@@ -88,6 +127,10 @@ class LeafAnalysisPass : public Pass {
 
   void RunLocalAnalysis(CodeObject* co, Function* f, FuncSummary* s,
                         PassResult* result) override {
+    if (s->large_function) {
+      return;
+    }
+
     std::map<Dyninst::Offset, Dyninst::InstructionAPI::Instruction> insns;
 
     for (auto b : f->blocks()) {
@@ -132,6 +175,10 @@ class StackAnalysisPass : public Pass {
 
   void RunLocalAnalysis(CodeObject* co, Function* f, FuncSummary* s,
                         PassResult* result) override {
+    if (s->large_function) {
+      return;
+    }
+
     s->writesMemory = false;
     // If a function adjust SP in a weird way
     // so that Dyninst's stack analyasis cannot determine where
@@ -178,6 +225,10 @@ class StackAnalysisPass : public Pass {
           }
         }
       }
+
+      // Return early once the first unsafe block is found.
+      if (s->writesMemory)
+        break;
     }
   }
 
@@ -276,6 +327,10 @@ class DeadRegisterAnalysisPass : public Pass {
 
   void RunLocalAnalysis(CodeObject* co, Function* f, FuncSummary* s,
                         PassResult* result) override {
+    if (s->large_function) {
+      return;
+    }
+
     s->dead_at_entry =
         GetDeadRegisters(f, f->entry(), LivenessAnalyzer::Before);
 

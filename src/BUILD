@@ -66,6 +66,7 @@ cc_library(
     deps = [
         "@dyninst//:dyninst",
         "@com_github_gflags_gflags//:gflags",
+        "@glog//:glog",
     ],
     visibility = ["//visibility:public"],
 )

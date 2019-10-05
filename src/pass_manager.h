@@ -1,6 +1,7 @@
 #ifndef LITECFI_PASS_MANAGER_H_
 #define LITECFI_PASS_MANAGER_H_
 
+#include <chrono>
 #include <fstream>
 #include <map>
 #include <set>
@@ -20,6 +21,8 @@ struct FuncSummary {
   Function* func;
 
   bool safe;
+
+  bool large_function;
 
   bool writesMemory;
   bool adjustSP;
@@ -132,9 +135,16 @@ class PassManager {
       }
     }
 
+    using ClockType = std::chrono::system_clock;
+    auto start = ClockType::now();
+
     for (Pass* p : passes_) {
       p->RunPass(co, summaries_, result_);
     }
+
+    auto diff = ClockType::now() - start;
+    auto duration = std::chrono::duration_cast<std::chrono::seconds>(diff);
+    auto elapsed = duration.count();
 
     std::set<FuncSummary*> s;
     Pass* last = passes_.back();
@@ -159,16 +169,21 @@ class PassManager {
       // safe_fn_1
       // ..
       // safe_fn_n
+      //
+      // elapsed (seconds) : <elapsed_time>
       std::ofstream stats;
       stats.open(FLAGS_stats);
       stats << safe_fn_count << "," << unsafe_fn_count << "\n\n";
       for (auto& fn : safe_fns) {
         stats << fn << "\n";
       }
+
+      stats << "\nelapsed (seconds) : " << elapsed;
       stats.close();
     }
 
     if (FLAGS_vv) {
+      StdOut(Color::BLUE) << "Analysis took " << elapsed << " seconds." << Endl;
       StdOut(Color::BLUE) << "\nSummary: " << Endl;
       StdOut(Color::BLUE) << "  Safe Functions Found : " << safe_fn_count
                           << Endl;
