@@ -70,3 +70,16 @@ cc_library(
     ],
     visibility = ["//visibility:public"],
 )
+
+cc_binary(
+    name = "symbolic_analysis",
+    srcs = [
+	"symbolic.cc",
+    ],
+    deps = [
+        "@dyninst//:dyninst",
+        "@com_github_gflags_gflags//:gflags",
+        "@glog//:glog",
+    ],
+    visibility = ["//visibility:public"],
+)
