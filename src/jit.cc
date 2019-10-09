@@ -31,7 +31,7 @@ struct TempRegisters {
 
   TempRegisters()
       : tmp1(rdx), tmp2(rcx), tmp3(rax), tmp1_saved(true), tmp2_saved(true),
-        tmp3_saved(true), sp_offset(0) {}
+        tmp3_saved(true), sp_offset(8) {}
 };
 
 void SaveOrSkip(Assembler* a, TempRegisters* t, std::string reg_str, Gp* reg,
@@ -57,7 +57,7 @@ TempRegisters SaveTempRegisters(Assembler* a,
   if ((FLAGS_optimize_regs && dead_registers.empty()) || !FLAGS_optimize_regs) {
     Save(a, &t, &t.tmp1);
     Save(a, &t, &t.tmp2);
-    Save(a, &t, &t.tmp3);
+    //Save(a, &t, &t.tmp3);
   } else {
     auto reg = dead_registers.begin();
     if (reg++ != dead_registers.end()) {
@@ -84,7 +84,7 @@ TempRegisters SaveTempRegisters(Assembler* a,
 
 void RestoreTempRegisters(Assembler* a, TempRegisters t) {
   if (t.tmp3_saved) {
-    a->pop(t.tmp3);
+    //a->pop(t.tmp3);
   }
 
   if (t.tmp2_saved) {
@@ -106,13 +106,14 @@ void SaveRa(const asmjit::x86::Mem& shadow_ptr, const Gp& sp_reg,
   //   addq $0x8, %gs:0x0
   //   mov %rcx, (%rax)
   //   sahf
-
-  a->lahf();
+  a->pushfq();
+  //a->lahf();
   a->mov(ra_reg, ptr(rsp, t.sp_offset));
   a->mov(sp_reg, shadow_ptr);
   a->add(shadow_ptr, asmjit::imm(8));
   a->mov(ptr(sp_reg), ra_reg);
-  a->sahf();
+  a->popfq();
+  //a->sahf();
 }
 
 void SaveRaAndFrame(const asmjit::x86::Mem& shadow_ptr, const Gp& sp_reg,
@@ -127,15 +128,16 @@ void SaveRaAndFrame(const asmjit::x86::Mem& shadow_ptr, const Gp& sp_reg,
   //   leaq rcx, 0x10(%rsp)
   //   mov %rcx, 0x8(%rax)
   //   sahf
-
-  a->lahf();
+  a->pushfq();
+  //a->lahf();
   a->mov(ra_reg, ptr(rsp, t.sp_offset));
   a->mov(sp_reg, shadow_ptr);
   a->add(shadow_ptr, asmjit::imm(16));
   a->mov(ptr(sp_reg), ra_reg);
   a->lea(ra_reg, ptr(rsp, 24));
   a->mov(ptr(sp_reg, 8), ra_reg);
-  a->sahf();
+  a->popfq();
+  //a->sahf();
 }
 
 std::string JitStackPush(Dyninst::PatchAPI::Point* pt, FuncSummary* s,
@@ -194,8 +196,8 @@ void ValidateRa(const asmjit::x86::Mem& shadow_ptr, const Gp& sp_reg,
   //   sahf
   //   pop ...
   //   retq
-
-  a->lahf();
+  a->pushfq();
+  //a->lahf();
   a->mov(sp_reg, shadow_ptr);
 
   a->bind(loop);
@@ -216,7 +218,8 @@ void ValidateRa(const asmjit::x86::Mem& shadow_ptr, const Gp& sp_reg,
   a->embed(&sigill, sizeof(char));
 
   a->bind(success);
-  a->sahf();
+  a->popfq();
+  //a->sahf();
 }
 
 void ValidateRaAndFrame(const asmjit::x86::Mem& shadow_ptr, const Gp& sp_reg,
@@ -250,8 +253,8 @@ void ValidateRaAndFrame(const asmjit::x86::Mem& shadow_ptr, const Gp& sp_reg,
   //   sahf
   //   pop ...
   //   retq
-
-  a->lahf();
+  a->pushfq();
+  //a->lahf();
   a->mov(sp_reg, shadow_ptr);
 
   a->bind(loop);
@@ -275,7 +278,8 @@ void ValidateRaAndFrame(const asmjit::x86::Mem& shadow_ptr, const Gp& sp_reg,
   a->embed(&sigill, sizeof(char));
 
   a->bind(success);
-  a->sahf();
+  a->popfq();
+  //a->sahf();
 }
 
 std::string JitStackPop(Dyninst::PatchAPI::Point* pt, FuncSummary* s,
