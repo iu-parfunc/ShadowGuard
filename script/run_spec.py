@@ -8,10 +8,8 @@ from subprocess import *
 SPEC_ROOT = "/home/xm13/projects/spec_cpu2017"
 
 # One compiler per configuration file
-config_list = [ ("GCC-6.4.0", "single-thread-gcc-6.4.0", "gcc-6.4.0-gcc-4.8.5-pcrkwvm"), \
-        ("GCC-7.4.0", "single-thread-gcc-7.4.0", "gcc-7.4.0-gcc-6.4.0-ja3xbno"), \
-        ("GCC-8.3.0", "single-thread-gcc-8.3.0", "gcc-8.3.0-gcc-7.3.0-qowc552") ]
-
+config_list = [ ("GCC-6.4.0-ST", "single-thread-gcc-6.4.0", "gcc-6.4.0-gcc-4.8.5-pcrkwvm"), \
+        ("GCC-6.4.0-MT", "multi-thread-gcc-6.4.0", "gcc-6.4.0-gcc-4.8.5-pcrkwvm")]
 # The list of benchmark to run
 tests_list = ["600.perlbench_s", \
         "602.gcc_s", \
@@ -71,9 +69,9 @@ def CleanOldDirs():
 def GenerateTestConfigurations():
     tests = []
     for mode in test_mode:
-        for compiler, config, module in config_list:
+        for column , config, module in config_list:
             for bench in tests_list:
-                tests.append ( (mode, compiler, config, bench, module) )
+                tests.append ( (mode, column, config, bench, module) )
     return tests
 
 def WaitForFinish(results, runs):
@@ -90,10 +88,10 @@ def WaitForFinish(results, runs):
                 else:
                     ret = "Unknown"
                 mode = runs[i][1]
-                compiler = runs[i][2]
+                column = runs[i][2]
                 bench = runs[i][4]
-                results[ (mode, compiler, bench) ] = ret
-                print mode, compiler, bench, ret
+                results[ (mode, column, bench) ] = ret
+                print mode, column, bench, ret
                 del runs[i]
                 return
         # All tests are running
@@ -103,19 +101,19 @@ def WaitForFinish(results, runs):
 def PrintResultsTable(mode):
     print mode 
     line = "| SPEC "
-    for compiler, config, _ in config_list:
-        line += " | {0}".format(compiler)
+    for column, config, _ in config_list:
+        line += " | {0}".format(column)
     line += " | "
     print line
     line = "| --- | "
-    for compiler, config, _ in config_list:
+    for column, config, _ in config_list:
         line += " --- | "
     print line
 
     for test in tests_list:
         line = "| {0}".format(test)
-        for compiler, config, _ in config_list:
-            line += " | {0}".format(results[(mode, compiler, test)])
+        for column, config, _ in config_list:
+            line += " | {0}".format(results[(mode, column, test)])
         line += " |"
         print line
         
@@ -125,8 +123,8 @@ configs = GenerateTestConfigurations()
 
 results = {}
 runs = []
-for mode, compiler, cfg_prefix, bench, module in configs:
-    runs.append( Run(mode, compiler, cfg_prefix, bench, module) )
+for mode, column, cfg_prefix, bench, module in configs:
+    runs.append( Run(mode, column, cfg_prefix, bench, module) )
     if len(runs) == PARALLEL:
         WaitForFinish(results, runs)
 
