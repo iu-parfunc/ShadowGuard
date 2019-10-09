@@ -6,34 +6,98 @@
 #include <map>
 #include <set>
 #include <string>
+#include <vector>
 
 #include "CodeObject.h"
+#include "DynAST.h"
 #include "gflags/gflags.h"
 #include "utils.h"
 
-using namespace Dyninst;
-using namespace Dyninst::ParseAPI;
+using Dyninst::Address;
+using Dyninst::AST;
+using Dyninst::InstructionAPI::Instruction;
+using Dyninst::ParseAPI::Block;
+using Dyninst::ParseAPI::CALL;
+using Dyninst::ParseAPI::CALL_FT;
+using Dyninst::ParseAPI::CodeObject;
+using Dyninst::ParseAPI::Function;
+using Dyninst::ParseAPI::RET;
 
 DECLARE_bool(vv);
 DECLARE_string(stats);
 
+struct MemoryWrite {
+  MemoryWrite() {}
+
+  // Memory write coordinate information.
+  Instruction ins;
+  Function* function;
+  Block* block;
+
+  Address addr;
+
+  // Resolved symbolic expression(s) for the value of the memory write at the
+  // function entry.
+  std::vector<AST::Ptr> defines;
+  // Resolved symbolic expression(s) for the value of the memory write at the
+  // function exit.
+  std::vector<AST::Ptr> uses;
+
+  // Denotes if this is a stack write.
+  bool stack;
+  // Denotes if this write has been resolved for defines and uses.
+  bool resolved;
+};
+
 struct FuncSummary {
   Function* func;
 
+  // Denotes if this function is safe so that shadow stack checks can be
+  // skipped.
+  //
+  // Safety of a function is defined as that it can be statically guaranteed
+  // that it will not write to stack above  its frame. Statically determinable
+  // heap writes are considered safe.
   bool safe;
 
-  bool large_function;
+  // Denotes if any exceptional conditions has rendered this function unsafe
+  // irrespective of if it writes to memory or not.
+  //
+  // Currently we have following exceptional conditions:
+  //   - Function is too large: We skip static analyses (to keep static analyses
+  //       times tractable) and simply assume it is unsafe.
+  //   - Function has PLT calls or unknown control flow : Stack mutation effects
+  //       due to callees/ indirect control flows cannot be statically
+  //       determined so we consider current function to be unsafe as well.
+  //
+  //  If a function is assumed unsafe at certain point in the analysis pipeline
+  //  rest of the analyses in the pipeline can choose to simply skip analysing
+  //  the function.
+  bool assume_unsafe;
 
-  bool writesMemory;
-  bool adjustSP;
-  bool containsPLTCall;
-  bool containsUnknownCF;
+  // Denotes whether this function itself unsafely writes to memory.
+  bool self_writes;
+  // Denotes whether this function's callees unsafely write to memory.
+  bool child_writes;
+  // Denotes overall if it should be considered that this function will write to
+  // memory unsafely due to self writes, child writes or any exceptional
+  // condtions.
+  bool writes;
+
+  // All memory writes within the function.
+  std::map<Address, MemoryWrite*> all_writes;
+  // All stack writes within the function keyed by stack offset at write.
+  std::map<int, MemoryWrite*> stack_writes;
+
+  // Denotes whether this function calls PLT functions.
+  bool has_plt_call;
+  // Denotes whether this function has unknown control flows.
+  bool has_unknown_cf;
+
   // Callees of this function.
   std::set<Function*> callees;
   // Callers of this function.
   std::set<Function*> callers;
-  // If this function is at a loop head.
-  bool loop_head;
   // Set of registers dead at function entry.
   std::set<std::string> dead_at_entry;
   // Set of registers dead at each of the function exits.
@@ -42,11 +106,10 @@ struct FuncSummary {
   std::set<std::string> unused_caller_saved;
 
   void Print() {
-    printf("writesMemory=%d ", writesMemory);
-    printf("adjustSP=%d ", adjustSP);
-    printf("containsPLTCall=%d ", containsPLTCall);
-    printf("containsUnknownCF=%d ", containsUnknownCF);
-    printf("Callee=%lu\n", callees.size());
+    printf("Writes to memory = %d ", writes);
+    printf("Has PLT calls = %d ", has_plt_call);
+    printf("Has unknown control flow = %d ", has_unknown_cf);
+    printf("Number of callees = %lu\n", callees.size());
   }
 };
 
@@ -75,10 +138,7 @@ class Pass {
     // NOOP
   }
 
-  virtual bool IsSafeFunction(FuncSummary* s) {
-    return !s->writesMemory && !s->adjustSP && !s->containsPLTCall &&
-           !s->containsUnknownCF;
-  }
+  virtual bool IsSafeFunction(FuncSummary* s) { return !s->writes; }
 
   void RunPass(CodeObject* co, std::map<Function*, FuncSummary*>& summaries,
                AnalysisResult& result) {

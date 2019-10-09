@@ -19,6 +19,16 @@
 #include "pass_manager.h"
 #include "utils.h"
 
+using Dyninst::Absloc;
+using Dyninst::AbsRegion;
+using Dyninst::Address;
+using Dyninst::Offset;
+using Dyninst::InstructionAPI::Instruction;
+using Dyninst::InstructionAPI::RegisterAST;
+using Dyninst::ParseAPI::Block;
+using Dyninst::ParseAPI::Function;
+using Dyninst::ParseAPI::Location;
+
 class CallGraphPass : public Pass {
  public:
   CallGraphPass()
@@ -42,19 +52,21 @@ class CallGraphPass : public Pass {
     for (auto b : f->blocks()) {
       for (auto e : b->targets()) {
         if (e->sinkEdge() && e->type() != RET) {
-          s->containsUnknownCF = true;
+          s->has_unknown_cf = true;
+          s->assume_unsafe = true;
           continue;
         }
         if (e->type() != CALL)
           continue;
         if (co->cs()->linkage().find(e->trg()->start()) !=
             co->cs()->linkage().end()) {
-          s->containsPLTCall = true;
+          s->has_plt_call = true;
+          s->assume_unsafe = true;
           continue;
         }
         std::vector<Function*> funcs;
         e->trg()->getFuncs(funcs);
-        Function* callee = NULL;
+        Function* callee = nullptr;
         for (auto call_trg : funcs) {
           if (call_trg->entry() == e->trg()) {
             callee = call_trg;
@@ -90,6 +102,9 @@ class LargeFunctionFilterPass : public Pass {
 
   void RunLocalAnalysis(CodeObject* co, Function* f, FuncSummary* s,
                         PassResult* result) override {
+    if (s->assume_unsafe)
+      return;
+
     Address start = f->addr();
     Address end = 0;
     for (auto b : f->exitBlocks()) {
@@ -109,113 +124,72 @@ class LargeFunctionFilterPass : public Pass {
           << "    Skipping large function " << f->name()
           << " with size : " << end - start << Endl;
 
-      s->large_function = true;
       // Bail out and conservatively assume the function is unsafe.
-      s->writesMemory = true;
+      s->assume_unsafe = true;
     }
   }
 
   static constexpr unsigned int kCutoffSize_ = 20000;
 };
 
-class LeafAnalysisPass : public Pass {
+class IntraProceduralMemoryAnalysis : public Pass {
  public:
-  LeafAnalysisPass()
-      : Pass("Leaf Analysis",
-             "Skips leaf functions that does not write memory or "
-             "adjust SP.") {}
+  IntraProceduralMemoryAnalysis()
+      : Pass("Intra-procedural Memory Write and Stack Pointer Overwriee "
+             "Analysis",
+             "Analyzes the memory writes within a function. Also detects stack"
+             " pointer overwrites.") {}
 
   void RunLocalAnalysis(CodeObject* co, Function* f, FuncSummary* s,
                         PassResult* result) override {
-    if (s->large_function) {
+    if (s->assume_unsafe)
       return;
-    }
-
-    std::map<Dyninst::Offset, Dyninst::InstructionAPI::Instruction> insns;
-
-    for (auto b : f->blocks()) {
-      b->getInsns(insns);
-
-      for (auto const& ins : insns) {
-        // Call instructions always write to memory.
-        // But they create new frames, so the writes are ignored.
-        bool isCall =
-            (ins.second.getCategory() == Dyninst::InstructionAPI::c_CallInsn);
-        if (isCall)
-          continue;
-        s->writesMemory |= ins.second.writesMemory();
-
-        std::set<Dyninst::InstructionAPI::RegisterAST::Ptr> written;
-        ins.second.getWriteSet(written);
-
-        bool isRet =
-            (ins.second.getCategory() == Dyninst::InstructionAPI::c_ReturnInsn);
-        if (isRet)
-          continue;
-        for (auto const& written_register : written) {
-          if (written_register->getID().isStackPointer())
-            s->adjustSP = true;
-        }
-      }
-    }
-  }
-
-  bool IsSafeFunction(FuncSummary* s) override {
-    return !s->writesMemory && !s->adjustSP && !s->containsPLTCall &&
-           !s->containsUnknownCF && s->callees.empty();
-  }
-};
-
-class StackAnalysisPass : public Pass {
- public:
-  StackAnalysisPass()
-      : Pass("Stack Analysis",
-             "Skips leaf functions that do not write unknown memory or "
-             "adjust SP.") {}
-
-  void RunLocalAnalysis(CodeObject* co, Function* f, FuncSummary* s,
-                        PassResult* result) override {
-    if (s->large_function) {
-      return;
-    }
-
-    s->writesMemory = false;
-    // If a function adjust SP in a weird way
-    // so that Dyninst's stack analyasis cannot determine where
-    // it SP is, then stack writes will become unknown location
-    // Therefore, we do not use this any more, and fully
-    // rely on Dyninst's stack analysis.
-    s->adjustSP = false;
 
     AssignmentConverter converter(true /* cache results*/,
                                   true /* use stack analysis*/);
+    std::map<Offset, Instruction> insns;
 
-    std::map<Dyninst::Offset, Dyninst::InstructionAPI::Instruction> insns;
     for (auto b : f->blocks()) {
+      insns.clear();
       b->getInsns(insns);
 
       for (auto const& ins : insns) {
+        // Ignore writes due to frame switching instructions such as call/ ret.
+        if (IsFrameSwitchingInstruction(ins.second))
+          continue;
+
         if (ins.second.writesMemory()) {
           // Assignment is essentially SSA.
           // So, an instruction may have multiple SSAs.
           std::vector<Assignment::Ptr> assigns;
           converter.convert(ins.second, ins.first, f, b, assigns);
+
+          MemoryWrite* write = new MemoryWrite;
+          write->function = f;
+          write->block = b;
+          write->ins = ins.second;
+          write->addr = b->start() + ins.first;
+
           for (auto a : assigns) {
             AbsRegion& out = a->out();  // The lhs.
             Absloc loc = out.absloc();
             switch (loc.type()) {
-            case Absloc::Stack:
+            case Absloc::Stack: {
               // If the stack location is in the previous frame,
               // it is a dangerous write.
-              if (loc.off() >= 0)
-                s->writesMemory = true;
+              write->stack = true;
+              s->stack_writes[loc.off()] = write;
+              if (loc.off() >= -8) {
+                s->assume_unsafe = true;
+              }
               break;
+            }
             case Absloc::Unknown:
               // Unknown memory writes.
-              s->writesMemory = true;
+              s->self_writes = true;
               break;
             case Absloc::Heap:
-              // This is actually a write to a global varible.
+              // This is actually a write to a global variable.
               // That's why it will have a statically determined address.
               break;
             case Absloc::Register:
@@ -223,64 +197,63 @@ class StackAnalysisPass : public Pass {
               break;
             }
           }
+
+          s->all_writes[write->addr] = write;
         }
       }
-
-      // Return early once the first unsafe block is found.
-      if (s->writesMemory)
-        break;
     }
   }
 
   bool IsSafeFunction(FuncSummary* s) override {
-    return !s->writesMemory && !s->adjustSP && !s->containsPLTCall &&
-           !s->containsUnknownCF && s->callees.empty();
+    return !s->self_writes && !s->assume_unsafe && s->callees.empty();
+  }
+
+ private:
+  bool IsFrameSwitchingInstruction(const Instruction& ins) {
+    // Call or return instructions switch frames.
+    if (ins.getCategory() == Dyninst::InstructionAPI::c_CallInsn ||
+        ins.getCategory() == Dyninst::InstructionAPI::c_ReturnInsn) {
+      return true;
+    }
+    return false;
   }
 };
 
-class NonLeafSafeWritesPass : public Pass {
+class InterProceduralMemoryAnalysis : public Pass {
  public:
-  NonLeafSafeWritesPass()
-      : Pass("Non Leaf Safe Writes",
-             "Skips functions that itself and its callee do not write "
-             "unknown memory or adjust SP.") {}
+  InterProceduralMemoryAnalysis()
+      : Pass("Inter-procedural Memory Write Analysis",
+             "Analyses memory writes across functions.") {}
 
   void RunGlobalAnalysis(CodeObject* co,
                          std::map<Function*, FuncSummary*>& summaries,
                          PassResult* result) override {
+    std::set<Function*> visited;
     for (auto f : co->funcs()) {
-      FuncSummary* s = summaries[f];
-      // Make conservative assumptions about PLT callees
-      // and indirect callees.
-      s->writesMemory =
-          s->writesMemory || s->containsPLTCall || s->containsUnknownCF;
-      s->adjustSP = s->adjustSP || s->containsPLTCall || s->containsUnknownCF;
-    }
-
-    bool done = false;
-    while (!done) {
-      done = true;
-      for (auto f : co->funcs()) {
-        FuncSummary* s = summaries[f];
-
-        FuncSummary new_s;
-        new_s.writesMemory = s->writesMemory;
-        new_s.adjustSP = s->adjustSP;
-
-        for (auto tarf : s->callees) {
-          FuncSummary* cs = summaries[tarf];
-          new_s.writesMemory |= cs->writesMemory;
-          new_s.adjustSP |= cs->adjustSP;
-        }
-
-        if (new_s.adjustSP != s->adjustSP ||
-            new_s.writesMemory != s->writesMemory) {
-          s->adjustSP = new_s.adjustSP;
-          s->writesMemory = new_s.writesMemory;
-          done = false;
-        }
+      auto it = visited.find(f);
+      if (it == visited.end()) {
+        VisitFunction(co, summaries[f], summaries, visited);
       }
     }
+  }
+
+ private:
+  bool VisitFunction(CodeObject* co, FuncSummary* s,
+                     std::map<Function*, FuncSummary*>& summaries,
+                     std::set<Function*>& visited) {
+    visited.insert(s->func);
+
+    for (auto f : s->callees) {
+      auto it = visited.find(f);
+      if (it == visited.end()) {
+        s->child_writes |= VisitFunction(co, summaries[f], summaries, visited);
+      } else {
+        s->child_writes |= summaries[f]->writes;
+      }
+    }
+
+    s->writes = s->self_writes || s->child_writes || s->assume_unsafe;
+    return s->writes;
   }
 };
 
@@ -327,7 +300,7 @@ class DeadRegisterAnalysisPass : public Pass {
 
   void RunLocalAnalysis(CodeObject* co, Function* f, FuncSummary* s,
                         PassResult* result) override {
-    if (s->large_function) {
+    if (s->assume_unsafe) {
       return;
     }
 

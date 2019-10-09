@@ -267,9 +267,8 @@ void InstrumentCodeObject(BPatch_object* object, const litecfi::Parser& parser,
     PassManager* pm = new PassManager;
     pm->AddPass(new CallGraphPass())
         ->AddPass(new LargeFunctionFilterPass())
-        ->AddPass(new LeafAnalysisPass())
-        ->AddPass(new StackAnalysisPass())
-        ->AddPass(new NonLeafSafeWritesPass())
+        ->AddPass(new IntraProceduralMemoryAnalysis())
+        ->AddPass(new InterProceduralMemoryAnalysis())
         ->AddPass(new DeadRegisterAnalysisPass());
     std::set<FuncSummary*> summaries = pm->Run(co);
 

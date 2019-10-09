@@ -15,6 +15,8 @@
 #include "src/passes.h"
 #include "gtest/gtest.h"
 
+using Dyninst::ParseAPI::CodeObject;
+using Dyninst::ParseAPI::SymtabCodeSource;
 using std::string;
 
 DEFINE_bool(vv, false, "Log verbose output.");
@@ -35,81 +37,167 @@ PassManager *GetPassManager() {
   PassManager *pm = new PassManager;
   pm->AddPass(new CallGraphPass())
       ->AddPass(new LargeFunctionFilterPass())
-      ->AddPass(new LeafAnalysisPass())
-      ->AddPass(new StackAnalysisPass())
-      ->AddPass(new NonLeafSafeWritesPass())
+      ->AddPass(new IntraProceduralMemoryAnalysis())
+      ->AddPass(new InterProceduralMemoryAnalysis())
       ->AddPass(new DeadRegisterAnalysisPass());
   return pm;
 }
 
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wreturn-type"
-bool GetFunctionSafety(string binary, string function) {
-  PassManager *pm = GetPassManager();
-  std::set<FuncSummary *> summaries = pm->Run(GetCodeObject(binary.c_str()));
-
+FuncSummary *GetSummary(const std::set<FuncSummary *> &summaries,
+                        string function) {
   for (auto s : summaries) {
-    if (MatchName(s->func->name(), function)) {
-      return s->safe;
+    if (s->func->name() == function) {
+      return s;
     }
   }
 
-  EXPECT_TRUE(false);
+  return nullptr;
 }
-#pragma GCC diagnostic pop
+
+std::set<FuncSummary *> Analyse(string binary) {
+  PassManager *pm = GetPassManager();
+  return pm->Run(GetCodeObject(binary.c_str()));
+}
 
 TEST(AnalysisTest, TestsSafeLeaf) {
   string binary = "bazel-bin/tests/safe_leaf";
   string function = "safe_leaf_fn";
 
-  EXPECT_EQ(GetFunctionSafety(binary, function), true);
+  auto summary = GetSummary(Analyse(binary), function);
+  ASSERT_NE(summary, nullptr);
+  EXPECT_EQ(summary->safe, true);
+  EXPECT_EQ(summary->self_writes, false);
+  EXPECT_EQ(summary->child_writes, false);
 }
 
 TEST(AnalysisTest, TestsSafeNonLeaf) {
   string binary = "bazel-bin/tests/safe_non_leaf";
   string function = "safe_non_leaf_fn";
 
-  EXPECT_EQ(GetFunctionSafety(binary, function), true);
+  auto summaries = Analyse(binary);
+  FuncSummary *summary = GetSummary(summaries, function);
+  ASSERT_NE(summary, nullptr);
+  EXPECT_EQ(summary->safe, true);
+  EXPECT_EQ(summary->self_writes, false);
+  EXPECT_EQ(summary->child_writes, false);
+
+  function = "non_leaf_fn";
+  summary = GetSummary(summaries, function);
+  ASSERT_NE(summary, nullptr);
+  EXPECT_EQ(summary->safe, true);
+  EXPECT_EQ(summary->self_writes, false);
+  EXPECT_EQ(summary->child_writes, false);
+
+  function = "leaf_fn";
+  summary = GetSummary(summaries, function);
+  ASSERT_NE(summary, nullptr);
+  EXPECT_EQ(summary->safe, true);
+  EXPECT_EQ(summary->self_writes, false);
+  EXPECT_EQ(summary->child_writes, false);
 }
 
 TEST(AnalysisTest, TestsUnsafeLeaf) {
   string binary = "bazel-bin/tests/unsafe_leaf";
   string function = "unsafe_leaf_fn";
 
-  EXPECT_EQ(GetFunctionSafety(binary, function), false);
+  auto summaries = Analyse(binary);
+  FuncSummary *summary = GetSummary(summaries, function);
+  ASSERT_NE(summary, nullptr);
+  EXPECT_EQ(summary->safe, false);
+  EXPECT_EQ(summary->self_writes, true);
+  EXPECT_EQ(summary->child_writes, false);
 }
 
 TEST(AnalysisTest, TestsUnsafeNonLeaf) {
   string binary = "bazel-bin/tests/unsafe_non_leaf";
   string function = "unsafe_non_leaf_fn";
 
-  EXPECT_EQ(GetFunctionSafety(binary, function), false);
+  auto summaries = Analyse(binary);
+  FuncSummary *summary = GetSummary(summaries, function);
+  ASSERT_NE(summary, nullptr);
+  EXPECT_EQ(summary->safe, false);
+  EXPECT_EQ(summary->self_writes, false);
+  EXPECT_EQ(summary->child_writes, true);
+
+  function = "non_leaf_fn";
+  summary = GetSummary(summaries, function);
+  ASSERT_NE(summary, nullptr);
+  EXPECT_EQ(summary->safe, false);
+  EXPECT_EQ(summary->self_writes, false);
+  EXPECT_EQ(summary->child_writes, true);
+
+  function = "ns_leaf_fn";
+  summary = GetSummary(summaries, function);
+  ASSERT_NE(summary, nullptr);
+  EXPECT_EQ(summary->safe, false);
+  EXPECT_EQ(summary->self_writes, true);
+  EXPECT_EQ(summary->child_writes, false);
 }
 
 TEST(AnalysisTest, TestsIndirectCall) {
   string binary = "bazel-bin/tests/indirect_call";
   string function = "indirect_call";
 
-  EXPECT_EQ(GetFunctionSafety(binary, function), false);
+  auto summaries = Analyse(binary);
+  FuncSummary *summary = GetSummary(summaries, function);
+  ASSERT_NE(summary, nullptr);
+  EXPECT_EQ(summary->safe, false);
+  EXPECT_EQ(summary->self_writes, false);
+  EXPECT_EQ(summary->child_writes, false);
+  EXPECT_EQ(summary->assume_unsafe, true);
 }
 
 TEST(AnalysisTest, TestsIndirectCallTree) {
   string binary = "bazel-bin/tests/indirect_call_tree";
   string function = "indirect_call_tree";
 
-  EXPECT_EQ(GetFunctionSafety(binary, function), false);
+  auto summaries = Analyse(binary);
+  FuncSummary *summary = GetSummary(summaries, function);
+  ASSERT_NE(summary, nullptr);
+  EXPECT_EQ(summary->safe, false);
+  EXPECT_EQ(summary->self_writes, false);
+  EXPECT_EQ(summary->child_writes, true);
+  EXPECT_EQ(summary->assume_unsafe, false);
+
+  function = "indirect_call";
+  summary = GetSummary(summaries, function);
+  ASSERT_NE(summary, nullptr);
+  EXPECT_EQ(summary->safe, false);
+  EXPECT_EQ(summary->self_writes, false);
+  EXPECT_EQ(summary->child_writes, false);
+  EXPECT_EQ(summary->assume_unsafe, true);
 }
 
 TEST(AnalysisTest, TestsPltCall) {
   string binary = "bazel-bin/tests/plt_call";
   string function = "plt_call";
 
-  EXPECT_EQ(GetFunctionSafety(binary, function), false);
+  auto summaries = Analyse(binary);
+  FuncSummary *summary = GetSummary(summaries, function);
+  ASSERT_NE(summary, nullptr);
+  EXPECT_EQ(summary->safe, false);
+  EXPECT_EQ(summary->self_writes, false);
+  EXPECT_EQ(summary->child_writes, false);
+  EXPECT_EQ(summary->assume_unsafe, true);
 }
 
 TEST(AnalysisTest, TestsPltCallTree) {
   string binary = "bazel-bin/tests/plt_call_tree";
   string function = "plt_call_tree";
 
-  EXPECT_EQ(GetFunctionSafety(binary, function), false);
+  auto summaries = Analyse(binary);
+  FuncSummary *summary = GetSummary(summaries, function);
+  ASSERT_NE(summary, nullptr);
+  EXPECT_EQ(summary->safe, false);
+  EXPECT_EQ(summary->self_writes, false);
+  EXPECT_EQ(summary->child_writes, true);
+  EXPECT_EQ(summary->assume_unsafe, false);
+
+  function = "plt_call";
+  summary = GetSummary(summaries, function);
+  ASSERT_NE(summary, nullptr);
+  EXPECT_EQ(summary->safe, false);
+  EXPECT_EQ(summary->self_writes, false);
+  EXPECT_EQ(summary->child_writes, false);
+  EXPECT_EQ(summary->assume_unsafe, true);
 }
