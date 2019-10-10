@@ -168,7 +168,7 @@ class IntraProceduralMemoryAnalysis : public Pass {
           write->function = f;
           write->block = b;
           write->ins = ins.second;
-          write->addr = b->start() + ins.first;
+          write->addr = ins.first;
 
           for (auto a : assigns) {
             AbsRegion& out = a->out();  // The lhs.

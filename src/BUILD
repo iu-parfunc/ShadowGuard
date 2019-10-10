@@ -77,6 +77,7 @@ cc_binary(
 	"symbolic.cc",
     ],
     deps = [
+	"//src:analysis",
         "@dyninst//:dyninst",
         "@com_github_gflags_gflags//:gflags",
         "@glog//:glog",

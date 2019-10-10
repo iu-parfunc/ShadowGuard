@@ -3,14 +3,19 @@
 #include <string>
 
 #include "CodeObject.h"
+#include "DynAST.h"
 #include "Expression.h"
+#include "Graph.h"
 #include "Instruction.h"
 #include "InstructionDecoder.h"
 #include "Operand.h"
 #include "Register.h"
+#include "SymEval.h"
 #include "Visitor.h"
 #include "gflags/gflags.h"
 #include "glog/logging.h"
+#include "pass_manager.h"
+#include "passes.h"
 #include "slicing.h"
 
 using namespace Dyninst;
@@ -20,61 +25,8 @@ using namespace DataflowAPI;
 
 using std::string;
 
-class WriteMatchVisitor : public Visitor {
- public:
-  explicit WriteMatchVisitor(string reg)
-      : reg_(reg), is_dereference_(false), is_reg_match_(false){};
-
-  ~WriteMatchVisitor(){};
-
-  virtual void visit(BinaryFunction *b) override{};
-
-  virtual void visit(Immediate *i) override{};
-
-  virtual void visit(RegisterAST *r) override {
-    std::cout << "Register : " << r->getID().name() << "\n";
-    is_reg_match_ = (r->getID().name() == reg_);
-    std::cout << "is_reg_match : " << is_reg_match_ << "\n";
-  }
-
-  virtual void visit(Dereference *d) override {
-    std::cout << "Dereference found\n";
-    is_dereference_ = true;
-  };
-
-  bool is_write_matched() { return is_dereference_ && is_reg_match_; }
-
-  string reg_;
-  bool is_dereference_;
-  bool is_reg_match_;
-};
-
-Function *FindFunctionByName(CodeObject *co, string name) {
-  const CodeObject::funclist &all = co->funcs();
-  auto fit = all.begin();
-  for (; fit != all.end(); ++fit) {
-    Function *f = *fit;
-    if (f->name().find(name) != std::string::npos) {
-      return f;
-    }
-  }
-
-  return nullptr;
-}
-
-CodeObject *GetCodeObject(string binary) {
-  SymtabAPI::Symtab *symTab;
-  if (SymtabAPI::Symtab::openFile(symTab, binary) == false) {
-    std::cout << "error: file can not be parsed";
-    exit(-1);
-  }
-
-  SymtabCodeSource *sts =
-      new SymtabCodeSource(const_cast<char *>(binary.c_str()));
-  CodeObject *co = new CodeObject(sts);
-  co->parse();
-  return co;
-}
+DEFINE_bool(vv, false, "Log verbose output.");
+DEFINE_string(stats, "", "File to log statistics related to static anlaysis.");
 
 /**
    0x00000000000006aa <+0>:	push   %rbp
@@ -87,54 +39,96 @@ CodeObject *GetCodeObject(string binary) {
    0x00000000000006be <+20>:	retq
 **/
 
-Instruction::Ptr GetMemoryWrite(Function *f, std::string reg) {
-  std::map<Dyninst::Offset, Dyninst::InstructionAPI::Instruction> insns;
+class SimpleAssignmentPred : public Slicer::Predicates {
+ public:
+  SimpleAssignmentPred() {}
 
-  for (auto b : f->blocks()) {
-    b->getInsns(insns);
+  bool modifyCurrentFrame(Slicer::SliceFrame &frame, Graph::Ptr g, Slicer *s) {
+    std::cout << "Updating slice graph\n";
+  }
+};
 
-    for (auto const &ins : insns) {
-      auto category = ins.second.getCategory();
-      // Call instructions always write to memory.
-      // But they create new frames, so the writes are ignored.
-      bool isCallOrRet = (category == Dyninst::InstructionAPI::c_CallInsn ||
-                          category == Dyninst::InstructionAPI::c_ReturnInsn);
-      if (isCallOrRet)
-        continue;
-
-      WriteMatchVisitor v(reg);
-      if (ins.second.writesMemory()) {
-        std::cout << ins.second.format() << "\n";
-        std::set<Expression::Ptr> exprs;
-        ins.second.getMemoryWriteOperands(exprs);
-
-        if (exprs.size() > 1)
-          continue;
-
-        for (auto expr : exprs) {
-          expr->apply(&v);
-
-          if (v.is_write_matched()) {
-            return Instruction::Ptr(new Instruction(ins.second));
-          }
-        }
-      }
+FuncSummary *GetSummary(const std::set<FuncSummary *> &summaries,
+                        string function) {
+  for (auto s : summaries) {
+    if (s->func->name() == function) {
+      return s;
     }
   }
 
   return nullptr;
 }
 
+CodeObject *GetCodeObject(const char *binary) {
+  SymtabCodeSource *sts = new SymtabCodeSource(const_cast<char *>(binary));
+  CodeObject *co = new CodeObject(sts);
+  co->parse();
+  return co;
+}
+
+PassManager *GetPassManager() {
+  PassManager *pm = new PassManager;
+  pm->AddPass(new CallGraphPass())
+      ->AddPass(new LargeFunctionFilterPass())
+      ->AddPass(new IntraProceduralMemoryAnalysis())
+      ->AddPass(new InterProceduralMemoryAnalysis())
+      ->AddPass(new DeadRegisterAnalysisPass());
+  return pm;
+}
+
+std::set<FuncSummary *> Analyse(string binary) {
+  PassManager *pm = GetPassManager();
+  return pm->Run(GetCodeObject(binary.c_str()));
+}
+
+bool Resolve(MemoryWrite *r, FuncSummary *summary) {
+  AssignmentConverter ac(true, true);
+  std::vector<Assignment::Ptr> assignments;
+  ac.convert(r->ins, r->addr, r->function, r->block, assignments);
+
+  CHECK(assignments.size() == 1);
+
+  std::cout << "Slicing instruction at " << std::hex << r->addr << "\n";
+  Slicer s(assignments[0], r->block, r->function);
+
+  SimpleAssignmentPred pred;
+  GraphPtr slice = s.backwardSlice(pred);
+
+  Result_t result;
+  if (SymEval::expand(slice, result) != SymEval::SUCCESS) {
+    std::cout << "Failed expanding the AST.\n";
+    return false;
+  }
+
+  AST::Ptr expr = result[assignments[0]];
+  std::cout << expr->format();
+
+  return true;
+}
+
 int main(int argc, char *argv[]) {
+  google::InitGoogleLogging(argv[0]);
+
   gflags::ParseCommandLineFlags(&argc, &argv, true);
 
   std::string binary(argv[1]);
-  string name = "simple_write";
+  string function = "simple_write";
   string reg = "x86_64::rax";
 
-  Function *f = FindFunctionByName(GetCodeObject(binary), name);
-  CHECK(f != nullptr);
+  auto summary = GetSummary(Analyse(binary), function);
+  CHECK(summary != nullptr);
+  CHECK(summary->all_writes.size() == 3);
+  CHECK(summary->stack_writes.size() == 2);
 
-  Instruction::Ptr ins = GetMemoryWrite(f, reg);
-  CHECK(ins != nullptr);
+  for (auto it : summary->all_writes) {
+    if (!it.second->stack) {
+      MemoryWrite *r = it.second;
+
+      if (!Resolve(r, summary)) {
+        std::cout << "Unable to resolve memory write : " << r->ins.format()
+                  << "\n";
+        exit(-1);
+      }
+    }
+  }
 }
