@@ -125,12 +125,15 @@ def sort_benchs_by_order(benchs, order):
 
 SeriesData = namedtuple('SeriesData', ['overheads', 'errors'])
 
-benchmarks = ['mcf_s', 'x264_s', 'deepsjeng_s', 'xz_s', 'lbm_s']
+benchmarks = ['mcf_s', 'x264_s', 'deepsjeng_s', 'xz_s', 'lbm_s', \
+              'perlbench_s', 'gcc_s', 'omnetpp_s', 'xalancbmk_s', \
+              'leela_s', 'exchange2_s', 'bwaves_s', 'cactuBSSN_s',\
+              'wrf_s', 'pop2_s', 'imagick_s', 'nab_s', 'fotonik3d_s',\
+              'roms_s']
 
-def get_plot_data(results_dir):
+def get_bar_chart_data(results_dir):
 
     multi_experiment_stats = calculate_multi_experiment_stats(results_dir)
-    # print(multi_experiment_stats)
 
     plot_data = defaultdict(lambda: None)
     for label, benchs in multi_experiment_stats.items():
@@ -146,21 +149,48 @@ def get_plot_data(results_dir):
 
     return plot_data
 
-if __name__ == "__main__":
-    results_dir = "/home/buddhika/Builds/spec_cpu2017/result"
+TableData = namedtuple('TableData', ['headers', 'data'])
 
-    plot_data = get_plot_data(results_dir)
+def get_table_data(plot_data, benchmarks):
+    arr = np.full((len(plot_data), len(benchmarks)), np.inf)
+
+    row = 0
+    headers = []
+    for label, data in plot_data.items():
+        for col, overhead in enumerate(data.overheads):
+            arr[(row, col)] = round(overhead, 1)
+        row += 1
+        headers.append(label)
+
+    return TableData(headers, arr.T)
+
+if __name__ == "__main__":
+    results_dir = "/home/buddhika/Builds/result"
+
+    # Grok the data.
+    bar_chart_data = get_bar_chart_data(results_dir)
+    headers, table_data = get_table_data(bar_chart_data, benchmarks)
+
+    # Plot the table.
+    plt.table(cellText=table_data, colLabels=headers, rowLabels=benchmarks, loc='center')
+    # Removing ticks and spines in the table figure.
+    plt.tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)
+    plt.tick_params(axis='y', which='both', right=False, left=False, labelleft=False)
+    for pos in ['right','top','bottom','left']:
+        plt.gca().spines[pos].set_visible(False)
+    plt.savefig('result_table.pdf', bbox_inches='tight', pad_inches=0.05)
+
+    # Plot the bar chart.
+    plt.clf()
 
     bar_width = 0.25
     pos = np.arange(len(benchmarks))
-    for label, data in plot_data.items():
+    for label, data in bar_chart_data.items():
         plt.bar(pos, data.overheads, width=bar_width, edgecolor='white', label=label, yerr=data.errors)
         pos = [x + bar_width for x in pos]
-
-    plt.xlabel('Benchmarks', fontweight='bold')
     plt.ylabel("Overhead (%)", fontweight='bold')
-    plt.xticks([r + bar_width for r in range(len(benchmarks))], benchmarks) 
-
+    plt.xticks([r + bar_width for r in range(len(benchmarks))], benchmarks, rotation='vertical') 
+    # Tweak spacing to prevent clipping of tick-labels
+    plt.subplots_adjust(bottom=0.30)
     plt.legend()
-    plt.savefig('result.pdf')
-    plt.show()
+    plt.savefig('result_bar_chart.pdf')
