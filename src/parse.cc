@@ -1,8 +1,10 @@
 
 #include "parse.h"
 
+BPatch bpatch;
+
 litecfi::Parser* InitParser(std::string binary, bool libs, bool sanitize) {
-  BPatch* parser = new BPatch;
+  BPatch* parser = &bpatch;
   // Open binary and its linked shared libraries for parsing
   BPatch_addressSpace* app;
   if (sanitize) {
