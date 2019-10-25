@@ -169,7 +169,7 @@ bool CheckFastPathFunction(BPatch_basicBlock* & entry,
             entry = b;
         }
     }
-    if (!condTaken || !condNotTaken || fastExitBlock == NULL) return false;
+    if (!condTaken || !condNotTaken || fastExitBlock == NULL || entry == NULL) return false;
 
     // The slow path entry should only have entry block as source.
     // Otherwise, the stack push instrumentation will be executed multiple times
