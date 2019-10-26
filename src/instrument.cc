@@ -5,11 +5,11 @@
 
 #include "BPatch.h"
 #include "BPatch_basicBlock.h"
+#include "BPatch_edge.h"
+#include "BPatch_flowGraph.h"
 #include "BPatch_function.h"
 #include "BPatch_object.h"
 #include "BPatch_point.h"
-#include "BPatch_flowGraph.h"
-#include "BPatch_edge.h"
 
 #include "InstSpec.h"
 #include "PatchMgr.h"
@@ -127,106 +127,141 @@ void InsertSnippet(BPatch_function* function, Point::Type location,
   }
 }
 
-bool CheckFastPathFunction(BPatch_basicBlock* & entry, 
-                           vector<BPatch_basicBlock*> &exits,
-                           BPatch_function *f) {
-    BPatch_flowGraph * cfg = f->getCFG();
+bool CheckFastPathFunction(BPatch_basicBlock*& entry,
+                           vector<BPatch_basicBlock*>& exits,
+                           BPatch_function* f) {
+  BPatch_flowGraph* cfg = f->getCFG();
 
-    // Should have only one function entry block
-    std::vector<BPatch_basicBlock*> eb;
-    cfg->getEntryBasicBlock(eb);
-    if (eb.size() != 1) return false;
-    BPatch_basicBlock* func_entry = eb[0];
+  // Should have only one function entry block.
+  std::vector<BPatch_basicBlock*> eb;
+  cfg->getEntryBasicBlock(eb);
+  if (eb.size() != 1)
+    return false;
+  BPatch_basicBlock* func_entry = eb[0];
 
-    // The function entry block should not contain memory writes
-    std::vector<Dyninst::InstructionAPI::Instruction> insns;
-    func_entry->getInstructions(insns);
-    for (auto i : insns) {
-        // Here we should reuse stack analysis to allow writes to known stack location.
-        // But it is going to be a future optimization
-        if (i.writesMemory()) return false;
+  // The function entry block should not contain memory writes.
+  std::vector<Dyninst::InstructionAPI::Instruction> insns;
+  func_entry->getInstructions(insns);
+  for (auto i : insns) {
+    // Here we should reuse stack analysis to allow writes to known stack
+    // location. But it is going to be a future optimization.
+    if (i.writesMemory())
+      return false;
+  }
+
+  eb.clear();
+  cfg->getExitBasicBlock(eb);
+  // The function entry block should have two edges,
+  // one cond-taken, one cond-not-taken.
+  //
+  // One of the edge should point to an exit block
+  // as the fast path exit block.
+  std::vector<BPatch_edge*> edges;
+  func_entry->getOutgoingEdges(edges);
+  if (edges.size() != 2)
+    return false;
+  bool condTaken = false;
+  bool condNotTaken = false;
+  BPatch_basicBlock* fastExitBlock = NULL;
+  for (auto e : edges) {
+    if (e->getType() == CondJumpTaken)
+      condTaken = true;
+    if (e->getType() == CondJumpNottaken)
+      condNotTaken = true;
+    BPatch_basicBlock* b = e->getTarget();
+    if (std::find(eb.begin(), eb.end(), b) != eb.end()) {
+      fastExitBlock = b;
+    } else {
+      entry = b;
     }
+  }
+  if (!condTaken || !condNotTaken || fastExitBlock == NULL || entry == NULL)
+    return false;
 
-    eb.clear();
-    cfg->getExitBasicBlock(eb);
-    // The function entry block should have two edges,
-    // one cond-taken, one cond-not-taken.
-    //
-    // One of the edge should point to an exit block 
-    // as the fast path exit block. 
-    std::vector<BPatch_edge*> edges;
-    func_entry->getOutgoingEdges(edges);
-    if (edges.size() != 2) return false;
-    bool condTaken = false;
-    bool condNotTaken = false;
-    BPatch_basicBlock* fastExitBlock = NULL;
-    for (auto e : edges) {
-        if (e->getType() == CondJumpTaken) condTaken = true;
-        if (e->getType() == CondJumpNottaken) condNotTaken = true;
-        BPatch_basicBlock* b = e->getTarget();
-        if (std::find(eb.begin(), eb.end(), b) != eb.end()) {
-            fastExitBlock = b;
-        } else {
-            entry = b;
-        }
+  // Function entry block cannot have intra-procedural incoming edges.
+  edges.clear();
+  func_entry->getIncomingEdges(edges);
+  if (edges.size() > 0)
+    return false;
+
+  // The slow path entry should only have entry block as source.
+  // Otherwise, the stack push instrumentation will be executed multiple times.
+  edges.clear();
+  entry->getIncomingEdges(edges);
+  if (edges.size() != 1)
+    return false;
+
+  // The fast path exit block should contain one return instruction.
+  // This condition makes sure that our shadow stack instrumentation can
+  // find the correct location for return address.
+  // TODO: relax this condition later.
+  insns.clear();
+  fastExitBlock->getInstructions(insns);
+  if (insns.size() != 1)
+    return false;
+  if (insns[0].getCategory() != InstructionAPI::c_ReturnInsn)
+    return false;
+
+  // Excluding the function entry block,
+  // each block that is a source block of the fast exit block
+  // should be instrumented with shadow stack pop.
+  edges.clear();
+  fastExitBlock->getIncomingEdges(edges);
+  for (auto e : edges) {
+    if (e->getSource() != func_entry) {
+      BPatch_basicBlock* slowPathExit = e->getSource();
+      // If the slow path exit has more than one outgoing edges,
+      // we cannot instrument at its exit, because stack pop operation
+      // can potentially be performed mulitple times.
+      std::vector<BPatch_edge*> out_edges;
+      slowPathExit->getOutgoingEdges(out_edges);
+      if (out_edges.size() != 1)
+        return false;
+      exits.push_back(e->getSource());
     }
-    if (!condTaken || !condNotTaken || fastExitBlock == NULL || entry == NULL) return false;
+  }
 
-    // Function entry block cannot have intra-procedural incoming edges
-    edges.clear();
-    func_entry->getIncomingEdges(edges);
-    if (edges.size() > 0) return false;
+  // In addition, we need to instrument all non-fast-exit exit blocks.
+  for (auto b : eb)
+    if (b != fastExitBlock)
+      exits.push_back(b);
+  return true;
+}
 
-    // The slow path entry should only have entry block as source.
-    // Otherwise, the stack push instrumentation will be executed multiple times
-    edges.clear();
-    entry->getIncomingEdges(edges);
-    if (edges.size() != 1) return false;
+void AddInlineHint(BPatch_function* function, const litecfi::Parser& parser) {
+  Address entry = (Address)(function->getBaseAddr());
+  parser.parser->addInliningEntry(entry);
+}
 
-    // The fast path exit block should contain one return instruction.
-    // This condition makes sure that our shadow stack instrumentation can
-    // find the correct location for return address.
-    // TODO: relax this condition later.
-    insns.clear();
-    fastExitBlock->getInstructions(insns);
-    if (insns.size() != 1) return false;
-    if (insns[0].getCategory() != InstructionAPI::c_ReturnInsn) return false;
-
-    // Excluding the function entry block,
-    // each block that is a source block of the fast exit block
-    // should be instrumented with shadow stack pop.
-    edges.clear();
-    fastExitBlock->getIncomingEdges(edges);
-    for (auto e : edges) {
-        if (e->getSource() != func_entry) {
-            BPatch_basicBlock * slowPathExit = e->getSource();
-            // If the slow path exit has more than one outgoing edges,
-            // we cannot instrument at its exit, because stack pop operation
-            // can potentially be performed mulitple times.
-            std::vector<BPatch_edge*> out_edges;
-            slowPathExit->getOutgoingEdges(out_edges);
-            if (out_edges.size() != 1) return false;
-            exits.push_back(e->getSource());
-        }
-    }
-
-    // In addition, we need to instrument all non-fast-exit exit blocks
-    for (auto b : eb)
-        if (b != fastExitBlock)
-            exits.push_back(b);
+bool Skippable(BPatch_function* function, FuncSummary* summary) {
+  if (summary != nullptr && summary->safe) {
+    StdOut(Color::RED, FLAGS_vv)
+        << "      Skipping function : " << function->getName() << Endl;
     return true;
+  }
+
+  if (skip_addrs.find((Address)(function->getBaseAddr())) != skip_addrs.end()) {
+    StdOut(Color::RED, FLAGS_vv)
+        << "      Skipping function (user's skip list): " << function->getName()
+        << Endl;
+
+    return true;
+  }
+  return false;
 }
 
 void InstrumentFunction(BPatch_function* function,
                         const litecfi::Parser& parser, PatchMgr::Ptr patcher,
                         const std::map<uint64_t, FuncSummary*>& analyses) {
-  if (FLAGS_vv) {
-    StdOut(Color::YELLOW) << "     Function : "
-                          << Dyninst::PatchAPI::convert(function)->name()
-                          << Endl;
-  }
+  StdOut(Color::YELLOW, FLAGS_vv)
+      << "     Function : " << Dyninst::PatchAPI::convert(function)->name()
+      << Endl;
 
+  BPatch_binaryEdit* binary_edit = ((BPatch_binaryEdit*)parser.app);
+  BPatch_nullExpr nopSnippet;
+  vector<BPatch_point*> points;
   FuncSummary* summary = nullptr;
+
   if (FLAGS_shadow_stack == "light") {
     auto it = analyses.find(static_cast<uint64_t>(
         reinterpret_cast<uintptr_t>(function->getBaseAddr())));
@@ -234,34 +269,23 @@ void InstrumentFunction(BPatch_function* function,
       summary = (*it).second;
     }
 
-    if (summary != nullptr && summary->safe) {
-      StdOut(Color::RED, FLAGS_vv)
-          << "      Skipping function : " << function->getName() << Endl;
+    // Check if this function is safe to skip and do so if it is.
+    if (Skippable(function, summary))
       return;
-    }
-    Address entry = (Address)(function->getBaseAddr());
-    parser.parser->addInliningEntry(entry);
-    if (skip_addrs.find(entry) != skip_addrs.end()) {
-        StdOut(Color::RED, FLAGS_vv)
-            << "      Skipping function (user's skip list): " << function->getName() << Endl;
 
-        return;
-    }
-  }
+    // Add inlining hint so that writeFile may inline small leaf functions.
+    AddInlineHint(function, parser);
 
-  BPatch_binaryEdit* binary_edit = ((BPatch_binaryEdit*)parser.app);
-  BPatch_nullExpr nopSnippet;
-  vector<BPatch_point*> points;
-
-  BPatch_basicBlock* condNotTakenEntry = NULL;
-  vector<BPatch_basicBlock*> condNotTakenExits;
-  if (CheckFastPathFunction(condNotTakenEntry, condNotTakenExits, function)) {
+    // Apply fast path optimization if applicable.
+    BPatch_basicBlock* condNotTakenEntry = NULL;
+    vector<BPatch_basicBlock*> condNotTakenExits;
+    if (CheckFastPathFunction(condNotTakenEntry, condNotTakenExits, function)) {
       fastPathFunction++;
       StdOut(Color::RED, FLAGS_vv)
-          << "      Optimized fast path instrumentation for function at 0x" 
+          << "      Optimized fast path instrumentation for function at 0x"
           << std::hex << (uint64_t)function->getBaseAddr() << Endl;
       /* If the function has the following shape:
-       * entry: 
+       * entry:
        *    code that does not writes memory
        *    jz A   (or other conditional jump)
        *    some complicated code
@@ -269,49 +293,54 @@ void InstrumentFunction(BPatch_function* function,
        *
        * Then we do not need to instrument the fast path: entry -> ret.
        * We can instrument the entry and exit of the "some complicated code",
-       * which is the slow path
+       * which is the slow path.
        */
 
       // Instrument slow paths entry with stack push operation
-      // and nop snippet, which enables instrumentation frame spec
+      // and nop snippet, which enables instrumentation frame spec.
       BPatch_point* push_point = condNotTakenEntry->findEntryPoint();
-      Snippet::Ptr stack_push = 
+      Snippet::Ptr stack_push =
           StackPushSnippet::create(new StackPushSnippet(summary));
       PatchAPI::convert(push_point, BPatch_callBefore)->pushBack(stack_push);
       points.push_back(push_point);
-      binary_edit->insertSnippet(nopSnippet, points, BPatch_callBefore, 
+      binary_edit->insertSnippet(nopSnippet, points, BPatch_callBefore,
                                  BPatch_lastSnippet, &is_empty);
 
       // Instrument slow paths exits with stack pop operations
-      // and nop snippet, which enables instrumentation frame spec
+      // and nop snippet, which enables instrumentation frame spec.
       points.clear();
       Snippet::Ptr stack_pop =
           StackPopSnippet::create(new StackPopSnippet(summary));
       for (auto b : condNotTakenExits) {
-          BPatch_point* pop_point = b->findExitPoint();
-          PatchAPI::convert(pop_point, BPatch_callAfter)->pushBack(stack_pop);
-          points.push_back(pop_point);
+        BPatch_point* pop_point = b->findExitPoint();
+        PatchAPI::convert(pop_point, BPatch_callAfter)->pushBack(stack_pop);
+        points.push_back(pop_point);
       }
-      binary_edit->insertSnippet(nopSnippet, points, BPatch_callAfter, 
-                                 BPatch_lastSnippet, &is_empty);
-  } else {
-      Snippet::Ptr stack_push =
-          StackPushSnippet::create(new StackPushSnippet(summary));
-      InsertSnippet(function, Point::FuncEntry, stack_push, patcher);
-      
-      Snippet::Ptr stack_pop =
-          StackPopSnippet::create(new StackPopSnippet(summary));
-      InsertSnippet(function, Point::FuncExit, stack_pop, patcher);
-      
-      function->getEntryPoints(points);
-      binary_edit->insertSnippet(nopSnippet, points, BPatch_callBefore,
-                                 BPatch_lastSnippet, &is_empty);
-      
-      points.clear();
-      function->getExitPoints(points);
       binary_edit->insertSnippet(nopSnippet, points, BPatch_callAfter,
                                  BPatch_lastSnippet, &is_empty);
+      return;
+    }
   }
+
+  // Either we are in 'full' instrumentation mode or in 'light' mode but none of
+  // the optimizations worked out. Carry out regular entry-exit shadow stack
+  // instrumentation.
+  Snippet::Ptr stack_push =
+      StackPushSnippet::create(new StackPushSnippet(summary));
+  InsertSnippet(function, Point::FuncEntry, stack_push, patcher);
+
+  Snippet::Ptr stack_pop =
+      StackPopSnippet::create(new StackPopSnippet(summary));
+  InsertSnippet(function, Point::FuncExit, stack_pop, patcher);
+
+  function->getEntryPoints(points);
+  binary_edit->insertSnippet(nopSnippet, points, BPatch_callBefore,
+                             BPatch_lastSnippet, &is_empty);
+
+  points.clear();
+  function->getExitPoints(points);
+  binary_edit->insertSnippet(nopSnippet, points, BPatch_callAfter,
+                             BPatch_lastSnippet, &is_empty);
 }
 
 BPatch_function* FindFunctionByName(BPatch_image* image, std::string name) {
@@ -364,13 +393,6 @@ void InstrumentModule(BPatch_module* module, const litecfi::Parser& parser,
 
   for (auto it = functions->begin(); it != functions->end(); it++) {
     BPatch_function* function = *it;
-
-    /*
-    if (function->getName() == kInitFn) {
-      InstrumentInitFunction(function, parser);
-      continue;
-    }
-    */
 
     ParseAPI::Function* f = ParseAPI::convert(function);
     if (f->retstatus() == ParseAPI::NORETURN)
@@ -453,9 +475,10 @@ void Instrument(std::string binary, const litecfi::Parser& parser) {
   StdOut(Color::BLUE) << "+ Instrumenting the binary..." << Endl;
 
   if (FLAGS_skip_list != "") {
-      std::ifstream infile(FLAGS_skip_list, std::fstream::in);
-      Address addr;
-      while (infile >> std::hex >> addr) skip_addrs.insert(addr);
+    std::ifstream infile(FLAGS_skip_list, std::fstream::in);
+    Address addr;
+    while (infile >> std::hex >> addr)
+      skip_addrs.insert(addr);
   }
 
   std::vector<BPatch_object*> objects;
@@ -465,15 +488,6 @@ void Instrument(std::string binary, const litecfi::Parser& parser) {
   BPatch_binaryEdit* binary_edit = ((BPatch_binaryEdit*)parser.app);
 
   SetupInstrumentationSpec();
-
-  /*
-  std::string instrumentation_library = "libstack.so";
-
-  instrumentation_library = Codegen();
-
-  DCHECK(binary_edit->loadLibrary(instrumentation_library.c_str()))
-      << "Failed to load instrumentation library";
-      */
 
   for (auto it = objects.begin(); it != objects.end(); it++) {
     BPatch_object* object = *it;
@@ -491,5 +505,6 @@ void Instrument(std::string binary, const litecfi::Parser& parser) {
   } else {
     binary_edit->writeFile(FLAGS_output.c_str());
   }
-  StdOut(Color::BLUE) << "Fast path functions " << std::dec << fastPathFunction << Endl;
+  StdOut(Color::BLUE) << "Fast path functions " << std::dec << fastPathFunction
+                      << Endl;
 }
