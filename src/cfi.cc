@@ -41,6 +41,9 @@ DEFINE_string(
     " So, only instrument system code for context switch, no CFI checks\n"
     "   * trust_none : Instrument all code for CFI checks\n");
 
+DEFINE_string(
+    skip_list, "", "\nA list of function entry addresses to skip instrumentation.\n");
+
 static bool ValidateShadowStackFlag(const char* flagname,
                                     const std::string& value) {
   if (value == "light" || value == "full") {
