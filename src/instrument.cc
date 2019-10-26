@@ -51,6 +51,7 @@ static constexpr char kInitFn[] = "_start";
 static InstSpec is_init;
 static InstSpec is_empty;
 static std::set<Address> skip_addrs;
+static int fastPathFunction = 0;
 
 class StackOpSnippet : public Dyninst::PatchAPI::Snippet {
  public:
@@ -171,6 +172,11 @@ bool CheckFastPathFunction(BPatch_basicBlock* & entry,
     }
     if (!condTaken || !condNotTaken || fastExitBlock == NULL || entry == NULL) return false;
 
+    // Function entry block cannot have intra-procedural incoming edges
+    edges.clear();
+    func_entry->getIncomingEdges(edges);
+    if (edges.size() > 0) return false;
+
     // The slow path entry should only have entry block as source.
     // Otherwise, the stack push instrumentation will be executed multiple times
     edges.clear();
@@ -250,6 +256,7 @@ void InstrumentFunction(BPatch_function* function,
   BPatch_basicBlock* condNotTakenEntry = NULL;
   vector<BPatch_basicBlock*> condNotTakenExits;
   if (CheckFastPathFunction(condNotTakenEntry, condNotTakenExits, function)) {
+      fastPathFunction++;
       StdOut(Color::RED, FLAGS_vv)
           << "      Optimized fast path instrumentation for function at 0x" 
           << std::hex << (uint64_t)function->getBaseAddr() << Endl;
@@ -484,4 +491,5 @@ void Instrument(std::string binary, const litecfi::Parser& parser) {
   } else {
     binary_edit->writeFile(FLAGS_output.c_str());
   }
+  StdOut(Color::BLUE) << "Fast path functions " << std::dec << fastPathFunction << Endl;
 }
