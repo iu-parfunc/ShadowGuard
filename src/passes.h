@@ -257,6 +257,61 @@ class InterProceduralMemoryAnalysis : public Pass {
   }
 };
 
+class UnusedRegisterAnalysisPass : public Pass {
+ public:
+  UnusedRegisterAnalysisPass()
+      : Pass("Unused Register Analysis", "Analyses register unused "
+                                         "saved registers of leaf functions.") {
+  }
+
+  void RunLocalAnalysis(CodeObject* co, Function* f, FuncSummary* s,
+                        PassResult* result) override {
+    if (s->assume_unsafe) {
+      return;
+    }
+
+    if (s->callees.size() > 0) {
+      return;
+    }
+
+    std::set<std::string> all = {
+        "x86_64::rax", "x86_64::rbx", "x86_64::rcx", "x86_64::rdx",
+        "x86_64::rsi", "x86_64::rdi", "x86_64::r8",  "x86_64::r9",
+        "x86_64::r10", "x86_64::r11", "x86_64::r12", "x86_64::r13",
+        "x86_64::r14", "x86_64::r15",
+    };
+
+    std::map<Dyninst::Offset, Dyninst::InstructionAPI::Instruction> insns;
+    std::set<std::string> used;
+    for (auto b : f->blocks()) {
+      b->getInsns(insns);
+
+      for (auto const& ins : insns) {
+        std::set<Dyninst::InstructionAPI::RegisterAST::Ptr> read;
+        std::set<Dyninst::InstructionAPI::RegisterAST::Ptr> written;
+
+        ins.second.getReadSet(read);
+        ins.second.getWriteSet(written);
+
+        for (auto const& r : read) {
+          used.insert(r->getID().name());
+        }
+
+        for (auto const& w : written) {
+          used.insert(w->getID().name());
+        }
+      }
+    }
+
+    for (auto r : all) {
+      auto it = used.find(r);
+      if (it == used.end()) {
+        s->unused_regs.insert(r);
+      }
+    }
+  }
+};
+
 class DeadRegisterAnalysisPass : public Pass {
  public:
   DeadRegisterAnalysisPass()
@@ -265,8 +320,8 @@ class DeadRegisterAnalysisPass : public Pass {
 
   std::set<std::string> GetDeadRegisters(Function* f, Block* b,
                                          LivenessAnalyzer::Type type) {
-    // Construct a liveness analyzer based on the address width of the mutatee.
-    // 32bit code and 64bit code have different ABI.
+    // Construct a liveness analyzer based on the address width of the
+    // mutatee. 32bit code and 64bit code have different ABI.
     LivenessAnalyzer la(f->obj()->cs()->getAddressWidth());
     // Construct a liveness query location.
     Location loc(f, b);

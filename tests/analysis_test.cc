@@ -39,6 +39,7 @@ PassManager *GetPassManager() {
       ->AddPass(new LargeFunctionFilterPass())
       ->AddPass(new IntraProceduralMemoryAnalysis())
       ->AddPass(new InterProceduralMemoryAnalysis())
+      ->AddPass(new UnusedRegisterAnalysisPass())
       ->AddPass(new DeadRegisterAnalysisPass());
   return pm;
 }
