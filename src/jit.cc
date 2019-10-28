@@ -310,3 +310,9 @@ std::string JitStackPop(Dyninst::PatchAPI::Point* pt, FuncSummary* s,
 
   return "";
 }
+
+std::string JitRegisterPush(Dyninst::PatchAPI::Point* pt, FuncSummary* s,
+                            AssemblerHolder& ah) {}
+
+std::string JitRegisterPop(Dyninst::PatchAPI::Point* pt, FuncSummary* s,
+                           AssemblerHolder& ah) {}

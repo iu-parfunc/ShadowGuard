@@ -29,9 +29,9 @@ using Dyninst::ParseAPI::Block;
 using Dyninst::ParseAPI::Function;
 using Dyninst::ParseAPI::Location;
 
-class CallGraphPass : public Pass {
+class CallGraphAnalysis : public Pass {
  public:
-  CallGraphPass()
+  CallGraphAnalysis()
       : Pass("Call Graph Generation", "Generates the application call graph.") {
   }
 
@@ -94,9 +94,9 @@ class CallGraphPass : public Pass {
   }
 };
 
-class LargeFunctionFilterPass : public Pass {
+class LargeFunctionFilter : public Pass {
  public:
-  LargeFunctionFilterPass()
+  LargeFunctionFilter()
       : Pass("Large Function Filter",
              "Filters out large functions from static anlaysis.") {}
 
@@ -257,9 +257,9 @@ class InterProceduralMemoryAnalysis : public Pass {
   }
 };
 
-class UnusedRegisterAnalysisPass : public Pass {
+class UnusedRegisterAnalysis : public Pass {
  public:
-  UnusedRegisterAnalysisPass()
+  UnusedRegisterAnalysis()
       : Pass("Unused Register Analysis", "Analyses register unused "
                                          "saved registers of leaf functions.") {
   }
@@ -312,9 +312,9 @@ class UnusedRegisterAnalysisPass : public Pass {
   }
 };
 
-class DeadRegisterAnalysisPass : public Pass {
+class DeadRegisterAnalysis : public Pass {
  public:
-  DeadRegisterAnalysisPass()
+  DeadRegisterAnalysis()
       : Pass("Dead Register Analysis",
              "Analyses dead registers at function entry and exit.") {}
 

@@ -68,11 +68,11 @@ CodeObject *GetCodeObject(const char *binary) {
 
 PassManager *GetPassManager() {
   PassManager *pm = new PassManager;
-  pm->AddPass(new CallGraphPass())
-      ->AddPass(new LargeFunctionFilterPass())
+  pm->AddPass(new CallGraphAnalysis())
+      ->AddPass(new LargeFunctionFilter())
       ->AddPass(new IntraProceduralMemoryAnalysis())
       ->AddPass(new InterProceduralMemoryAnalysis())
-      ->AddPass(new DeadRegisterAnalysisPass());
+      ->AddPass(new DeadRegisterAnalysis());
   return pm;
 }
 

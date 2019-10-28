@@ -96,6 +96,20 @@ class StackPopSnippet : public StackOpSnippet {
   }
 };
 
+class RegisterPushSnippet : public StackOpSnippet {
+ public:
+  explicit RegisterPushSnippet(FuncSummary* summary) : StackOpSnippet(summary) {
+    jit_fn_ = JitRegisterPush;
+  }
+};
+
+class RegisterPopSnippet : public StackOpSnippet {
+ public:
+  explicit RegisterPopSnippet(FuncSummary* summary) : StackOpSnippet(summary) {
+    jit_fn_ = JitRegisterPop;
+  }
+};
+
 bool IsNonreturningCall(Point* point) {
   PatchBlock* exitBlock = point->block();
   assert(exitBlock);
@@ -435,11 +449,12 @@ void InstrumentCodeObject(BPatch_object* object, const litecfi::Parser& parser,
     co->parse();
 
     PassManager* pm = new PassManager;
-    pm->AddPass(new CallGraphPass())
-        ->AddPass(new LargeFunctionFilterPass())
+    pm->AddPass(new CallGraphAnalysis())
+        ->AddPass(new LargeFunctionFilter())
         ->AddPass(new IntraProceduralMemoryAnalysis())
         ->AddPass(new InterProceduralMemoryAnalysis())
-        ->AddPass(new DeadRegisterAnalysisPass());
+        ->AddPass(new UnusedRegisterAnalysis())
+        ->AddPass(new DeadRegisterAnalysis());
     std::set<FuncSummary*> summaries = pm->Run(co);
 
     for (auto f : summaries) {

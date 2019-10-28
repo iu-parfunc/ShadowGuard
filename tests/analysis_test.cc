@@ -35,12 +35,12 @@ bool MatchName(string in_str, string matched) {
 
 PassManager *GetPassManager() {
   PassManager *pm = new PassManager;
-  pm->AddPass(new CallGraphPass())
-      ->AddPass(new LargeFunctionFilterPass())
+  pm->AddPass(new CallGraphAnalysis())
+      ->AddPass(new LargeFunctionFilter())
       ->AddPass(new IntraProceduralMemoryAnalysis())
       ->AddPass(new InterProceduralMemoryAnalysis())
-      ->AddPass(new UnusedRegisterAnalysisPass())
-      ->AddPass(new DeadRegisterAnalysisPass());
+      ->AddPass(new UnusedRegisterAnalysis())
+      ->AddPass(new DeadRegisterAnalysis());
   return pm;
 }
 
