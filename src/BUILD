@@ -15,6 +15,7 @@ cc_binary(
 	"parse.h",
         "passes.h",
         "pass_manager.h",
+	"register_utils.h",
 	"utils.cc",
 	"utils.h",
     ],
@@ -60,6 +61,7 @@ cc_library(
     srcs = [
         "passes.h",
         "pass_manager.h",
+	"register_utils.h",
 	"utils.cc",
 	"utils.h",
     ],

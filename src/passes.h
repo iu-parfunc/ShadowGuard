@@ -17,6 +17,7 @@
 #include "glog/logging.h"
 #include "liveness.h"
 #include "pass_manager.h"
+#include "register_utils.h"
 #include "utils.h"
 
 using Dyninst::Absloc;
@@ -294,11 +295,11 @@ class UnusedRegisterAnalysis : public Pass {
         ins.second.getWriteSet(written);
 
         for (auto const& r : read) {
-          used.insert(r->getID().name());
+          used.insert(NormalizeRegisterName(r->getID().name()));
         }
 
         for (auto const& w : written) {
-          used.insert(w->getID().name());
+          used.insert(NormalizeRegisterName(w->getID().name()));
         }
       }
     }

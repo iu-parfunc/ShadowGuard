@@ -53,6 +53,12 @@ static InstSpec is_empty;
 static std::set<Address> skip_addrs;
 static int fastPathFunction = 0;
 
+struct InstrumentationResult {
+  std::vector<std::string> safe_fns;
+  std::vector<std::string> lowered_fns;
+  std::vector<std::string> reg_stack_fns;
+};
+
 class StackOpSnippet : public Dyninst::PatchAPI::Snippet {
  public:
   explicit StackOpSnippet(FuncSummary* summary) : summary_(summary) {}
@@ -242,6 +248,38 @@ bool CheckFastPathFunction(BPatch_basicBlock*& entry,
   return true;
 }
 
+bool DoStackOpsUsingRegisters(BPatch_function* function, FuncSummary* summary,
+                              const litecfi::Parser& parser,
+                              PatchMgr::Ptr patcher) {
+  if (summary->callees.size() == 0 && summary->unused_regs.size() > 0 &&
+      !summary->has_unknown_cf && !summary->has_plt_call) {
+    fprintf(stdout, "[Register Stack] Function : %s\n",
+            Dyninst::PatchAPI::convert(function)->name().c_str());
+    Snippet::Ptr stack_push =
+        RegisterPushSnippet::create(new RegisterPushSnippet(summary));
+    InsertSnippet(function, Point::FuncEntry, stack_push, patcher);
+
+    Snippet::Ptr stack_pop =
+        RegisterPopSnippet::create(new RegisterPopSnippet(summary));
+    InsertSnippet(function, Point::FuncExit, stack_pop, patcher);
+
+    BPatch_nullExpr nopSnippet;
+    vector<BPatch_point*> points;
+    function->getEntryPoints(points);
+    BPatch_binaryEdit* binary_edit = ((BPatch_binaryEdit*)parser.app);
+
+    binary_edit->insertSnippet(nopSnippet, points, BPatch_callBefore,
+                               BPatch_lastSnippet, &is_empty);
+
+    points.clear();
+    function->getExitPoints(points);
+    binary_edit->insertSnippet(nopSnippet, points, BPatch_callAfter,
+                               BPatch_lastSnippet, &is_empty);
+    return true;
+  }
+  return false;
+}
+
 void AddInlineHint(BPatch_function* function, const litecfi::Parser& parser) {
   Address entry = (Address)(function->getBaseAddr());
   parser.parser->addInliningEntry(entry);
@@ -266,10 +304,10 @@ bool Skippable(BPatch_function* function, FuncSummary* summary) {
 
 void InstrumentFunction(BPatch_function* function,
                         const litecfi::Parser& parser, PatchMgr::Ptr patcher,
-                        const std::map<uint64_t, FuncSummary*>& analyses) {
-  StdOut(Color::YELLOW, FLAGS_vv)
-      << "     Function : " << Dyninst::PatchAPI::convert(function)->name()
-      << Endl;
+                        const std::map<uint64_t, FuncSummary*>& analyses,
+                        InstrumentationResult* res) {
+  std::string fn_name = Dyninst::PatchAPI::convert(function)->name();
+  StdOut(Color::YELLOW, FLAGS_vv) << "     Function : " << fn_name << Endl;
 
   BPatch_binaryEdit* binary_edit = ((BPatch_binaryEdit*)parser.app);
   BPatch_nullExpr nopSnippet;
@@ -279,22 +317,30 @@ void InstrumentFunction(BPatch_function* function,
   if (FLAGS_shadow_stack == "light") {
     auto it = analyses.find(static_cast<uint64_t>(
         reinterpret_cast<uintptr_t>(function->getBaseAddr())));
-    if (it != analyses.end()) {
+    if (it != analyses.end())
       summary = (*it).second;
-    }
 
     // Check if this function is safe to skip and do so if it is.
-    if (Skippable(function, summary))
+    if (Skippable(function, summary)) {
+      res->safe_fns.push_back(fn_name);
       return;
+    }
 
     // Add inlining hint so that writeFile may inline small leaf functions.
     AddInlineHint(function, parser);
+
+    // For leaf functions we may be able to carry out stack operations using
+    // unused registers.
+    if (DoStackOpsUsingRegisters(function, summary, parser, patcher)) {
+      res->reg_stack_fns.push_back(fn_name);
+      return;
+    }
 
     // Apply fast path optimization if applicable.
     BPatch_basicBlock* condNotTakenEntry = NULL;
     vector<BPatch_basicBlock*> condNotTakenExits;
     if (CheckFastPathFunction(condNotTakenEntry, condNotTakenExits, function)) {
-      fastPathFunction++;
+      res->lowered_fns.push_back(fn_name);
       StdOut(Color::RED, FLAGS_vv)
           << "      Optimized fast path instrumentation for function at 0x"
           << std::hex << (uint64_t)function->getBaseAddr() << Endl;
@@ -399,7 +445,8 @@ static void GetIFUNCs(BPatch_module* module,
 
 void InstrumentModule(BPatch_module* module, const litecfi::Parser& parser,
                       PatchMgr::Ptr patcher,
-                      const std::map<uint64_t, FuncSummary*>& analyses) {
+                      const std::map<uint64_t, FuncSummary*>& analyses,
+                      InstrumentationResult* res) {
   std::vector<BPatch_function*>* functions = module->getProcedures();
 
   std::set<Dyninst::Address> ifuncAddrs;
@@ -421,12 +468,12 @@ void InstrumentModule(BPatch_module* module, const litecfi::Parser& parser,
     if (symR->getRegionName() != ".text")
       continue;
 
-    InstrumentFunction(function, parser, patcher, analyses);
+    InstrumentFunction(function, parser, patcher, analyses, res);
   }
 }
 
 void InstrumentCodeObject(BPatch_object* object, const litecfi::Parser& parser,
-                          PatchMgr::Ptr patcher) {
+                          PatchMgr::Ptr patcher, InstrumentationResult* res) {
   if (!IsSharedLibrary(object)) {
     StdOut(Color::GREEN, FLAGS_vv) << "\n  >> Instrumenting main application "
                                    << object->pathName() << Endl;
@@ -467,7 +514,7 @@ void InstrumentCodeObject(BPatch_object* object, const litecfi::Parser& parser,
     BPatch_module* module = *it;
     module->getName(modname, 2048);
 
-    InstrumentModule(module, parser, patcher, analyses);
+    InstrumentModule(module, parser, patcher, analyses, res);
   }
 }
 
@@ -504,6 +551,8 @@ void Instrument(std::string binary, const litecfi::Parser& parser) {
 
   SetupInstrumentationSpec();
 
+  InstrumentationResult* res = new InstrumentationResult;
+
   for (auto it = objects.begin(); it != objects.end(); it++) {
     BPatch_object* object = *it;
 
@@ -512,7 +561,7 @@ void Instrument(std::string binary, const litecfi::Parser& parser) {
       continue;
     }
 
-    InstrumentCodeObject(object, parser, patcher);
+    InstrumentCodeObject(object, parser, patcher, res);
   }
 
   if (FLAGS_output.empty()) {
@@ -520,6 +569,24 @@ void Instrument(std::string binary, const litecfi::Parser& parser) {
   } else {
     binary_edit->writeFile(FLAGS_output.c_str());
   }
-  StdOut(Color::BLUE) << "Fast path functions " << std::dec << fastPathFunction
-                      << Endl;
+
+  StdOut(Color::RED) << "Safe functions : " << res->safe_fns.size() << "\n  ";
+  for (auto it : res->safe_fns) {
+    StdOut(Color::BLUE) << it << " ";
+  }
+  StdOut(Color::BLUE) << Endl << Endl;
+
+  StdOut(Color::RED) << "Register stack functions : "
+                     << res->reg_stack_fns.size() << "\n  ";
+  for (auto it : res->reg_stack_fns) {
+    StdOut(Color::BLUE) << it << " ";
+  }
+  StdOut(Color::BLUE) << Endl << Endl;
+
+  StdOut(Color::RED) << "Lowering stack functions : " << res->lowered_fns.size()
+                     << "\n  ";
+  for (auto it : res->lowered_fns) {
+    StdOut(Color::BLUE) << it << " ";
+  }
+  StdOut(Color::BLUE) << Endl;
 }

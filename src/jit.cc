@@ -3,6 +3,7 @@
 
 #include "asmjit/asmjit.h"
 #include "gflags/gflags.h"
+#include "glog/logging.h"
 #include "jit.h"
 #include "utils.h"
 
@@ -29,9 +30,33 @@ struct TempRegisters {
   bool tmp3_saved;
   int sp_offset;
 
-  TempRegisters()
-      : tmp1(rdx), tmp2(rcx), tmp3(rax), tmp1_saved(true), tmp2_saved(true),
-        tmp3_saved(true), sp_offset(8) {}
+  TempRegisters(std::set<std::string> exclude = {})
+      : tmp1_saved(true), tmp2_saved(true), tmp3_saved(true),
+        sp_offset(8 /* flag saving always takes 8 bytes */) {
+    int count = 0;
+    for (auto it : kRegisterMap) {
+      auto rit = exclude.find(it.first);
+      if (rit == exclude.end()) {
+        switch (count) {
+        case 0:
+          tmp1 = it.second;
+          break;
+        case 1:
+          tmp2 = it.second;
+          break;
+        case 2:
+          tmp3 = it.second;
+          break;
+        }
+        count++;
+      }
+
+      if (count == 2)
+        break;
+    }
+
+    DCHECK(count == 2);
+  }
 };
 
 void SaveOrSkip(Assembler* a, TempRegisters* t, std::string reg_str, Gp* reg,
@@ -52,8 +77,9 @@ inline void Save(Assembler* a, TempRegisters* t, Gp* reg) {
 }
 
 TempRegisters SaveTempRegisters(Assembler* a,
-                                std::set<std::string>& dead_registers) {
-  TempRegisters t;
+                                std::set<std::string>& dead_registers,
+                                std::set<std::string> exclude = {}) {
+  TempRegisters t(exclude);
   if ((FLAGS_optimize_regs && dead_registers.empty()) || !FLAGS_optimize_regs) {
     Save(a, &t, &t.tmp1);
     Save(a, &t, &t.tmp2);
@@ -101,7 +127,7 @@ void SaveRa(const asmjit::x86::Mem& shadow_ptr, const Gp& sp_reg,
   // Assembly:
   //
   //   pushfq
-  //   mov 0x10(%rsp),%rcx
+  //   mov 0x16(%rsp),%rcx
   //   mov %gs:0x0, %rax
   //   addq $0x8, %gs:0x0
   //   mov %rcx, (%rax)
@@ -119,7 +145,7 @@ void SaveRaAndFrame(const asmjit::x86::Mem& shadow_ptr, const Gp& sp_reg,
   // Assembly:
   //
   //   pushfq
-  //   mov 0x10(%rsp),%rcx
+  //   mov 0x16(%rsp),%rcx
   //   mov %gs:0x0, %rax
   //   addq $0x16, %gs:0x0
   //   mov %rcx, (%rax)
@@ -168,38 +194,39 @@ std::string JitStackPush(Dyninst::PatchAPI::Point* pt, FuncSummary* s,
 }
 
 void ValidateRa(const asmjit::x86::Mem& shadow_ptr, const Gp& sp_reg,
-                const Gp& ra_reg, const TempRegisters& t, Assembler* a) {
+                const Gp& ra_reg, const TempRegisters& t, Assembler* a,
+                bool save_flags = true) {
   asmjit::Label error = a->newLabel();
-  asmjit::Label success = a->newLabel();
+  asmjit::Label done = a->newLabel();
   asmjit::Label loop = a->newLabel();
 
   // Assembly:
   //
-  //   pushfq
+  //   [pushfq]
   //   mov %gs:0x0,%rax
   // loop:
   //   mov -0x8(%rax), %rcx
   //   subq $0x8, %gs:0x0
-  //   cmp 0x10(%rsp), %rcx
-  //   je success
+  //   cmp 0x16(%rsp), %rcx
+  //   je done
   //   sub $0x8, %rax
   //   cmpl $0x0, (%rax)
   //   je error
   //   jmp loop
   // error:
   //   int3 | sigill
-  // success:
-  //   popfq
-  //   pop ...
-  //   retq
-  a->pushfq();
+  // done:
+  //   [popfq]
+  if (save_flags)
+    a->pushfq();
+
   a->mov(sp_reg, shadow_ptr);
 
   a->bind(loop);
   a->mov(ra_reg, ptr(sp_reg, -8));
   a->sub(shadow_ptr, asmjit::imm(8));
   a->cmp(ra_reg, ptr(rsp, t.sp_offset));
-  a->je(success);
+  a->je(done);
 
   a->sub(sp_reg, asmjit::imm(8));
   a->cmp(dword_ptr(sp_reg), 0);
@@ -212,15 +239,16 @@ void ValidateRa(const asmjit::x86::Mem& shadow_ptr, const Gp& sp_reg,
   const char sigill = 0x62;
   a->embed(&sigill, sizeof(char));
 
-  a->bind(success);
-  a->popfq();
+  a->bind(done);
+  if (save_flags)
+    a->popfq();
 }
 
 void ValidateRaAndFrame(const asmjit::x86::Mem& shadow_ptr, const Gp& sp_reg,
                         const Gp& ra_reg, const TempRegisters& t,
                         Assembler* a) {
   asmjit::Label error = a->newLabel();
-  asmjit::Label success = a->newLabel();
+  asmjit::Label done = a->newLabel();
   asmjit::Label loop = a->newLabel();
   asmjit::Label unwind = a->newLabel();
 
@@ -231,9 +259,9 @@ void ValidateRaAndFrame(const asmjit::x86::Mem& shadow_ptr, const Gp& sp_reg,
   // loop:
   //   mov -0x10(%rax), %rcx
   //   subq $0x10, %gs:0x0
-  //   cmp 0x10(%rsp), %rcx
+  //   cmp 0x16(%rsp), %rcx
   //   jne unwind
-  //   leaq 0x10(%rsp), %rcx
+  //   leaq 0x16(%rsp), %rcx
   //   cmp -0x8(%rax), %rcx
   //   je success
   // unwind:
@@ -243,7 +271,7 @@ void ValidateRaAndFrame(const asmjit::x86::Mem& shadow_ptr, const Gp& sp_reg,
   //   jmp loop
   // error:
   //   int3 | sigill
-  // success:
+  // done:
   //   popfq
   //   pop ...
   //   retq
@@ -257,7 +285,7 @@ void ValidateRaAndFrame(const asmjit::x86::Mem& shadow_ptr, const Gp& sp_reg,
   a->jne(unwind);
   a->lea(ra_reg, ptr(rsp, t.sp_offset));
   a->cmp(ra_reg, ptr(sp_reg, -8));
-  a->je(success);
+  a->je(done);
 
   a->bind(unwind);
   a->sub(sp_reg, asmjit::imm(16));
@@ -270,7 +298,7 @@ void ValidateRaAndFrame(const asmjit::x86::Mem& shadow_ptr, const Gp& sp_reg,
   const char sigill = 0x62;
   a->embed(&sigill, sizeof(char));
 
-  a->bind(success);
+  a->bind(done);
   a->popfq();
 }
 
@@ -311,8 +339,97 @@ std::string JitStackPop(Dyninst::PatchAPI::Point* pt, FuncSummary* s,
   return "";
 }
 
+std::pair<std::string, Gp> GetUnusedRegister(FuncSummary* s) {
+  DCHECK(s->unused_regs.size() > 0);
+  auto it = s->unused_regs.cbegin();
+
+  auto rit = kRegisterMap.find(*it);
+  DCHECK(rit != kRegisterMap.end());
+
+  return std::make_pair(*it, rit->second);
+}
+
 std::string JitRegisterPush(Dyninst::PatchAPI::Point* pt, FuncSummary* s,
-                            AssemblerHolder& ah) {}
+                            AssemblerHolder& ah) {
+  auto pair = GetUnusedRegister(s);
+  Gp reg = pair.second;
+
+  // Assembly:
+  //
+  //   push %<unused_reg>
+  //   pushfq
+  //   mov 0x10(%rsp),%<unused_reg>
+  //   popfq
+  Assembler* a = ah.GetAssembler();
+  a->push(reg);
+  a->pushfq();
+  a->mov(reg, ptr(rsp, 16));
+  a->popfq();
+
+  return "";
+}
 
 std::string JitRegisterPop(Dyninst::PatchAPI::Point* pt, FuncSummary* s,
-                           AssemblerHolder& ah) {}
+                           AssemblerHolder& ah) {
+  // Here we rely on the fact that stl::set iteration order is deterministic
+  // across multiple invocations (i.e: we will get the same register that we got
+  // during stack push using the iterator).
+  auto pair = GetUnusedRegister(s);
+  std::string reg_str = pair.first;
+  Gp reg = pair.second;
+
+  // Assembly:
+  //
+  //   pushfq
+  //   cmp %<unused_reg>, 0x10(%rsp)
+  //   je success
+  //   push %rcx                        ; begin stack unwinding
+  //   push %rax
+  //   mov %gs:0x0,%rax
+  // loop:
+  //   mov -0x8(%rax), %rcx
+  //   subq $0x8, %gs:0x0
+  //   cmp 0x20(%rsp), %rcx
+  //   je done
+  //   sub $0x8, %rax
+  //   cmpl $0x0, (%rax)
+  //   je error
+  //   jmp loop
+  // error:
+  //   int3 | sigill
+  // done:
+  //   pop %rax
+  //   pop %rcx                         ; end stack unwinding
+  // success:
+  //   popfq
+  //   pop %<unused_reg>
+  Assembler* a = ah.GetAssembler();
+  asmjit::Label success = a->newLabel();
+
+  a->pushfq();
+  a->cmp(reg, ptr(rsp, 16));
+  a->je(success);
+
+  // Fall through for stack unwind scenario.
+  std::set<std::string> dead;
+  TempRegisters t = SaveTempRegisters(a, dead, {reg_str});
+  // We need to account for the stack push for unused register.
+  t.sp_offset += 8;
+
+  Gp sp_reg = t.tmp1;
+  Gp ra_reg = t.tmp2;
+
+  asmjit::x86::Mem shadow_ptr;
+  shadow_ptr.setSize(8);
+  shadow_ptr.setSegment(gs);
+  shadow_ptr = shadow_ptr.cloneAdjusted(0);
+
+  ValidateRa(shadow_ptr, sp_reg, ra_reg, t, a, false /* save_flags */);
+  RestoreTempRegisters(a, t);
+
+  a->bind(success);
+  a->popfq();
+  a->pop(reg);
+
+  return "";
+}
