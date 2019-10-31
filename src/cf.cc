@@ -39,8 +39,10 @@ int main(int argc, char *argv[]) {
   auto co = GetCodeObject(binary.c_str());
   Function *func = nullptr;
   for (auto f : co->funcs()) {
-    func = f;
-    break;
+    if (f->name() == function) {
+      func = f;
+      break;
+    }
   }
 
   DCHECK(func != nullptr);
