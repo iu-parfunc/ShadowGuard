@@ -86,3 +86,26 @@ cc_binary(
     ],
     visibility = ["//visibility:public"],
 )
+
+cc_binary(
+    name = "cf",
+    srcs = [
+	"cf.cc",
+    ],
+    deps = [
+        "@dyninst//:dyninst",
+        "@com_github_gflags_gflags//:gflags",
+        "@glog//:glog",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+cc_binary(
+    name = "cf_app",
+    srcs = [
+	"cf_app.cc",
+    ],
+    deps = [
+    ],
+    visibility = ["//visibility:public"],
+)
