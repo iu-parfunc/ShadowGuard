@@ -361,10 +361,11 @@ std::string JitRegisterPush(Dyninst::PatchAPI::Point* pt, FuncSummary* s,
   //   mov 0x10(%rsp),%<unused_reg>
   //   popfq
   Assembler* a = ah.GetAssembler();
-  a->push(reg);
-  a->pushfq();
-  a->mov(reg, ptr(rsp, 16));
-  a->popfq();
+  //a->push(reg);
+  //a->pushfq();
+  a->mov(ptr(rsp, -128), reg);
+  a->mov(reg, ptr(rsp));
+  //a->popfq();
 
   return "";
 }
@@ -406,15 +407,16 @@ std::string JitRegisterPop(Dyninst::PatchAPI::Point* pt, FuncSummary* s,
   Assembler* a = ah.GetAssembler();
   asmjit::Label success = a->newLabel();
 
-  a->pushfq();
-  a->cmp(reg, ptr(rsp, 16));
+  //a->pushfq();
+  a->cmp(reg, ptr(rsp));
   a->je(success);
 
   // Fall through for stack unwind scenario.
   std::set<std::string> dead;
   TempRegisters t = SaveTempRegisters(a, dead, {reg_str});
-  // We need to account for the stack push for unused register.
-  t.sp_offset += 8;
+
+  // Adjust for not saving flag
+  t.sp_offset -= 8;
 
   Gp sp_reg = t.tmp1;
   Gp ra_reg = t.tmp2;
@@ -428,8 +430,9 @@ std::string JitRegisterPop(Dyninst::PatchAPI::Point* pt, FuncSummary* s,
   RestoreTempRegisters(a, t);
 
   a->bind(success);
-  a->popfq();
-  a->pop(reg);
+  //a->popfq();
+  //a->pop(reg);
 
+  a->mov(reg, ptr(rsp, -128));
   return "";
 }
