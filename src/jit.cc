@@ -32,7 +32,7 @@ struct TempRegisters {
 
   TempRegisters(std::set<std::string> exclude = {})
       : tmp1_saved(true), tmp2_saved(true), tmp3_saved(true),
-        sp_offset(8 /* flag saving always takes 8 bytes */) {
+        sp_offset(0 /* flag saving always takes 8 bytes */) {
     int count = 0;
     for (auto it : kRegisterMap) {
       auto rit = exclude.find(it.first);
@@ -132,12 +132,11 @@ void SaveRa(const asmjit::x86::Mem& shadow_ptr, const Gp& sp_reg,
   //   addq $0x8, %gs:0x0
   //   mov %rcx, (%rax)
   //   popfq
-  a->pushfq();
   a->mov(ra_reg, ptr(rsp, t.sp_offset));
   a->mov(sp_reg, shadow_ptr);
-  a->add(shadow_ptr, asmjit::imm(8));
   a->mov(ptr(sp_reg), ra_reg);
-  a->popfq();
+  a->lea(sp_reg, ptr(sp_reg, 8));
+  a->mov(shadow_ptr, sp_reg);
 }
 
 void SaveRaAndFrame(const asmjit::x86::Mem& shadow_ptr, const Gp& sp_reg,
@@ -217,18 +216,16 @@ void ValidateRa(const asmjit::x86::Mem& shadow_ptr, const Gp& sp_reg,
   //   int3 | sigill
   // done:
   //   [popfq]
-  if (save_flags)
-    a->pushfq();
 
   a->mov(sp_reg, shadow_ptr);
 
   a->bind(loop);
-  a->mov(ra_reg, ptr(sp_reg, -8));
-  a->sub(shadow_ptr, asmjit::imm(8));
+  a->lea(sp_reg, ptr(sp_reg, -8));
+  a->mov(ra_reg, ptr(sp_reg));
+  a->mov(shadow_ptr, sp_reg);
   a->cmp(ra_reg, ptr(rsp, t.sp_offset));
   a->je(done);
 
-  a->sub(sp_reg, asmjit::imm(8));
   a->cmp(dword_ptr(sp_reg), 0);
   a->je(error);
 
@@ -240,8 +237,6 @@ void ValidateRa(const asmjit::x86::Mem& shadow_ptr, const Gp& sp_reg,
   a->embed(&sigill, sizeof(char));
 
   a->bind(done);
-  if (save_flags)
-    a->popfq();
 }
 
 void ValidateRaAndFrame(const asmjit::x86::Mem& shadow_ptr, const Gp& sp_reg,
@@ -414,9 +409,6 @@ std::string JitRegisterPop(Dyninst::PatchAPI::Point* pt, FuncSummary* s,
   // Fall through for stack unwind scenario.
   std::set<std::string> dead;
   TempRegisters t = SaveTempRegisters(a, dead, {reg_str});
-
-  // Adjust for not saving flag
-  t.sp_offset -= 8;
 
   Gp sp_reg = t.tmp1;
   Gp ra_reg = t.tmp2;
