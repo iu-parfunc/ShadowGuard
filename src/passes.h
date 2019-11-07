@@ -62,7 +62,7 @@ class CallGraphAnalysis : public Pass {
           continue;
         }
         /*
-        if (e->type == INDIRECT) {
+        if (e->type() == INDIRECT) {
           s->has_indirect_cf = true;
           s->assume_unsafe = true;
           continue;
