@@ -68,6 +68,7 @@ class CallGraphAnalysis : public Pass {
           continue;
         }
         */
+
         if (e->type() != CALL)
           continue;
         if (co->cs()->linkage().find(e->trg()->start()) !=
@@ -277,7 +278,6 @@ class InterProceduralMemoryAnalysis : public Pass {
   }
 };
 
-<<<<<<< HEAD
 class CFGAnalysis : public Pass {
  public:
   CFGAnalysis()
