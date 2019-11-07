@@ -56,20 +56,18 @@ class CallGraphAnalysis : public Pass {
   void UpdateCallees(CodeObject* co, Function* f, FuncSummary* s) {
     for (auto b : f->blocks()) {
       for (auto e : b->targets()) {
-        if (e->sinkEdge() && e->type() != RET) {
+        if (e->sinkEdge() && e->type() != ParseAPI::RET) {
           s->has_unknown_cf = true;
           s->assume_unsafe = true;
           continue;
         }
-        /*
-        if (e->type() == INDIRECT) {
+        if (e->type() == ParseAPI::INDIRECT) {
           s->has_indirect_cf = true;
           s->assume_unsafe = true;
           continue;
         }
-        */
 
-        if (e->type() != CALL)
+        if (e->type() != ParseAPI::CALL)
           continue;
         if (co->cs()->linkage().find(e->trg()->start()) !=
             co->cs()->linkage().end()) {
@@ -337,12 +335,12 @@ class CFGAnalysis : public Pass {
 
     for (auto e : b->targets()) {
       Block* target = e->trg();
-      if (e->type() == CALL) {
+      if (e->type() == ParseAPI::CALL) {
         sc->unsafe = true;
         continue;
       }
 
-      if (e->type() == RET)
+      if (e->type() == ParseAPI::RET)
         continue;
 
       auto it = block_to_sc.find(target);
