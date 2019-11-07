@@ -49,8 +49,73 @@ struct MemoryWrite {
   bool resolved;
 };
 
+struct CFGStats {
+  // Number of original nodes in the CFG.
+  int n_original_nodes;
+  // Number of nodes after instrumentation lowering.
+  int n_lowered_nodes;
+  // Percentage increase of nodes.
+  double increase;
+
+  // Number of safe paths (i.e no writes, calls) in the control flow graph.
+  int safe_paths;
+  // Number of unsafe paths in the control flow graph.
+  int unsafe_paths;
+  // Percentage of safe control paths in the control flow graph.
+  double safe_ratio;
+
+  CFGStats()
+      : n_original_nodes(0), n_lowered_nodes(0), increase(0.0), safe_paths(0),
+        unsafe_paths(0), safe_ratio(0.0) {}
+};
+
+// Strongly connected components in the control flow graph.
+struct SCComponent {
+  // If this features unsafe memory writes or function calls.
+  bool unsafe;
+  // If this node features a coalesced and merged stack push instrumentation
+  // header.
+  bool header_instrumentation;
+  // If this is a generated stack push node.
+  bool stack_push;
+  // Blocks belonging to the strongly connected component.
+  std::set<Block*> blocks;
+  // Children of the component.
+  std::set<SCComponent*> children;
+  // Parents of the component.
+  std::set<SCComponent*> parents;
+  // Target blocks of outgoing edges from this component.
+  std::map<SCComponent*, Block*> outgoing;
+
+  SCComponent()
+      : unsafe(false), header_instrumentation(false), stack_push(false) {}
+
+  SCComponent(const SCComponent& sc) {
+    unsafe = sc.unsafe;
+    blocks = sc.blocks;
+  }
+
+  SCComponent& operator=(const SCComponent& sc) {
+    if (this == &sc)
+      return *this;
+
+    unsafe = sc.unsafe;
+    blocks = sc.blocks;
+    return *this;
+  }
+
+  ~SCComponent() {}
+};
+
 struct FuncSummary {
   Function* func;
+
+  // Control flow graph of the function. Only initialized for functions with no
+  // indirect or unknown control flows.
+  SCComponent* cfg;
+
+  // Statistics on instrumentation lowered control flow graph.
+  CFGStats* stats;
 
   // Denotes if this function is safe so that shadow stack checks can be
   // skipped.
@@ -88,11 +153,15 @@ struct FuncSummary {
   std::map<Address, MemoryWrite*> all_writes;
   // All stack writes within the function keyed by stack offset at write.
   std::map<int, MemoryWrite*> stack_writes;
+  // Unsafe basic blocks due to memory writes and calls.
+  std::set<Block*> unsafe_blocks;
 
   // Denotes whether this function calls PLT functions.
   bool has_plt_call;
   // Denotes whether this function has unknown control flows.
   bool has_unknown_cf;
+  // Denotes whether this function has indirect control flows;.
+  bool has_indirect_cf;
 
   // Callees of this function.
   std::set<Function*> callees;
