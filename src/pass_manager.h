@@ -163,6 +163,10 @@ struct FuncSummary {
   // Denotes whether this function has indirect control flows;.
   bool has_indirect_cf;
 
+  // Denote whether this function moves down SP to create stack frame
+  bool moveDownSP;
+  std::set<int> redZoneAccess;
+
   // Callees of this function.
   std::set<Function*> callees;
   // Callers of this function.
@@ -180,6 +184,27 @@ struct FuncSummary {
     printf("Has PLT calls = %d ", has_plt_call);
     printf("Has unknown control flow = %d ", has_unknown_cf);
     printf("Number of callees = %lu\n", callees.size());
+  }
+
+  bool shouldUseRegisterFrame() {
+      if (callees.size() > 0) return false;
+      if (unused_regs.size() == 0) return false;
+      if (has_unknown_cf || has_plt_call) return false;
+
+      // If this function creates a stack frame, it may over-write
+      // the red-zone location at the function entry
+      if (moveDownSP) return false;
+      auto it = redZoneAccess.begin();
+      if (it != redZoneAccess.end()) {
+          // We always try to use [-128, -120) range of the red zone.
+          // So, if the original code uses any byte in this range,
+          // we cannot perform the optimization.
+          //
+          // Here I assume that if the original code uses a deeper red zone location,
+          // it must have used any space shallower in the red zone.
+          if (*it < -120) return false;
+      }
+      return true;
   }
 };
 

@@ -1,9 +1,31 @@
 #!/bin/bash
 
 deps () {
+  ### Build Capstone  
+  root_dir=`pwd`
+  # Fetch
+  if [ ! -d "thirdparty/capstone" ]; then
+    git clone https://github.com/mxz297/capstone.git thirdparty/capstone
+    cd thirdparty/capstone/;\
+    git checkout access-fixes
+  fi
+
+  if [ ! -d "thirdparty/capstone/install" ]; then
+    cd thirdparty/dyninst-10.1.0/;\
+    mkdir install;\
+    mkdir -p build;\
+    cd build
+
+    # Configure
+    cmake -DCMAKE_INSTALL_PREFIX=`pwd`/../install ..
+
+    # Install
+    nprocs=`cat /proc/cpuinfo | awk '/^processor/{print $3}' | wc -l`
+    make -j "$(($nprocs / 2))" install
+  fi
+
   ### Build Dyninst
 
-  root_dir=`pwd`
   # Fetch
   if [ ! -d "thirdparty/dyninst-10.1.0" ]; then
     git clone https://github.com/mxz297/dyninst.git thirdparty/dyninst-10.1.0
@@ -18,7 +40,7 @@ deps () {
     cd build
 
     # Configure
-    cmake -DCMAKE_INSTALL_PREFIX=`pwd`/../install -G 'Unix Makefiles' ..
+    cmake -DCapstone_ROOT_DIR=`pwd`/../../capstone/install/ -DCMAKE_INSTALL_PREFIX=`pwd`/../install -G 'Unix Makefiles' ..
 
     # Build
     #   Dyninst build tends to succeed with a retry after an initial build failure.

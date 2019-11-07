@@ -251,8 +251,7 @@ bool CheckFastPathFunction(BPatch_basicBlock*& entry,
 bool DoStackOpsUsingRegisters(BPatch_function* function, FuncSummary* summary,
                               const litecfi::Parser& parser,
                               PatchMgr::Ptr patcher) {
-  if (summary->callees.size() == 0 && summary->unused_regs.size() > 0 &&
-      !summary->has_unknown_cf && !summary->has_plt_call) {
+  if (summary->shouldUseRegisterFrame()) {
     fprintf(stdout, "[Register Stack] Function : %s\n",
             Dyninst::PatchAPI::convert(function)->name().c_str());
     Snippet::Ptr stack_push =

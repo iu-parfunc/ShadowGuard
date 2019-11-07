@@ -14,6 +14,7 @@
 #include "InstructionDecoder.h"
 #include "Location.h"
 #include "Register.h"
+#include "Visitor.h"
 #include "bitArray.h"
 #include "glog/logging.h"
 #include "liveness.h"
@@ -27,6 +28,7 @@ using Dyninst::Address;
 using Dyninst::Offset;
 using Dyninst::InstructionAPI::Instruction;
 using Dyninst::InstructionAPI::RegisterAST;
+using Dyninst::InstructionAPI::Visitor;
 using Dyninst::ParseAPI::Block;
 using Dyninst::ParseAPI::Function;
 using Dyninst::ParseAPI::Location;
@@ -275,6 +277,7 @@ class InterProceduralMemoryAnalysis : public Pass {
   }
 };
 
+<<<<<<< HEAD
 class CFGAnalysis : public Pass {
  public:
   CFGAnalysis()
@@ -833,6 +836,38 @@ class LoweringStatistics : public Pass {
   }
 };
 
+class RedZoneAccessVisitor : public Visitor {
+
+ public:
+  int disp;
+  bool plusOp;
+  bool findSP;
+  bool onlySP;
+
+  RedZoneAccessVisitor()
+      : disp(0), plusOp(false), findSP(false), onlySP(true) {}
+
+  virtual void visit(BinaryFunction* b) {
+    if (b->isAdd())
+      plusOp = true;
+  }
+
+  virtual void visit(Immediate* i) {
+    const Result& r = i->eval();
+    disp = r.convert<int>();
+  }
+
+  virtual void visit(RegisterAST* r) {
+    if (r->getID() == x86_64::rsp)
+      findSP = true;
+    else
+      onlySP = false;
+  }
+  virtual void visit(Dereference* d) {}
+
+  bool isRedZoneAccess() { return plusOp && findSP && (disp < 0) && onlySP; }
+};
+
 class UnusedRegisterAnalysis : public Pass {
  public:
   UnusedRegisterAnalysis()
@@ -875,6 +910,24 @@ class UnusedRegisterAnalysis : public Pass {
 
         for (auto const& w : written) {
           used.insert(NormalizeRegisterName(w->getID().name()));
+          if (ins.second.getOperation().getID() == e_sub &&
+              NormalizeRegisterName(w->getID().name()) == "x86_64::rsp")
+            s->moveDownSP = true;
+        }
+
+        // See if this instruction accesses to red zone
+        if (!ins.second.writesMemory() && !ins.second.readsMemory())
+          continue;
+
+        std::set<Expression::Ptr> accessors;
+        ins.second.getMemoryReadOperands(accessors);
+        ins.second.getMemoryWriteOperands(accessors);
+        for (auto e : accessors) {
+          RedZoneAccessVisitor v;
+          e->apply(&v);
+          if (v.isRedZoneAccess()) {
+            s->redZoneAccess.insert(v.disp);
+          }
         }
       }
     }
