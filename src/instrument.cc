@@ -279,15 +279,82 @@ bool DoStackOpsUsingRegisters(BPatch_function* function, FuncSummary* summary,
   return false;
 }
 
+Block* CopyBlock(Block* block) {
+  // Do CFGMaker::copyBlock magic here to copy the block.
+  return nullptr;
+}
+
+Block* CreateStackPushBlock() {
+  // Create and return a basic block with just stack push instrumentation.
+  return nullptr;
+}
+
+void RewireBlock(Block* src, Block* target) {
+  // Do PatchModifier::redirect magic here and rewire blocks.
+}
+
+void VisitAndCopyCFG(SCComponent* sc, std::set<SCComponent*>& visited) {
+  if (visited.find(sc) != visited.end())
+    return;
+
+  for (auto child : sc->children) {
+    VisitAndCopyCFG(child, visited);
+  }
+
+  if (sc->stack_push) {
+    sc->blocks.insert(CreateStackPushBlock());
+    visited.insert(sc);
+    return;
+  }
+
+  // Copy over the blocks.
+  for (auto b : sc->blocks) {
+    sc->block_remappings[b] = CopyBlock(b);
+  }
+
+  // Now rewire the blocks.
+  for (auto b : sc->blocks) {
+    Block* src = sc->block_remappings[b];
+    for (auto e : b->targets()) {
+      Block* target = e->trg();
+
+      // Check if this is an intra component edge and skip if so.
+      auto it = sc->block_remappings.find(target);
+      if (it != sc->block_remappings.end()) {
+        RewireBlock(src, it->second);
+        continue;
+      }
+
+      SCComponent* target_sc = sc->outgoing[target];
+      if (target_sc->stack_push) {
+        DCHECK(target_sc->blocks.size() == 1);
+        for (auto tgt : target_sc->blocks) {
+          RewireBlock(src, tgt);
+        }
+      } else {
+        auto it = target_sc->block_remappings.find(target);
+        DCHECK(it != target_sc->block_remappings.end());
+
+        RewireBlock(src, it->second);
+      }
+    }
+  }
+
+  visited.insert(sc);
+}
+
 bool LowerInstrumentation(BPatch_function* function, FuncSummary* summary,
                           const litecfi::Parser& parser,
                           PatchMgr::Ptr patcher) {
   if (summary->cfg == nullptr || summary->stats->safe_paths == 0)
     return false;
 
-  // Do an in order traversal and create new blocks for each blocks within
-  // each SCComponent. To link inter SCComponent edges use SCComponent.outgoing
-  // mapping.
+  // Process the CFG dag in topologically sorted order and create new blocks for
+  // each blocks within each SCComponent. To link inter SCComponent edges use
+  // SCComponent.outgoing mapping.
+  std::set<SCComponent*> visited;
+  VisitAndCopyCFG(summary->cfg, visited);
+  return true;
 }
 
 void AddInlineHint(BPatch_function* function, const litecfi::Parser& parser) {

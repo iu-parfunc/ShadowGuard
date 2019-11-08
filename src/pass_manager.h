@@ -87,6 +87,9 @@ struct SCComponent {
   // Outgoing edges from this component. This maps the target block to the
   // target component. Only features inter component edges.
   std::map<Block*, SCComponent*> outgoing;
+  // Mapping from original blocks to new blocks generated during
+  // instrumentation.
+  std::map<Block*, Block*> block_remappings;
 
   SCComponent()
       : unsafe(false), header_instrumentation(false), stack_push(false) {}
