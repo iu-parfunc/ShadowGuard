@@ -88,24 +88,29 @@ cc_binary(
 )
 
 cc_binary(
-    name = "cf",
+    name = "test_app",
     srcs = [
-	"cf.cc",
+	"test_app.cc",
     ],
     deps = [
-        "@dyninst//:dyninst",
-        "@com_github_gflags_gflags//:gflags",
-        "@glog//:glog",
     ],
     visibility = ["//visibility:public"],
 )
 
 cc_binary(
-    name = "cf_app",
+    name = "test",
     srcs = [
-	"cf_app.cc",
+	"test.cc",
+	"passes.h",
+	"pass_manager.h",
+	"utils.cc",
+	"utils.h",
+	"register_utils.h",
     ],
     deps = [
+        "@dyninst//:dyninst",
+        "@com_github_gflags_gflags//:gflags",
+        "@glog//:glog",
     ],
     visibility = ["//visibility:public"],
 )
