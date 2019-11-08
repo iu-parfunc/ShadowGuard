@@ -487,6 +487,7 @@ class LowerInstrumentation : public Pass {
         Block* target = sc->targets[c];
         new_sc->targets[child] = target;
         new_sc->outgoing[target] = child;
+        child->outgoing[target] = grand_child;
 
         child->children.insert(grand_child);
         new_sc->children.insert(child);
