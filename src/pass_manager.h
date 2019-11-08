@@ -80,6 +80,8 @@ struct SCComponent {
   bool stack_push;
   // Blocks belonging to the strongly connected component.
   std::set<Block*> blocks;
+  // Return blocks contained within the component if any.
+  std::set<Block*> returns;
   // Children of the component.
   std::set<SCComponent*> children;
   // Parents of the component.
@@ -97,6 +99,7 @@ struct SCComponent {
   SCComponent(const SCComponent& sc) {
     unsafe = sc.unsafe;
     blocks = sc.blocks;
+    returns = sc.returns;
   }
 
   SCComponent& operator=(const SCComponent& sc) {
@@ -105,6 +108,7 @@ struct SCComponent {
 
     unsafe = sc.unsafe;
     blocks = sc.blocks;
+    returns = sc.returns;
     return *this;
   }
 

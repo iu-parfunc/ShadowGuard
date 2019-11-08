@@ -284,6 +284,11 @@ Block* CopyBlock(Block* block) {
   return nullptr;
 }
 
+Block* StackPopAndCopyBlock(Block* block) {
+  // Insert a stack pop to the copied block.
+  return nullptr;
+}
+
 Block* CreateStackPushBlock() {
   // Create and return a basic block with just stack push instrumentation.
   return nullptr;
@@ -293,12 +298,13 @@ void RewireBlock(Block* src, Block* target) {
   // Do PatchModifier::redirect magic here and rewire blocks.
 }
 
-void VisitAndCopyCFG(SCComponent* sc, std::set<SCComponent*>& visited) {
+void VisitAndCopyCFG(SCComponent* sc, std::set<SCComponent*>& visited,
+                     bool unsafe_flow) {
   if (visited.find(sc) != visited.end())
     return;
 
   for (auto child : sc->children) {
-    VisitAndCopyCFG(child, visited);
+    VisitAndCopyCFG(child, visited, sc->stack_push || unsafe_flow);
   }
 
   if (sc->stack_push) {
@@ -319,6 +325,11 @@ void VisitAndCopyCFG(SCComponent* sc, std::set<SCComponent*>& visited) {
 
   // Copy over the blocks.
   for (auto b : sc->blocks) {
+    if (unsafe_flow && sc->returns.find(b) != sc->returns.end()) {
+      // Insert stack pop instrumentation while copying the nodes.
+      sc->block_remappings[b] = StackPopAndCopyBlock(b);
+      continue;
+    }
     sc->block_remappings[b] = CopyBlock(b);
   }
 
@@ -363,7 +374,7 @@ bool DoInstrumentationLowering(BPatch_function* function, FuncSummary* summary,
   // each blocks within each SCComponent. To link inter SCComponent edges use
   // SCComponent.outgoing mapping.
   std::set<SCComponent*> visited;
-  VisitAndCopyCFG(summary->cfg, visited);
+  VisitAndCopyCFG(summary->cfg, visited, false /* unsafe_flow*/);
   return true;
 }
 

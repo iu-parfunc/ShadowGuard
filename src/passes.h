@@ -336,8 +336,10 @@ class CFGAnalysis : public Pass {
         continue;
       }
 
-      if (e->type() == ParseAPI::RET)
+      if (e->type() == ParseAPI::RET) {
+        sc->returns.insert(b);
         continue;
+      }
 
       auto it = block_to_sc.find(target);
       SCComponent* new_sc = nullptr;
