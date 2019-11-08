@@ -353,9 +353,9 @@ void VisitAndCopyCFG(SCComponent* sc, std::set<SCComponent*>& visited) {
   visited.insert(sc);
 }
 
-bool LowerInstrumentation(BPatch_function* function, FuncSummary* summary,
-                          const litecfi::Parser& parser,
-                          PatchMgr::Ptr patcher) {
+bool DoInstrumentationLowering(BPatch_function* function, FuncSummary* summary,
+                               const litecfi::Parser& parser,
+                               PatchMgr::Ptr patcher) {
   if (summary->cfg == nullptr || summary->stats->safe_paths == 0)
     return false;
 
@@ -425,7 +425,7 @@ void InstrumentFunction(BPatch_function* function,
 
     // If possible check and lower the instrumentation to within non frequently
     // executed unsafe control flow paths.
-    if (LowerInstrumentation(function, summary, parser, patcher)) {
+    if (DoInstrumentationLowering(function, summary, parser, patcher)) {
       return;
     }
 
@@ -593,8 +593,18 @@ void InstrumentCodeObject(BPatch_object* object, const litecfi::Parser& parser,
         ->AddPass(new LargeFunctionFilter())
         ->AddPass(new IntraProceduralMemoryAnalysis())
         ->AddPass(new InterProceduralMemoryAnalysis())
-        ->AddPass(new UnusedRegisterAnalysis())
+        ->AddPass(new CFGAnalysis())
+        ->AddPass(new CFGStatistics())
+        ->AddPass(new LowerInstrumentation())
+        /*
+        ->AddPass(new LinkParentsOfCFG())
+        ->AddPass(new CoalesceIngressInstrumentation())
+        ->AddPass(new CoalesceEgressInstrumentation())
+        */
+        ->AddPass(new ValidateCFG())
+        ->AddPass(new LoweringStatistics())
         ->AddPass(new DeadRegisterAnalysis());
+
     std::set<FuncSummary*> summaries = pm->Run(co);
 
     for (auto f : summaries) {
