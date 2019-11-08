@@ -26,6 +26,16 @@ using Dyninst::ParseAPI::RET;
 DECLARE_bool(vv);
 DECLARE_string(stats);
 
+struct MoveInstData {
+    // Pre-instruction address for moving instrumentation
+    Address newInstAddress;
+    int raOffset;
+
+    int saveCount;
+    std::string reg1;
+    std::string reg2;
+};
+
 struct MemoryWrite {
   MemoryWrite() {}
 
@@ -110,6 +120,9 @@ struct FuncSummary {
   // Unused registers. Currently only set for leaf functions.
   std::set<std::string> unused_regs;
 
+  std::map<Address, MoveInstData*> entryData;
+  std::map<Address, MoveInstData*> exitData;
+
   void Print() {
     printf("Writes to memory = %d ", writes);
     printf("Has PLT calls = %d ", has_plt_call);
@@ -137,6 +150,18 @@ struct FuncSummary {
       }
       return true;
   }
+
+  MoveInstData* getMoveInstDataAtEntry(Address a) {
+      auto it = entryData.find(a);
+      if (it == entryData.end()) return nullptr;
+      return it->second;
+  }
+  MoveInstData* getMoveInstDataAtExit(Address a) {
+      auto it = exitData.find(a);
+      if (it == exitData.end()) return nullptr;
+      return it->second;
+  }
+
 };
 
 struct PassResult {

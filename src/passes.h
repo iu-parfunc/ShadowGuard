@@ -145,13 +145,14 @@ class IntraProceduralMemoryAnalysis : public Pass {
 
   void RunLocalAnalysis(CodeObject* co, Function* f, FuncSummary* s,
                         PassResult* result) override {
+
     if (s->assume_unsafe)
       return;
 
     AssignmentConverter converter(true /* cache results*/,
                                   true /* use stack analysis*/);
-    std::map<Offset, Instruction> insns;
 
+    std::map<Offset, Instruction> insns;
     for (auto b : f->blocks()) {
       insns.clear();
       b->getInsns(insns);
@@ -422,4 +423,170 @@ class DeadRegisterAnalysis : public Pass {
   }
 };
 
+class BlockDeadRegisterAnalysis : public Pass {
+ public:
+  BlockDeadRegisterAnalysis()
+      : Pass("Dead Register Analysis in a basic block",
+             "Looking for concrete envidence that registers are dead") {}
+
+  void CalculateBlockLevelLiveness(std::map<Offset, Instruction> &insns,
+          std::map<Offset, std::set<std::string> > &d) {
+      std::set<std::string> cur;
+      for (auto it = insns.rbegin(); it != insns.rend(); ++it) {
+          auto& o = it->first;
+          Instruction& i = it->second;
+          std::set<Dyninst::InstructionAPI::RegisterAST::Ptr> read;
+          i.getReadSet(read);
+
+          std::set<Dyninst::InstructionAPI::RegisterAST::Ptr> written;
+          i.getWriteSet(written);
+          for (auto const& w: written) {
+            MachRegister actualReg = w->getID();
+            // Writing to lower 32-bit portion of a register
+            // will automatically clean the upper 32-bit.
+            //
+            // We cannot treat a partial writes to a register as a kill
+            if (actualReg.size() != 4 && actualReg.size() != 8) {
+                continue;
+            }
+            MachRegister baseReg = actualReg.getBaseRegister();
+            if (baseReg == x86_64::rsp) continue;
+            if (baseReg.regClass() != x86_64::GPR) continue;
+            std::string name = NormalizeRegisterName(baseReg.name());
+            cur.insert(name);
+          }
+          for (auto const& r : read) {
+            MachRegister baseReg = r->getID().getBaseRegister();
+            cur.erase(NormalizeRegisterName(baseReg.name()));
+          }
+          d[o] = cur;
+      }
+  }
+
+  bool MoveSP(Instruction &i) {
+    std::set<Dyninst::InstructionAPI::RegisterAST::Ptr> written;
+    i.getWriteSet(written);
+    for (auto const& w: written) {
+      if (w->getID() == x86_64::rsp) return true;
+    }
+    return false;
+  }
+
+  bool ReadFlags(Instruction &i) {
+    std::set<Dyninst::InstructionAPI::RegisterAST::Ptr> read;
+    i.getReadSet(read);
+    for (auto const &r : read) {
+        if (r->getID().isFlag()) return true;
+    }
+    return false;
+  }
+
+  void CalculateEntryInstPoint(std::map<Offset, Instruction> &insns,
+          std::map<Offset, std::set<std::string> > &d,
+          FuncSummary *s,
+          Address blockEntry) {
+      Address newAddr = 0;
+      int saveCount = 0;
+      int raOffset = 0;
+      int curHeight = 0;
+      for (auto it = insns.begin(); it != insns.end(); ++it) {
+          auto& deadRegs = d[it->first];
+          if ((int)deadRegs.size() > saveCount) {
+              saveCount = deadRegs.size();
+              raOffset = curHeight;
+              newAddr = it->first;
+          }
+          if (saveCount == 2) break;
+          if (it->second.getOperation().getID() == e_push) {
+              curHeight += 8;
+              continue;
+          }
+          if (it->second.writesMemory()) break;
+          if (MoveSP(it->second)) break;
+      }
+
+      if (saveCount > 0 && newAddr > 0) {
+          MoveInstData *mid = new MoveInstData;
+          mid->newInstAddress = newAddr;
+          mid->raOffset = raOffset;
+          mid->saveCount = saveCount;
+
+          auto& deadRegs = d[newAddr];
+          if (deadRegs.size() == 1) {
+              mid->reg1 = *(deadRegs.begin());
+          } else {
+              auto it = deadRegs.begin();
+              mid->reg1 = *it;
+              ++it;
+              mid->reg2 = *it;
+          }
+          s->entryData[blockEntry] = mid;
+      }
+  }
+
+  void CalculateExitInstPoint(std::map<Offset, Instruction> &insns,
+          std::map<Offset, std::set<std::string> > &d,
+          FuncSummary* s,
+          Address blockEntry) {
+      Address newAddr = 0;
+      int saveCount = 0;
+      int raOffset = 0;
+      int curHeight = 0;
+      for (auto it = insns.rbegin(); it != insns.rend(); ++it) {
+          entryID e = it->second.getOperation().getID();
+          if (e == e_ret || e == e_ret_near || e == e_ret_far) continue;
+          // pop can writes to a memory location
+          if (it->second.writesMemory()) break;
+
+          if (e == e_pop) {
+              curHeight += 8;
+          } else {
+              if (MoveSP(it->second)) break;
+              if (ReadFlags(it->second)) break;
+          }
+
+          auto & deadRegs = d[it->first];
+          if ((int)deadRegs.size() > saveCount) {
+              saveCount = deadRegs.size();
+              raOffset = curHeight;
+              newAddr = it->first;
+          }
+          if (saveCount == 2) break;
+
+      }
+
+      if (saveCount > 0 && newAddr > 0) {
+          MoveInstData *mid = new MoveInstData;
+          mid->newInstAddress = newAddr;
+          mid->raOffset = raOffset;
+          mid->saveCount = saveCount;
+
+          auto& deadRegs = d[newAddr];
+          if (deadRegs.size() == 1) {
+              mid->reg1 = *(deadRegs.begin());
+          } else {
+              auto it = deadRegs.begin();
+              mid->reg1 = *it;
+              ++it;
+              mid->reg2 = *it;
+          }
+          s->exitData[blockEntry] = mid;
+      }
+
+  }
+
+  void RunLocalAnalysis(CodeObject* co, Function* f, FuncSummary* s,
+                        PassResult* result) override {
+
+    for (auto b : f->blocks()) {
+      std::map<Offset, Instruction> insns;
+      b->getInsns(insns);
+      std::map<Offset, std::set<std::string> > deadReg;
+
+      CalculateBlockLevelLiveness(insns, deadReg);
+      CalculateEntryInstPoint(insns, deadReg, s, b->start());
+      CalculateExitInstPoint(insns, deadReg, s, b->start());
+    }
+  }
+};
 #endif  // LITECFI_PASSES_H

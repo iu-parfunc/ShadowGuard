@@ -51,7 +51,6 @@ static constexpr char kInitFn[] = "_start";
 static InstSpec is_init;
 static InstSpec is_empty;
 static std::set<Address> skip_addrs;
-static int fastPathFunction = 0;
 
 struct InstrumentationResult {
   std::vector<std::string> safe_fns;
@@ -61,11 +60,11 @@ struct InstrumentationResult {
 
 class StackOpSnippet : public Dyninst::PatchAPI::Snippet {
  public:
-  explicit StackOpSnippet(FuncSummary* summary) : summary_(summary) {}
+  explicit StackOpSnippet(FuncSummary* summary, bool u) : summary_(summary), useOriginalCode(u) {}
 
   bool generate(Dyninst::PatchAPI::Point* pt, Dyninst::Buffer& buf) override {
     AssemblerHolder ah;
-    jit_fn_(pt, summary_, ah);
+    jit_fn_(pt, summary_, ah, useOriginalCode);
 
     size_t size = ah.GetCode()->codeSize();
     char* temp_buf = (char*)malloc(size);
@@ -82,36 +81,37 @@ class StackOpSnippet : public Dyninst::PatchAPI::Snippet {
 
  protected:
   std::string (*jit_fn_)(Dyninst::PatchAPI::Point* pt, FuncSummary* summary,
-                         AssemblerHolder&);
+                         AssemblerHolder&, bool);
 
  private:
   FuncSummary* summary_;
+  bool useOriginalCode;
 };
 
 class StackPushSnippet : public StackOpSnippet {
  public:
-  explicit StackPushSnippet(FuncSummary* summary) : StackOpSnippet(summary) {
+  explicit StackPushSnippet(FuncSummary* summary, bool u) : StackOpSnippet(summary, u) {
     jit_fn_ = JitStackPush;
   }
 };
 
 class StackPopSnippet : public StackOpSnippet {
  public:
-  explicit StackPopSnippet(FuncSummary* summary) : StackOpSnippet(summary) {
+  explicit StackPopSnippet(FuncSummary* summary, bool u) : StackOpSnippet(summary, u) {
     jit_fn_ = JitStackPop;
   }
 };
 
 class RegisterPushSnippet : public StackOpSnippet {
  public:
-  explicit RegisterPushSnippet(FuncSummary* summary) : StackOpSnippet(summary) {
+  explicit RegisterPushSnippet(FuncSummary* summary) : StackOpSnippet(summary, false) {
     jit_fn_ = JitRegisterPush;
   }
 };
 
 class RegisterPopSnippet : public StackOpSnippet {
  public:
-  explicit RegisterPopSnippet(FuncSummary* summary) : StackOpSnippet(summary) {
+  explicit RegisterPopSnippet(FuncSummary* summary) : StackOpSnippet(summary, false) {
     jit_fn_ = JitRegisterPop;
   }
 };
@@ -301,6 +301,48 @@ bool Skippable(BPatch_function* function, FuncSummary* summary) {
   return false;
 }
 
+bool MoveInstrumentation(BPatch_point * &p, FuncSummary* s) {
+  if (p->getPointType() == BPatch_locEntry) {
+    BPatch_function* f = p->getFunction();
+    BPatch_flowGraph* cfg = f->getCFG();
+    
+    // Should have only one function entry block.
+    std::vector<BPatch_basicBlock*> eb;
+    cfg->getEntryBasicBlock(eb);
+    if (eb.size() != 1)
+      return false;
+
+    // If the function entry block has intra-procedural
+    // incoming edges, then we have to instrument at function entry.
+    // Otherwise, the stack push op will be executed in a loop
+    BPatch_basicBlock* func_entry = eb[0];
+    std::vector<BPatch_edge*> edges;
+    func_entry->getIncomingEdges(edges);
+    if (edges.size() > 0)
+      return false;
+    MoveInstData* mid = s->getMoveInstDataAtEntry(func_entry->getStartAddress());
+    if (mid == nullptr) 
+      return false;
+    p = func_entry->findPoint(mid->newInstAddress);
+  } else if (p->getPointType() == BPatch_locBasicBlockEntry) {
+    BPatch_basicBlock* b = p->getBlock();
+    MoveInstData* mid = s->getMoveInstDataAtEntry(b->getStartAddress());
+    if (mid == nullptr) 
+      return false;
+    p = b->findPoint(mid->newInstAddress);
+  } else if (p->getPointType() == BPatch_locExit || p->getPointType() == BPatch_locBasicBlockExit) {
+    BPatch_basicBlock* b = p->getBlock();
+    MoveInstData* mid = s->getMoveInstDataAtExit(b->getStartAddress());
+    if (mid == nullptr) 
+      return false;
+    p = b->findPoint(mid->newInstAddress);
+  } else {
+    // Cannot move instrumentation if instrumenting at an edge
+    return false;
+  }
+  return true;
+}
+
 void InstrumentFunction(BPatch_function* function,
                         const litecfi::Parser& parser, PatchMgr::Ptr patcher,
                         const std::map<uint64_t, FuncSummary*>& analyses,
@@ -357,9 +399,12 @@ void InstrumentFunction(BPatch_function* function,
 
       // Instrument slow paths entry with stack push operation
       // and nop snippet, which enables instrumentation frame spec.
-      BPatch_point* push_point = condNotTakenEntry->findEntryPoint();
+      //
+      // Also attempt to move instrumentation to utilize existing push & pop
+      BPatch_point* push_point = condNotTakenEntry->findEntryPoint() ;
+      bool moveInst = MoveInstrumentation(push_point, summary);      
       Snippet::Ptr stack_push =
-          StackPushSnippet::create(new StackPushSnippet(summary));
+          StackPushSnippet::create(new StackPushSnippet(summary, moveInst));
       PatchAPI::convert(push_point, BPatch_callBefore)->pushBack(stack_push);
       points.push_back(push_point);
       binary_edit->insertSnippet(nopSnippet, points, BPatch_callBefore,
@@ -368,14 +413,60 @@ void InstrumentFunction(BPatch_function* function,
       // Instrument slow paths exits with stack pop operations
       // and nop snippet, which enables instrumentation frame spec.
       points.clear();
-      Snippet::Ptr stack_pop =
-          StackPopSnippet::create(new StackPopSnippet(summary));
+      std::vector<BPatch_point*> insnPoints;
       for (auto b : condNotTakenExits) {
         BPatch_point* pop_point = b->findExitPoint();
-        PatchAPI::convert(pop_point, BPatch_callAfter)->pushBack(stack_pop);
-        points.push_back(pop_point);
+        bool moveInst = MoveInstrumentation(pop_point, summary);
+        Snippet::Ptr stack_pop =
+            StackPopSnippet::create(new StackPopSnippet(summary, moveInst));
+        if (pop_point->getPointType() == BPatch_locInstruction) {
+          PatchAPI::convert(pop_point, BPatch_callBefore)->pushBack(stack_pop);
+          insnPoints.push_back(pop_point);
+        } else {
+          PatchAPI::convert(pop_point, BPatch_callAfter)->pushBack(stack_pop);
+          points.push_back(pop_point);
+        }
       }
+      binary_edit->insertSnippet(nopSnippet, insnPoints, BPatch_callBefore,
+                                 BPatch_lastSnippet, &is_empty);
       binary_edit->insertSnippet(nopSnippet, points, BPatch_callAfter,
+                                 BPatch_lastSnippet, &is_empty);
+      return;
+    } else {
+      // Attempt to move instrumentation to utilize 
+      // existing push & pop
+      std::vector<BPatch_point*> entryPoints;
+      function->getEntryPoints(entryPoints);
+      for (auto& p : entryPoints) {
+        bool moveInst = MoveInstrumentation(p, summary);      
+        Snippet::Ptr stack_push =
+            StackPushSnippet::create(new StackPushSnippet(summary, moveInst));
+        PatchAPI::convert(p, BPatch_callBefore)->pushBack(stack_push);
+      }
+      binary_edit->insertSnippet(nopSnippet, entryPoints, BPatch_callBefore,
+                                 BPatch_lastSnippet, &is_empty);
+
+      std::vector<BPatch_point*> exitPoints;
+      function->getExitPoints(exitPoints);
+
+      std::vector<BPatch_point*> beforePoints;
+      std::vector<BPatch_point*> afterPoints;
+      for (auto& p : exitPoints) {
+        if (IsNonreturningCall(PatchAPI::convert(p, BPatch_callAfter))) continue;
+        bool moveInst = MoveInstrumentation(p, summary);
+        Snippet::Ptr stack_pop =
+            StackPopSnippet::create(new StackPopSnippet(summary, moveInst));
+        if (p->getPointType() == BPatch_locInstruction) {
+          PatchAPI::convert(p, BPatch_callBefore)->pushBack(stack_pop);
+          beforePoints.push_back(p);
+        } else {
+          PatchAPI::convert(p, BPatch_callAfter)->pushBack(stack_pop);
+          afterPoints.push_back(p);
+        }
+      }
+      binary_edit->insertSnippet(nopSnippet, beforePoints, BPatch_callBefore,
+                                 BPatch_lastSnippet, &is_empty);
+      binary_edit->insertSnippet(nopSnippet, afterPoints, BPatch_callAfter,
                                  BPatch_lastSnippet, &is_empty);
       return;
     }
@@ -385,11 +476,11 @@ void InstrumentFunction(BPatch_function* function,
   // the optimizations worked out. Carry out regular entry-exit shadow stack
   // instrumentation.
   Snippet::Ptr stack_push =
-      StackPushSnippet::create(new StackPushSnippet(summary));
+      StackPushSnippet::create(new StackPushSnippet(summary, false));
   InsertSnippet(function, Point::FuncEntry, stack_push, patcher);
 
   Snippet::Ptr stack_pop =
-      StackPopSnippet::create(new StackPopSnippet(summary));
+      StackPopSnippet::create(new StackPopSnippet(summary, false));
   InsertSnippet(function, Point::FuncExit, stack_pop, patcher);
 
   function->getEntryPoints(points);
@@ -500,7 +591,8 @@ void InstrumentCodeObject(BPatch_object* object, const litecfi::Parser& parser,
         ->AddPass(new IntraProceduralMemoryAnalysis())
         ->AddPass(new InterProceduralMemoryAnalysis())
         ->AddPass(new UnusedRegisterAnalysis())
-        ->AddPass(new DeadRegisterAnalysis());
+        ->AddPass(new DeadRegisterAnalysis())
+        ->AddPass(new BlockDeadRegisterAnalysis());
     std::set<FuncSummary*> summaries = pm->Run(co);
 
     for (auto f : summaries) {
