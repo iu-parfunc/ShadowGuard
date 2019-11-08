@@ -290,10 +290,6 @@ class CFGAnalysis : public Pass {
       return;
     }
 
-    if (s->func->name() == "foo") {
-      StdOut(Color::RED) << "[CFGAnalysis] In foo." << Endl;
-    }
-
     // Pre-Process loops within the function.
     std::vector<Loop*> loops;
     f->getOuterLoops(loops);
@@ -364,10 +360,6 @@ class CFGAnalysis : public Pass {
         VisitBlock(target, new_sc, s, visited, block_to_sc);
       }
     }
-
-    if (s->func->name() == "foo" && sc->unsafe) {
-      StdOut(Color::RED) << "Unsafe block found.." << Endl;
-    }
   }
 };
 
@@ -412,10 +404,6 @@ class LowerInstrumentation : public Pass {
                         PassResult* result) override {
     if (s->cfg == nullptr)
       return;
-
-    if (s->func->name() == "foo") {
-      StdOut(Color::RED) << "[LowerInstrumentation] In foo." << Endl;
-    }
 
     std::map<SCComponent*, Components*> components;
     SCComponent* new_root = new SCComponent;
@@ -811,10 +799,6 @@ class LoweringStatistics : public Pass {
                         PassResult* result) override {
     if (s->cfg == nullptr)
       return;
-
-    if (s->func->name() == "foo") {
-      StdOut(Color::RED) << "[LowerInstrumentation] In foo." << Endl;
-    }
 
     std::set<SCComponent*> visited;
     CFGStats* stats = s->stats;
