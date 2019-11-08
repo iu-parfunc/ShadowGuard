@@ -279,6 +279,17 @@ bool DoStackOpsUsingRegisters(BPatch_function* function, FuncSummary* summary,
   return false;
 }
 
+bool LowerInstrumentation(BPatch_function* function, FuncSummary* summary,
+                          const litecfi::Parser& parser,
+                          PatchMgr::Ptr patcher) {
+  if (summary->cfg == nullptr || summary->stats->safe_paths == 0)
+    return false;
+
+  // Do an in order traversal and create new blocks for each blocks within
+  // each SCComponent. To link inter SCComponent edges use SCComponent.outgoing
+  // mapping.
+}
+
 void AddInlineHint(BPatch_function* function, const litecfi::Parser& parser) {
   Address entry = (Address)(function->getBaseAddr());
   parser.parser->addInliningEntry(entry);
@@ -332,6 +343,12 @@ void InstrumentFunction(BPatch_function* function,
     // unused registers.
     if (DoStackOpsUsingRegisters(function, summary, parser, patcher)) {
       res->reg_stack_fns.push_back(fn_name);
+      return;
+    }
+
+    // If possible check and lower the instrumentation to within non frequently
+    // executed unsafe control flow paths.
+    if (LowerInstrumentation(function, summary, parser, patcher)) {
       return;
     }
 

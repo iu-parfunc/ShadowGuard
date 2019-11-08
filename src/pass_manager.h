@@ -84,8 +84,9 @@ struct SCComponent {
   std::set<SCComponent*> children;
   // Parents of the component.
   std::set<SCComponent*> parents;
-  // Target blocks of outgoing edges from this component.
-  std::map<SCComponent*, Block*> outgoing;
+  // Outgoing edges from this component. This maps the target block to the
+  // target component. Only features inter component edges.
+  std::map<Block*, SCComponent*> outgoing;
 
   SCComponent()
       : unsafe(false), header_instrumentation(false), stack_push(false) {}
@@ -105,6 +106,10 @@ struct SCComponent {
   }
 
   ~SCComponent() {}
+
+  // Outgoing edge target component to target block mapping. Only used within
+  // anlaysis passes during CFG construction.
+  std::map<SCComponent*, Block*> targets;
 };
 
 struct FuncSummary {
@@ -187,24 +192,29 @@ struct FuncSummary {
   }
 
   bool shouldUseRegisterFrame() {
-      if (callees.size() > 0) return false;
-      if (unused_regs.size() == 0) return false;
-      if (has_unknown_cf || has_plt_call) return false;
+    if (callees.size() > 0)
+      return false;
+    if (unused_regs.size() == 0)
+      return false;
+    if (has_unknown_cf || has_plt_call)
+      return false;
 
-      // If this function creates a stack frame, it may over-write
-      // the red-zone location at the function entry
-      if (moveDownSP) return false;
-      auto it = redZoneAccess.begin();
-      if (it != redZoneAccess.end()) {
-          // We always try to use [-128, -120) range of the red zone.
-          // So, if the original code uses any byte in this range,
-          // we cannot perform the optimization.
-          //
-          // Here I assume that if the original code uses a deeper red zone location,
-          // it must have used any space shallower in the red zone.
-          if (*it < -120) return false;
-      }
-      return true;
+    // If this function creates a stack frame, it may over-write
+    // the red-zone location at the function entry
+    if (moveDownSP)
+      return false;
+    auto it = redZoneAccess.begin();
+    if (it != redZoneAccess.end()) {
+      // We always try to use [-128, -120) range of the red zone.
+      // So, if the original code uses any byte in this range,
+      // we cannot perform the optimization.
+      //
+      // Here I assume that if the original code uses a deeper red zone
+      // location, it must have used any space shallower in the red zone.
+      if (*it < -120)
+        return false;
+    }
+    return true;
   }
 };
 

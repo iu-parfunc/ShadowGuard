@@ -355,7 +355,9 @@ class CFGAnalysis : public Pass {
       // that's the case skip adding a child component.
       if (sc != new_sc) {
         sc->children.insert(new_sc);
-        sc->outgoing[new_sc] = target;
+
+        sc->targets[new_sc] = target;
+        sc->outgoing[target] = new_sc;
       }
 
       if (visited.find(target) == visited.end()) {
@@ -482,7 +484,10 @@ class LowerInstrumentation : public Pass {
           components[grand_child] = new_component;
         }
 
-        new_sc->outgoing[child] = sc->outgoing[c];
+        Block* target = sc->targets[c];
+        new_sc->targets[child] = target;
+        new_sc->outgoing[target] = child;
+
         child->children.insert(grand_child);
         new_sc->children.insert(child);
         VisitComponent(c, child, components, false /* in_safe_region */);
@@ -532,8 +537,10 @@ class LowerInstrumentation : public Pass {
         }
       }
 
+      Block* target = sc->targets[c];
+      new_sc->targets[child] = target;
+      new_sc->outgoing[target] = child;
       new_sc->children.insert(child);
-      new_sc->outgoing[child] = sc->outgoing[c];
       VisitComponent(c, child, components, in_safe_region);
     }
   }
@@ -627,8 +634,11 @@ class CoalesceIngressInstrumentation : public Pass {
       for (auto child : sc->children) {
         SCComponent* new_child = nullptr;
         bool visited = GetOrCopyNode(child, components, &new_child);
+
+        Block* target = sc->targets[child];
+        new_sc->targets[new_child] = target;
+        new_sc->outgoing[target] = new_child;
         new_sc->children.insert(new_child);
-        new_sc->outgoing[new_child] = sc->outgoing[child];
 
         if (!visited) {
           VisitComponent(child, new_child, components);
@@ -651,7 +661,10 @@ class CoalesceIngressInstrumentation : public Pass {
           SCComponent* new_grand_child = nullptr;
           GetOrCopyNode(grand_child, components, &new_grand_child);
           new_sc->children.insert(new_grand_child);
-          new_sc->outgoing[new_grand_child] = sc->outgoing[child];
+
+          Block* target = sc->targets[child];
+          new_sc->targets[new_grand_child] = target;
+          new_sc->outgoing[target] = new_grand_child;
           continue;
         }
 
@@ -661,7 +674,10 @@ class CoalesceIngressInstrumentation : public Pass {
           GetOrCopyNode(grand_child, components, &new_grand_child);
           new_grand_child->header_instrumentation = true;
           new_sc->children.insert(new_grand_child);
-          new_sc->outgoing[new_grand_child] = sc->outgoing[child];
+
+          Block* target = sc->targets[child];
+          new_sc->targets[new_grand_child] = target;
+          new_sc->outgoing[target] = new_grand_child;
 
           // Mark grand_child as entry instrumentation coalesced for future
           // traversals from cross edges.
@@ -672,7 +688,10 @@ class CoalesceIngressInstrumentation : public Pass {
           SCComponent* copy = nullptr;
           GetOrCopyNode(child, components, &copy);
           new_sc->children.insert(copy);
-          new_sc->outgoing[copy] = sc->outgoing[child];
+
+          Block* target = sc->targets[child];
+          new_sc->targets[copy] = target;
+          new_sc->outgoing[target] = copy;
 
           VisitComponent(child, copy, components);
         }
@@ -682,7 +701,10 @@ class CoalesceIngressInstrumentation : public Pass {
       SCComponent* copy = nullptr;
       bool visited = GetOrCopyNode(child, components, &copy);
       new_sc->children.insert(copy);
-      new_sc->outgoing[copy] = sc->outgoing[child];
+
+      Block* target = sc->targets[child];
+      new_sc->targets[copy] = target;
+      new_sc->outgoing[target] = copy;
 
       if (!visited) {
         VisitComponent(child, copy, components);
@@ -729,9 +751,10 @@ class CoalesceEgressInstrumentation : public Pass {
         SCComponent* grand_child = GetOnlyChild(child);
         new_children.insert(grand_child);
 
-        Block* b = sc->outgoing[child];
-        sc->outgoing[grand_child] = b;
-        sc->outgoing.erase(child);
+        Block* target = sc->targets[child];
+        sc->targets[grand_child] = target;
+        sc->targets.erase(child);
+        sc->outgoing[target] = grand_child;
       }
       sc->children.clear();
       sc->children = new_children;
