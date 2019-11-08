@@ -302,7 +302,17 @@ void VisitAndCopyCFG(SCComponent* sc, std::set<SCComponent*>& visited) {
   }
 
   if (sc->stack_push) {
-    sc->blocks.insert(CreateStackPushBlock());
+    Block* src = CreateStackPushBlock();
+    sc->blocks.insert(src);
+
+    DCHECK(sc->outgoing.size() == 1);
+    for (auto it : sc->outgoing) {
+      SCComponent* target_sc = it.second;
+      auto itt = target_sc->block_remappings.find(it.first);
+      DCHECK(itt != target_sc->block_remappings.end());
+      RewireBlock(src, itt->second);
+    }
+
     visited.insert(sc);
     return;
   }
