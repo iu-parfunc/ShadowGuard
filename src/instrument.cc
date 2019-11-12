@@ -15,6 +15,8 @@
 #include "PatchMgr.h"
 #include "Point.h"
 #include "Snippet.h"
+#include "PatchModifier.h"
+
 #include "asmjit/asmjit.h"
 #include "assembler.h"
 #include "codegen.h"
@@ -51,6 +53,7 @@ static constexpr char kInitFn[] = "_start";
 static InstSpec is_init;
 static InstSpec is_empty;
 static std::set<Address> skip_addrs;
+static CFGMaker* cfgMaker;
 
 struct InstrumentationResult {
   std::vector<std::string> safe_fns;
@@ -60,11 +63,11 @@ struct InstrumentationResult {
 
 class StackOpSnippet : public Dyninst::PatchAPI::Snippet {
  public:
-  explicit StackOpSnippet(FuncSummary* summary, bool u) : summary_(summary), useOriginalCode(u) {}
+  explicit StackOpSnippet(FuncSummary* summary, bool u, int h) : summary_(summary), useOriginalCode(u), height(h) {}
 
   bool generate(Dyninst::PatchAPI::Point* pt, Dyninst::Buffer& buf) override {
     AssemblerHolder ah;
-    jit_fn_(pt, summary_, ah, useOriginalCode);
+    jit_fn_(pt, summary_, ah, useOriginalCode, height);
 
     size_t size = ah.GetCode()->codeSize();
     char* temp_buf = (char*)malloc(size);
@@ -81,37 +84,38 @@ class StackOpSnippet : public Dyninst::PatchAPI::Snippet {
 
  protected:
   std::string (*jit_fn_)(Dyninst::PatchAPI::Point* pt, FuncSummary* summary,
-                         AssemblerHolder&, bool);
+                         AssemblerHolder&, bool, int);
 
  private:
   FuncSummary* summary_;
   bool useOriginalCode;
+  int height;
 };
 
 class StackPushSnippet : public StackOpSnippet {
  public:
-  explicit StackPushSnippet(FuncSummary* summary, bool u) : StackOpSnippet(summary, u) {
+  explicit StackPushSnippet(FuncSummary* summary, bool u, int h = 0) : StackOpSnippet(summary, u, h) {
     jit_fn_ = JitStackPush;
   }
 };
 
 class StackPopSnippet : public StackOpSnippet {
  public:
-  explicit StackPopSnippet(FuncSummary* summary, bool u) : StackOpSnippet(summary, u) {
+  explicit StackPopSnippet(FuncSummary* summary, bool u) : StackOpSnippet(summary, u, 0) {
     jit_fn_ = JitStackPop;
   }
 };
 
 class RegisterPushSnippet : public StackOpSnippet {
  public:
-  explicit RegisterPushSnippet(FuncSummary* summary) : StackOpSnippet(summary, false) {
+  explicit RegisterPushSnippet(FuncSummary* summary) : StackOpSnippet(summary, false, 0) {
     jit_fn_ = JitRegisterPush;
   }
 };
 
 class RegisterPopSnippet : public StackOpSnippet {
  public:
-  explicit RegisterPopSnippet(FuncSummary* summary) : StackOpSnippet(summary, false) {
+  explicit RegisterPopSnippet(FuncSummary* summary) : StackOpSnippet(summary, false, 0) {
     jit_fn_ = JitRegisterPop;
   }
 };
@@ -364,17 +368,132 @@ void VisitAndCopyCFG(SCComponent* sc, std::set<SCComponent*>& visited,
   visited.insert(sc);
 }
 
+
+bool skipPatchEdges(PatchEdge *e) {
+    if (e->sinkEdge() || e->interproc()) return true;
+    if (e->type() == ParseAPI::CATCH) return true;
+    return false;
+}
+
+void CloneFunctionCFG(PatchFunction* f, 
+        PatchMgr::Ptr patcher, 
+        std::map<PatchBlock*, PatchBlock*> &cloneBlockMap) {    
+    // Clone all blocks
+    std::vector<PatchBlock*> newBlocks;
+    for (auto b : f->blocks()) {
+        PatchBlock* cloneB = cfgMaker->cloneBlock(b, b->object());
+        cloneBlockMap[b] = cloneB;
+        newBlocks.push_back(cloneB);
+        fprintf(stderr, "old block %p, new block %p\n", b, cloneB);
+    }
+    fprintf(stderr, "%d new cloned blocks to %p\n", newBlocks.size(), f);
+    for (auto b: newBlocks) {
+        PatchModifier::addBlockToFunction(f, b);
+    }
+
+    // The edges of the cloned blocks are still from/to original blocks
+    // Now we redirect all edges
+    for (auto b : newBlocks) {
+        for (auto e : b->targets()) {
+            if (skipPatchEdges(e)) continue;
+            PatchBlock* newTarget = cloneBlockMap[e->trg()];
+            assert (PatchModifier::redirect(e , newTarget) ); 
+        }
+    }
+}
+
+void RedirectTransitionEdges(PatchBlock* cur, 
+                            FuncSummary* summary, 
+                            std::map<PatchBlock*, PatchBlock*> &cloneBlockMap,
+                            std::set<PatchEdge*>& redirect,
+                            std::set<PatchEdge*>& visited) {
+    for (auto e : cur->targets()) {
+        if (skipPatchEdges(e)) continue;
+        if (visited.find(e) != visited.end()) continue;
+        visited.insert(e);
+        PatchBlock* target = e->trg();
+        if (summary->unsafe_blocks.find(target->block()) != summary->unsafe_blocks.end()) {
+            assert(PatchModifier::redirect(e , cloneBlockMap[target]));
+            redirect.insert(e);
+        } else {
+            RedirectTransitionEdges(target, summary, cloneBlockMap, redirect, visited);
+        }
+    }
+}
+
 bool DoInstrumentationLowering(BPatch_function* function, FuncSummary* summary,
                                const litecfi::Parser& parser,
                                PatchMgr::Ptr patcher) {
-  if (summary->cfg == nullptr || summary->stats->safe_paths == 0)
-    return false;
+  if (!summary || !summary->lowerInstrumentation())
+      return false;
+  fprintf(stderr, "Enter DoInstrumentationLowering\n");
+  for (auto b: summary->unsafe_blocks) {
+      fprintf(stderr, "\tunsafe block [%lx, %lx)\n", b->start(), b->end());
+  }
+  PatchFunction *f = PatchAPI::convert(function);
+  assert(parser.parser->markPatchFunctionEntryInstrumented(f));
 
-  // Process the CFG dag in topologically sorted order and create new blocks for
-  // each blocks within each SCComponent. To link inter SCComponent edges use
-  // SCComponent.outgoing mapping.
-  std::set<SCComponent*> visited;
-  VisitAndCopyCFG(summary->cfg, visited, false /* unsafe_flow*/);
+  std::map<PatchBlock*, PatchBlock*> cloneBlockMap; 
+  CloneFunctionCFG(f, patcher, cloneBlockMap);
+
+  fprintf(stderr, "After cloning\n");
+  for (auto b : f->blocks()) {
+      fprintf(stderr, "%p %p\n", b, b->block());
+      for (auto e : b->targets()) {
+          fprintf(stderr, "\t(%p,%p) ", e, e->trg());
+      }
+      fprintf(stderr, "\n");
+  }
+
+  
+  std::set<PatchEdge*> visited;
+  std::set<PatchEdge*> redirect;
+  RedirectTransitionEdges(f->entry(), summary, cloneBlockMap, redirect, visited);
+
+  fprintf(stderr, "%d trasition edges\n", redirect.size());
+  fprintf(stderr, "After redirecting edges\n");
+  for (auto b : f->blocks()) {
+      fprintf(stderr, "%p %p\n", b, b->block());
+      for (auto e : b->targets()) {
+          fprintf(stderr, "\t(%p,%p) ", e, e->trg());
+      }
+      fprintf(stderr, "\n");
+  }
+
+  // Insert stack push operations
+  for (auto e : redirect) {
+      assert(summary->SPHeight.find(e->src()->start()) != summary->SPHeight.end());
+      int height = summary->SPHeight[e->src()->start()];
+      fprintf(stderr, "SP height %d\n", height);
+      Snippet::Ptr stack_push;
+      if (summary->shouldUseRegisterFrame()) {
+          stack_push = RegisterPushSnippet::create(new RegisterPushSnippet(summary));
+      } else {
+          stack_push = StackPushSnippet::create(new StackPushSnippet(summary, false, height));
+      }
+
+      Point * p = patcher->findPoint(PatchAPI::Location::EdgeInstance(f, e), Point::EdgeDuring);
+      assert(p);
+      p->pushBack(stack_push);
+  }
+
+  // Insert stack pop operations
+  Snippet::Ptr stack_pop;
+  if (summary->shouldUseRegisterFrame()) {
+      stack_pop = RegisterPopSnippet::create(new RegisterPopSnippet(summary));
+  } else {
+      stack_pop = StackPopSnippet::create(new StackPopSnippet(summary, false));
+  }
+  for (auto b: f->exitBlocks()) {
+      PatchBlock* cloneB = cloneBlockMap[b];
+      Point* p = patcher->findPoint(PatchAPI::Location::BlockInstance(f, cloneB), Point::BlockExit);
+      assert(p);
+      if (IsNonreturningCall(p)) continue;
+      fprintf(stderr, "insert stack pop operation to cloned exit %p\n", cloneB);
+      p->pushBack(stack_pop);
+      assert(parser.parser->markPatchBlockInstrumented(cloneB));
+  }
+
   return true;
 }
 
@@ -389,6 +508,7 @@ bool Skippable(BPatch_function* function, FuncSummary* summary) {
         << "      Skipping function : " << function->getName() << Endl;
     return true;
   }
+  if ((Address)(function->getBaseAddr()) != 0x486790) return true;
 
   if (skip_addrs.find((Address)(function->getBaseAddr())) != skip_addrs.end()) {
     StdOut(Color::RED, FLAGS_vv)
@@ -469,16 +589,16 @@ void InstrumentFunction(BPatch_function* function,
     // Add inlining hint so that writeFile may inline small leaf functions.
     AddInlineHint(function, parser);
 
+    // If possible check and lower the instrumentation to within non frequently
+    // executed unsafe control flow paths.
+    if (DoInstrumentationLowering(function, summary, parser, patcher)) {
+      return;
+    }
+
     // For leaf functions we may be able to carry out stack operations using
     // unused registers.
     if (DoStackOpsUsingRegisters(function, summary, parser, patcher)) {
       res->reg_stack_fns.push_back(fn_name);
-      return;
-    }
-
-    // If possible check and lower the instrumentation to within non frequently
-    // executed unsafe control flow paths.
-    if (DoInstrumentationLowering(function, summary, parser, patcher)) {
       return;
     }
 
@@ -695,17 +815,17 @@ void InstrumentCodeObject(BPatch_object* object, const litecfi::Parser& parser,
         ->AddPass(new LargeFunctionFilter())
         ->AddPass(new IntraProceduralMemoryAnalysis())
         ->AddPass(new InterProceduralMemoryAnalysis())
+        /*
         ->AddPass(new CFGAnalysis())
         ->AddPass(new CFGStatistics())
         ->AddPass(new LowerInstrumentation())
-        /*
         ->AddPass(new LinkParentsOfCFG())
         ->AddPass(new CoalesceIngressInstrumentation())
         ->AddPass(new CoalesceEgressInstrumentation())
-        */
         ->AddPass(new ValidateCFG())
         ->AddPass(new LoweringStatistics())
-        ->AddPass(new DeadRegisterAnalysis());
+        */
+        ->AddPass(new DeadRegisterAnalysis())
         ->AddPass(new BlockDeadRegisterAnalysis());
     std::set<FuncSummary*> summaries = pm->Run(co);
 
@@ -738,6 +858,8 @@ void SetupInstrumentationSpec() {
 void Instrument(std::string binary, const litecfi::Parser& parser) {
   StdOut(Color::BLUE, FLAGS_vv) << "\n\nInstrumentation Pass" << Endl;
   StdOut(Color::BLUE, FLAGS_vv) << "====================" << Endl;
+
+  cfgMaker = parser.parser->getCFGMaker();
 
   StdOut(Color::BLUE) << "+ Instrumenting the binary..." << Endl;
 

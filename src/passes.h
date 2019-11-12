@@ -21,6 +21,7 @@
 #include "pass_manager.h"
 #include "register_utils.h"
 #include "utils.h"
+#include "stackanalysis.h"
 
 using Dyninst::Absloc;
 using Dyninst::AbsRegion;
@@ -157,11 +158,18 @@ class IntraProceduralMemoryAnalysis : public Pass {
     if (s->assume_unsafe)
       return;
 
+    StackAnalysis sa(f);
+
     AssignmentConverter converter(true /* cache results*/,
                                   true /* use stack analysis*/);
 
     std::map<Offset, Instruction> insns;
     for (auto b : f->blocks()) {
+      StackAnalysis::Height h = sa.findSP(b, b->end());
+      if (!h.isTop() && !h.isBottom()) {
+          s->SPHeight[b->start()] = -8 - h.height();
+      }
+
       insns.clear();
       b->getInsns(insns);
 

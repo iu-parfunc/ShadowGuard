@@ -1,4 +1,3 @@
-
 #include <string>
 
 #include "asmjit/asmjit.h"
@@ -32,9 +31,9 @@ struct TempRegisters {
   bool tmp3_saved;
   int sp_offset;
 
-  TempRegisters(std::set<std::string> exclude = {})
+  TempRegisters(std::set<std::string> exclude = {}, int height = 0)
       : tmp1_saved(true), tmp2_saved(true), tmp3_saved(true),
-        sp_offset(0 /* flag saving always takes 8 bytes */) {
+        sp_offset(height /* flag saving always takes 8 bytes */) {
     int count = 0;
     for (auto it : kRegisterMap) {
       auto rit = exclude.find(it.first);
@@ -103,8 +102,9 @@ TempRegisters UseSpecifiedRegisters(Assembler *a, MoveInstData* mid) {
 
 TempRegisters SaveTempRegisters(Assembler* a,
                                 std::set<std::string>& dead_registers,
-                                std::set<std::string> exclude = {}) {
-  TempRegisters t(exclude);
+                                std::set<std::string> exclude = {},
+                                int height = 0) {
+  TempRegisters t(exclude, height);
   if ((FLAGS_optimize_regs && dead_registers.empty()) || !FLAGS_optimize_regs) {
     Save(a, &t, &t.tmp1);
     Save(a, &t, &t.tmp2);
@@ -187,9 +187,8 @@ void SaveRaAndFrame(const asmjit::x86::Mem& shadow_ptr, const Gp& sp_reg,
 }
 
 std::string JitStackPush(Dyninst::PatchAPI::Point* pt, FuncSummary* s,
-                         AssemblerHolder& ah, bool useOriginalCode) {
+                         AssemblerHolder& ah, bool useOriginalCode, int height) {
   Assembler* a = ah.GetAssembler();
-
   TempRegisters t;
   MoveInstData* mid = nullptr;
   if (useOriginalCode) {
@@ -200,7 +199,7 @@ std::string JitStackPush(Dyninst::PatchAPI::Point* pt, FuncSummary* s,
   if (mid != nullptr) {
       t = UseSpecifiedRegisters(a, mid);
   } else if (s != nullptr) {
-    t = SaveTempRegisters(a, s->dead_at_entry);
+    t = SaveTempRegisters(a, s->dead_at_entry, {}, height);
   } else {
     std::set<std::string> dead;
     t = SaveTempRegisters(a, dead);
@@ -331,7 +330,7 @@ void ValidateRaAndFrame(const asmjit::x86::Mem& shadow_ptr, const Gp& sp_reg,
 }
 
 std::string JitStackPop(Dyninst::PatchAPI::Point* pt, FuncSummary* s,
-                        AssemblerHolder& ah, bool useOriginalCode) {
+                        AssemblerHolder& ah, bool useOriginalCode, int) {
   Assembler* a = ah.GetAssembler();
 
   TempRegisters t;
@@ -386,7 +385,7 @@ std::pair<std::string, Gp> GetUnusedRegister(FuncSummary* s) {
 }
 
 std::string JitRegisterPush(Dyninst::PatchAPI::Point* pt, FuncSummary* s,
-                            AssemblerHolder& ah, bool) {
+                            AssemblerHolder& ah, bool, int ) {
   auto pair = GetUnusedRegister(s);
   Gp reg = pair.second;
 
@@ -407,7 +406,7 @@ std::string JitRegisterPush(Dyninst::PatchAPI::Point* pt, FuncSummary* s,
 }
 
 std::string JitRegisterPop(Dyninst::PatchAPI::Point* pt, FuncSummary* s,
-                           AssemblerHolder& ah, bool) {
+                           AssemblerHolder& ah, bool, int) {
   // Here we rely on the fact that stl::set iteration order is deterministic
   // across multiple invocations (i.e: we will get the same register that we got
   // during stack push using the iterator).

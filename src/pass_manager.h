@@ -204,6 +204,8 @@ struct FuncSummary {
   std::map<Address, MoveInstData*> entryData;
   std::map<Address, MoveInstData*> exitData;
 
+  std::map<Address, int> SPHeight;
+
   void Print() {
     printf("Writes to memory = %d ", writes);
     printf("Has PLT calls = %d ", has_plt_call);
@@ -246,6 +248,13 @@ struct FuncSummary {
       auto it = exitData.find(a);
       if (it == exitData.end()) return nullptr;
       return it->second;
+  }
+
+  bool lowerInstrumentation() {
+      if (unsafe_blocks.find(func->entry()) != unsafe_blocks.end()) return false;
+      if (has_indirect_cf) return false;
+      if (SPHeight.empty()) return false;
+      return true;
   }
 
 };
