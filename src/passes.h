@@ -909,27 +909,36 @@ class UnusedRegisterAnalysis : public Pass {
         "x86_64::r14", "x86_64::r15",
     };
 
+    StackAnalysis sa(f);
+
+
+
     std::map<Dyninst::Offset, Dyninst::InstructionAPI::Instruction> insns;
     std::set<std::string> used;
     for (auto b : f->blocks()) {
       b->getInsns(insns);
 
+
       for (auto const& ins : insns) {
+          StackAnalysis::Height h = sa.findSP(b, ins.first);
+          if (!h.isTop() && !h.isBottom()) {
+              int height = -8 - h.height();
+              if (height >= 128) s->moveDownSP = true;
+
+          }
+
         std::set<Dyninst::InstructionAPI::RegisterAST::Ptr> read;
         std::set<Dyninst::InstructionAPI::RegisterAST::Ptr> written;
 
         ins.second.getReadSet(read);
         ins.second.getWriteSet(written);
-
+        
         for (auto const& r : read) {
           used.insert(NormalizeRegisterName(r->getID().name()));
         }
 
         for (auto const& w : written) {
           used.insert(NormalizeRegisterName(w->getID().name()));
-          if (ins.second.getOperation().getID() == e_sub &&
-              NormalizeRegisterName(w->getID().name()) == "x86_64::rsp")
-            s->moveDownSP = true;
         }
 
         // See if this instruction accesses to red zone
@@ -1085,6 +1094,7 @@ class BlockDeadRegisterAnalysis : public Pass {
           auto& deadRegs = d[it->first];
           if ((int)deadRegs.size() > saveCount) {
               saveCount = deadRegs.size();
+              if (saveCount > 2) saveCount = 2;
               raOffset = curHeight;
               newAddr = it->first;
           }
@@ -1140,6 +1150,7 @@ class BlockDeadRegisterAnalysis : public Pass {
           auto & deadRegs = d[it->first];
           if ((int)deadRegs.size() > saveCount) {
               saveCount = deadRegs.size();
+              if (saveCount > 2) saveCount = 2;
               raOffset = curHeight;
               newAddr = it->first;
           }
@@ -1181,4 +1192,125 @@ class BlockDeadRegisterAnalysis : public Pass {
     }
   }
 };
+
+class SafePathsCounting : public Pass {
+ public:
+  SafePathsCounting()
+      : Pass("Count the maximal number of safe control flow paths in a function",
+             "Do not collapse SCC to get as many safe CF paths as possible") {}
+
+  int countPaths(Block* cur, FuncSummary* s, std::set<ParseAPI::Edge*> &visited, std::set<Block*> &exitBlocks) {
+      if (s->unsafe_blocks.find(cur) != s->unsafe_blocks.end()) {
+          return 0;
+      }
+      if (exitBlocks.find(cur) != exitBlocks.end()) {
+          return 1;
+      }
+      int c = 0;
+      for (auto e : cur->targets()) {
+          if (e->sinkEdge()) continue;
+          if (e->interproc()) continue;
+          if (e->type() == ParseAPI::CATCH) continue;
+          if (visited.find(e) != visited.end()) continue;
+          visited.insert(e);
+          c += countPaths(e->trg(), s, visited, exitBlocks);
+      }
+      return c;
+  }
+
+  void RunLocalAnalysis(CodeObject* co, Function* f, FuncSummary* s,
+                        PassResult* result) override {
+    std::set<ParseAPI::Edge*> visited;
+    std::set<Block*> exitBlocks;
+    for (auto b : f->exitBlocks())
+        exitBlocks.insert(b);
+    s->safe_paths = countPaths(f->entry(), s, visited, exitBlocks);
+  }
+
+};
+
+class UnsafeCallBlockAnalysis : public Pass {
+ public:
+  UnsafeCallBlockAnalysis()
+      : Pass("Identify unsafe call blocks",
+             "A call block to safe function is safe") {}
+  void RunGlobalAnalysis(CodeObject* co,
+                         std::map<Function*, FuncSummary*>& summaries,
+                         PassResult* result) override {
+      std::set<Address> safe_func;
+      for (auto f : co->funcs()) {
+          if (!summaries[f]->writes) {
+              safe_func.insert(f->addr());
+          }
+      }
+
+      for (auto f : co->funcs()) 
+          for (auto b: f->blocks()) {
+              Address callee = 0;
+              for (auto e : b->targets()) {
+                  if (e->sinkEdge() && e->type() == ParseAPI::CALL) {
+                      summaries[f]->unsafe_blocks.insert(b);
+                      break;
+                  }
+                  if (e->type() == ParseAPI::CALL) {
+                      callee = e->trg()->start();
+                      if (safe_func.find(callee) == safe_func.end()) summaries[f]->unsafe_blocks.insert(b);
+                      break;
+                  }
+              }
+          }
+  }
+
+};
+
+class FunctionExceptionAnalysis : public Pass {
+ public:
+  FunctionExceptionAnalysis()
+      : Pass("Inter-procedural Exception Analysis",
+             "Assume a plt call may throw an exception.") {}
+
+  void RunGlobalAnalysis(CodeObject* co,
+                         std::map<Function*, FuncSummary*>& summaries,
+                         PassResult* result) override {
+    std::set<Function*> visited;
+    for (auto f : co->funcs()) {
+      auto it = visited.find(f);
+      if (it == visited.end()) {
+        VisitFunction(co, summaries[f], summaries, visited);
+      }
+    }
+    for (auto f : co->funcs())
+        if (summaries[f]->func_exception_safe)
+            exception_free_func.insert(f->addr());
+  }
+
+ private:
+  bool VisitFunction(CodeObject* co, FuncSummary* s,
+                     std::map<Function*, FuncSummary*>& summaries,
+                     std::set<Function*>& visited) {
+    visited.insert(s->func);
+    if (s->has_plt_call) {
+        s->func_exception_safe = false;
+        return false;
+    }
+    if (s->has_unknown_cf) {
+        s->func_exception_safe = false;
+        return false;
+    }
+    
+    bool ret = true;
+    for (auto f : s->callees) {
+      auto it = visited.find(f);
+      if (it == visited.end()) {
+        ret &= VisitFunction(co, summaries[f], summaries, visited);
+      } else {
+        ret &= summaries[f]->writes;
+      }
+    }
+
+    s->func_exception_safe = ret;
+    return ret;
+  }
+};
+
 #endif  // LITECFI_PASSES_H

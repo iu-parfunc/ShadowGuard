@@ -26,6 +26,8 @@ using Dyninst::ParseAPI::RET;
 DECLARE_bool(vv);
 DECLARE_string(stats);
 
+extern std::set<Address> exception_free_func;
+
 struct MoveInstData {
     // Pre-instruction address for moving instrumentation
     Address newInstAddress;
@@ -206,6 +208,10 @@ struct FuncSummary {
 
   std::map<Address, int> SPHeight;
 
+  int safe_paths;
+
+  bool func_exception_safe;
+
   void Print() {
     printf("Writes to memory = %d ", writes);
     printf("Has PLT calls = %d ", has_plt_call);
@@ -254,6 +260,7 @@ struct FuncSummary {
       if (unsafe_blocks.find(func->entry()) != unsafe_blocks.end()) return false;
       if (has_indirect_cf) return false;
       if (SPHeight.empty()) return false;
+      if (safe_paths == 0) return false;
       return true;
   }
 

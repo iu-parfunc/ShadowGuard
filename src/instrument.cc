@@ -43,6 +43,8 @@ DECLARE_string(threat_model);
 DECLARE_string(stats);
 DECLARE_string(skip_list);
 
+std::set<Address> exception_free_func;
+
 // Thread local shadow stack initialization function name.
 static constexpr char kShadowStackInitFn[] = "litecfi_init_mem_region";
 // Init function which needs to be instrumented with a call the thread local
@@ -108,7 +110,7 @@ class StackPopSnippet : public StackOpSnippet {
 
 class RegisterPushSnippet : public StackOpSnippet {
  public:
-  explicit RegisterPushSnippet(FuncSummary* summary) : StackOpSnippet(summary, false, 0) {
+  explicit RegisterPushSnippet(FuncSummary* summary, int height = 0) : StackOpSnippet(summary, false, height) {
     jit_fn_ = JitRegisterPush;
   }
 };
@@ -384,9 +386,7 @@ void CloneFunctionCFG(PatchFunction* f,
         PatchBlock* cloneB = cfgMaker->cloneBlock(b, b->object());
         cloneBlockMap[b] = cloneB;
         newBlocks.push_back(cloneB);
-        fprintf(stderr, "old block %p, new block %p\n", b, cloneB);
     }
-    fprintf(stderr, "%d new cloned blocks to %p\n", newBlocks.size(), f);
     for (auto b: newBlocks) {
         PatchModifier::addBlockToFunction(f, b);
     }
@@ -426,48 +426,35 @@ bool DoInstrumentationLowering(BPatch_function* function, FuncSummary* summary,
                                PatchMgr::Ptr patcher) {
   if (!summary || !summary->lowerInstrumentation())
       return false;
-  fprintf(stderr, "Enter DoInstrumentationLowering\n");
-  for (auto b: summary->unsafe_blocks) {
-      fprintf(stderr, "\tunsafe block [%lx, %lx)\n", b->start(), b->end());
-  }
   PatchFunction *f = PatchAPI::convert(function);
   assert(parser.parser->markPatchFunctionEntryInstrumented(f));
 
   std::map<PatchBlock*, PatchBlock*> cloneBlockMap; 
   CloneFunctionCFG(f, patcher, cloneBlockMap);
 
-  fprintf(stderr, "After cloning\n");
-  for (auto b : f->blocks()) {
-      fprintf(stderr, "%p %p\n", b, b->block());
-      for (auto e : b->targets()) {
-          fprintf(stderr, "\t(%p,%p) ", e, e->trg());
-      }
-      fprintf(stderr, "\n");
-  }
-
-  
   std::set<PatchEdge*> visited;
   std::set<PatchEdge*> redirect;
   RedirectTransitionEdges(f->entry(), summary, cloneBlockMap, redirect, visited);
 
-  fprintf(stderr, "%d trasition edges\n", redirect.size());
-  fprintf(stderr, "After redirecting edges\n");
-  for (auto b : f->blocks()) {
-      fprintf(stderr, "%p %p\n", b, b->block());
-      for (auto e : b->targets()) {
-          fprintf(stderr, "\t(%p,%p) ", e, e->trg());
+  bool useRegisterFrame = summary->shouldUseRegisterFrame();
+  if (useRegisterFrame) {
+      for (auto e: redirect) {
+          int height = summary->SPHeight[e->src()->start()];
+          if (height >= 128) {
+              useRegisterFrame = false;
+              break;
+          }
       }
-      fprintf(stderr, "\n");
   }
+
 
   // Insert stack push operations
   for (auto e : redirect) {
       assert(summary->SPHeight.find(e->src()->start()) != summary->SPHeight.end());
       int height = summary->SPHeight[e->src()->start()];
-      fprintf(stderr, "SP height %d\n", height);
       Snippet::Ptr stack_push;
-      if (summary->shouldUseRegisterFrame()) {
-          stack_push = RegisterPushSnippet::create(new RegisterPushSnippet(summary));
+      if (useRegisterFrame) {
+          stack_push = RegisterPushSnippet::create(new RegisterPushSnippet(summary, height));
       } else {
           stack_push = StackPushSnippet::create(new StackPushSnippet(summary, false, height));
       }
@@ -479,7 +466,7 @@ bool DoInstrumentationLowering(BPatch_function* function, FuncSummary* summary,
 
   // Insert stack pop operations
   Snippet::Ptr stack_pop;
-  if (summary->shouldUseRegisterFrame()) {
+  if (useRegisterFrame) {
       stack_pop = RegisterPopSnippet::create(new RegisterPopSnippet(summary));
   } else {
       stack_pop = StackPopSnippet::create(new StackPopSnippet(summary, false));
@@ -489,7 +476,6 @@ bool DoInstrumentationLowering(BPatch_function* function, FuncSummary* summary,
       Point* p = patcher->findPoint(PatchAPI::Location::BlockInstance(f, cloneB), Point::BlockExit);
       assert(p);
       if (IsNonreturningCall(p)) continue;
-      fprintf(stderr, "insert stack pop operation to cloned exit %p\n", cloneB);
       p->pushBack(stack_pop);
       assert(parser.parser->markPatchBlockInstrumented(cloneB));
   }
@@ -508,9 +494,10 @@ bool Skippable(BPatch_function* function, FuncSummary* summary) {
         << "      Skipping function : " << function->getName() << Endl;
     return true;
   }
-  if ((Address)(function->getBaseAddr()) != 0x486790) return true;
 
-  if (skip_addrs.find((Address)(function->getBaseAddr())) != skip_addrs.end()) {
+  Address addr = (Address)(function->getBaseAddr());
+
+  if (skip_addrs.find(addr) != skip_addrs.end()) {
     StdOut(Color::RED, FLAGS_vv)
         << "      Skipping function (user's skip list): " << function->getName()
         << Endl;
@@ -562,6 +549,26 @@ bool MoveInstrumentation(BPatch_point * &p, FuncSummary* s) {
   return true;
 }
 
+void MarkExceptionSafeCalls(BPatch_function* function) {
+  PatchFunction *f = PatchAPI::convert(function);
+  for (auto b : f->blocks()) {
+      Address callee = 0;
+      for (auto e : b->targets()) {
+          if (e->type() == ParseAPI::CALL && !e->sinkEdge()) {
+              callee = e->trg()->start();
+              break;
+          }
+          if (e->interproc() && (e->type() == ParseAPI::DIRECT || e->type() == ParseAPI::COND_TAKEN)) {
+              callee = e->trg()->start();
+              break;
+          }
+      }
+      if (exception_free_func.find(callee) != exception_free_func.end()) {
+          b->markExceptionSafe();
+      }
+  }
+}
+
 void InstrumentFunction(BPatch_function* function,
                         const litecfi::Parser& parser, PatchMgr::Ptr patcher,
                         const std::map<uint64_t, FuncSummary*>& analyses,
@@ -586,12 +593,19 @@ void InstrumentFunction(BPatch_function* function,
       return;
     }
 
+    MarkExceptionSafeCalls(function);
+
     // Add inlining hint so that writeFile may inline small leaf functions.
     AddInlineHint(function, parser);
 
     // If possible check and lower the instrumentation to within non frequently
     // executed unsafe control flow paths.
     if (DoInstrumentationLowering(function, summary, parser, patcher)) {
+      res->lowered_fns.push_back(fn_name);
+      StdOut(Color::RED, FLAGS_vv)
+          << "      Optimized instrumentation lowering for function at 0x"
+          << std::hex << (uint64_t)function->getBaseAddr() << Endl;
+
       return;
     }
 
@@ -815,6 +829,9 @@ void InstrumentCodeObject(BPatch_object* object, const litecfi::Parser& parser,
         ->AddPass(new LargeFunctionFilter())
         ->AddPass(new IntraProceduralMemoryAnalysis())
         ->AddPass(new InterProceduralMemoryAnalysis())
+        ->AddPass(new FunctionExceptionAnalysis())
+        ->AddPass(new UnsafeCallBlockAnalysis())
+        ->AddPass(new SafePathsCounting())
         /*
         ->AddPass(new CFGAnalysis())
         ->AddPass(new CFGStatistics())
@@ -897,7 +914,7 @@ void Instrument(std::string binary, const litecfi::Parser& parser) {
     binary_edit->writeFile(FLAGS_output.c_str());
   }
 
-  StdOut(Color::RED) << "Safe functions : " << res->safe_fns.size() << "\n  ";
+  StdOut(Color::RED) << "Safe functions : " << std::dec << res->safe_fns.size() << "\n  ";
   for (auto it : res->safe_fns) {
     StdOut(Color::BLUE) << it << " ";
   }

@@ -385,7 +385,7 @@ std::pair<std::string, Gp> GetUnusedRegister(FuncSummary* s) {
 }
 
 std::string JitRegisterPush(Dyninst::PatchAPI::Point* pt, FuncSummary* s,
-                            AssemblerHolder& ah, bool, int ) {
+                            AssemblerHolder& ah, bool, int height) {
   auto pair = GetUnusedRegister(s);
   Gp reg = pair.second;
 
@@ -398,8 +398,8 @@ std::string JitRegisterPush(Dyninst::PatchAPI::Point* pt, FuncSummary* s,
   Assembler* a = ah.GetAssembler();
   //a->push(reg);
   //a->pushfq();
-  a->mov(ptr(rsp, -128), reg);
-  a->mov(reg, ptr(rsp));
+  a->mov(ptr(rsp, height - 128), reg);
+  a->mov(reg, ptr(rsp, height));
   //a->popfq();
 
   return "";
