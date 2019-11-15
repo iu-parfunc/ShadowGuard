@@ -205,6 +205,7 @@ struct FuncSummary {
 
   std::map<Address, MoveInstData*> entryData;
   std::map<Address, MoveInstData*> exitData;
+  std::map<Address, MoveInstData*> entryFixedData;
 
   std::map<Address, int> SPHeight;
 
@@ -250,6 +251,12 @@ struct FuncSummary {
       if (it == entryData.end()) return nullptr;
       return it->second;
   }
+  MoveInstData* getMoveInstDataFixedAtEntry(Address a) {
+      auto it = entryFixedData.find(a);
+      if (it == entryFixedData.end()) return nullptr;
+      return it->second;
+  }
+
   MoveInstData* getMoveInstDataAtExit(Address a) {
       auto it = exitData.find(a);
       if (it == exitData.end()) return nullptr;

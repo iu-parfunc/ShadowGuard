@@ -911,8 +911,6 @@ class UnusedRegisterAnalysis : public Pass {
 
     StackAnalysis sa(f);
 
-
-
     std::map<Dyninst::Offset, Dyninst::InstructionAPI::Instruction> insns;
     std::set<std::string> used;
     for (auto b : f->blocks()) {
@@ -1098,6 +1096,25 @@ class BlockDeadRegisterAnalysis : public Pass {
               raOffset = curHeight;
               newAddr = it->first;
           }
+
+          if (saveCount > 0 && it == insns.begin()) {
+              MoveInstData *mid = new MoveInstData;
+              mid->newInstAddress = it->first;
+              mid->raOffset = raOffset;
+              mid->saveCount = saveCount;
+              
+              auto& deadRegs = d[it->first];
+              if (deadRegs.size() == 1) {
+                  mid->reg1 = *(deadRegs.begin());
+              } else {
+                  auto it = deadRegs.begin();
+                  mid->reg1 = *it;
+                  ++it;
+                  mid->reg2 = *it;
+              }
+              s->entryFixedData[blockEntry] = mid;
+          }
+
           if (saveCount == 2) break;
           if (it->second.getOperation().getID() == e_push) {
               curHeight += 8;

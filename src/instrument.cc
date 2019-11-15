@@ -56,6 +56,7 @@ static InstSpec is_init;
 static InstSpec is_empty;
 static std::set<Address> skip_addrs;
 static CFGMaker* cfgMaker;
+static int func_with_indirect_jmp = 0;
 
 struct InstrumentationResult {
   std::vector<std::string> safe_fns;
@@ -65,11 +66,11 @@ struct InstrumentationResult {
 
 class StackOpSnippet : public Dyninst::PatchAPI::Snippet {
  public:
-  explicit StackOpSnippet(FuncSummary* summary, bool u, int h) : summary_(summary), useOriginalCode(u), height(h) {}
+  explicit StackOpSnippet(FuncSummary* summary, bool u, int h, bool u2) : summary_(summary), useOriginalCode(u), height(h), useOriginalCodeFixed(u2) {}
 
   bool generate(Dyninst::PatchAPI::Point* pt, Dyninst::Buffer& buf) override {
     AssemblerHolder ah;
-    jit_fn_(pt, summary_, ah, useOriginalCode, height);
+    jit_fn_(pt, summary_, ah, useOriginalCode, height, useOriginalCodeFixed);
 
     size_t size = ah.GetCode()->codeSize();
     char* temp_buf = (char*)malloc(size);
@@ -86,38 +87,39 @@ class StackOpSnippet : public Dyninst::PatchAPI::Snippet {
 
  protected:
   std::string (*jit_fn_)(Dyninst::PatchAPI::Point* pt, FuncSummary* summary,
-                         AssemblerHolder&, bool, int);
+                         AssemblerHolder&, bool, int, bool);
 
  private:
   FuncSummary* summary_;
   bool useOriginalCode;
   int height;
+  bool useOriginalCodeFixed;
 };
 
 class StackPushSnippet : public StackOpSnippet {
  public:
-  explicit StackPushSnippet(FuncSummary* summary, bool u, int h = 0) : StackOpSnippet(summary, u, h) {
+  explicit StackPushSnippet(FuncSummary* summary, bool u, int h = 0, bool u2 = false) : StackOpSnippet(summary, u, h, u2) {
     jit_fn_ = JitStackPush;
   }
 };
 
 class StackPopSnippet : public StackOpSnippet {
  public:
-  explicit StackPopSnippet(FuncSummary* summary, bool u) : StackOpSnippet(summary, u, 0) {
+  explicit StackPopSnippet(FuncSummary* summary, bool u) : StackOpSnippet(summary, u, 0, false) {
     jit_fn_ = JitStackPop;
   }
 };
 
 class RegisterPushSnippet : public StackOpSnippet {
  public:
-  explicit RegisterPushSnippet(FuncSummary* summary, int height = 0) : StackOpSnippet(summary, false, height) {
+  explicit RegisterPushSnippet(FuncSummary* summary, int height = 0) : StackOpSnippet(summary, false, height, false) {
     jit_fn_ = JitRegisterPush;
   }
 };
 
 class RegisterPopSnippet : public StackOpSnippet {
  public:
-  explicit RegisterPopSnippet(FuncSummary* summary) : StackOpSnippet(summary, false, 0) {
+  explicit RegisterPopSnippet(FuncSummary* summary) : StackOpSnippet(summary, false, 0, false) {
     jit_fn_ = JitRegisterPop;
   }
 };
@@ -404,7 +406,6 @@ void CloneFunctionCFG(PatchFunction* f,
 
 void RedirectTransitionEdges(PatchBlock* cur, 
                             FuncSummary* summary, 
-                            std::map<PatchBlock*, PatchBlock*> &cloneBlockMap,
                             std::set<PatchEdge*>& redirect,
                             std::set<PatchEdge*>& visited) {
     for (auto e : cur->targets()) {
@@ -413,10 +414,9 @@ void RedirectTransitionEdges(PatchBlock* cur,
         visited.insert(e);
         PatchBlock* target = e->trg();
         if (summary->unsafe_blocks.find(target->block()) != summary->unsafe_blocks.end()) {
-            assert(PatchModifier::redirect(e , cloneBlockMap[target]));
             redirect.insert(e);
         } else {
-            RedirectTransitionEdges(target, summary, cloneBlockMap, redirect, visited);
+            RedirectTransitionEdges(target, summary, redirect, visited);
         }
     }
 }
@@ -424,17 +424,19 @@ void RedirectTransitionEdges(PatchBlock* cur,
 bool DoInstrumentationLowering(BPatch_function* function, FuncSummary* summary,
                                const litecfi::Parser& parser,
                                PatchMgr::Ptr patcher) {
-  if (!summary || !summary->lowerInstrumentation())
+  if (!summary || !summary->lowerInstrumentation()) {
+      if (summary->has_indirect_cf) {
+          func_with_indirect_jmp += 1;
+      }
       return false;
+  }
   PatchFunction *f = PatchAPI::convert(function);
-  assert(parser.parser->markPatchFunctionEntryInstrumented(f));
-
-  std::map<PatchBlock*, PatchBlock*> cloneBlockMap; 
-  CloneFunctionCFG(f, patcher, cloneBlockMap);
-
   std::set<PatchEdge*> visited;
   std::set<PatchEdge*> redirect;
-  RedirectTransitionEdges(f->entry(), summary, cloneBlockMap, redirect, visited);
+  RedirectTransitionEdges(f->entry(), summary, redirect, visited);
+  for (auto e : redirect) 
+      if (summary->SPHeight.find(e->src()->start()) == summary->SPHeight.end())
+          return false;
 
   bool useRegisterFrame = summary->shouldUseRegisterFrame();
   if (useRegisterFrame) {
@@ -446,17 +448,36 @@ bool DoInstrumentationLowering(BPatch_function* function, FuncSummary* summary,
           }
       }
   }
+  if (!useRegisterFrame && summary->redZoneAccess.size() > 0) {
+      for (auto e : redirect) {
+          MoveInstData* mid = summary->getMoveInstDataFixedAtEntry(e->trg()->start());
+          if (mid == nullptr) return false;
+          if (mid->saveCount < 2) return false;
+      }
+  }
+
+  assert(parser.parser->markPatchFunctionEntryInstrumented(f));
+
+  std::map<PatchBlock*, PatchBlock*> cloneBlockMap; 
+  CloneFunctionCFG(f, patcher, cloneBlockMap);
+  for (auto e : redirect) {
+      assert(PatchModifier::redirect(e , cloneBlockMap[e->trg()]));
+  }
+
 
 
   // Insert stack push operations
   for (auto e : redirect) {
       assert(summary->SPHeight.find(e->src()->start()) != summary->SPHeight.end());
       int height = summary->SPHeight[e->src()->start()];
+      MoveInstData* mid = summary->getMoveInstDataFixedAtEntry(e->trg()->start());
       Snippet::Ptr stack_push;
       if (useRegisterFrame) {
           stack_push = RegisterPushSnippet::create(new RegisterPushSnippet(summary, height));
-      } else {
+      } else if (mid == nullptr) {
           stack_push = StackPushSnippet::create(new StackPushSnippet(summary, false, height));
+      } else {
+          stack_push = StackPushSnippet::create(new StackPushSnippet(summary, false, height, true));
       }
 
       Point * p = patcher->findPoint(PatchAPI::Location::EdgeInstance(f, e), Point::EdgeDuring);
@@ -465,17 +486,24 @@ bool DoInstrumentationLowering(BPatch_function* function, FuncSummary* summary,
   }
 
   // Insert stack pop operations
-  Snippet::Ptr stack_pop;
-  if (useRegisterFrame) {
-      stack_pop = RegisterPopSnippet::create(new RegisterPopSnippet(summary));
-  } else {
-      stack_pop = StackPopSnippet::create(new StackPopSnippet(summary, false));
-  }
   for (auto b: f->exitBlocks()) {
       PatchBlock* cloneB = cloneBlockMap[b];
       Point* p = patcher->findPoint(PatchAPI::Location::BlockInstance(f, cloneB), Point::BlockExit);
       assert(p);
       if (IsNonreturningCall(p)) continue;
+      
+      MoveInstData* mid = summary->getMoveInstDataAtExit(b->start());
+      
+      Snippet::Ptr stack_pop;
+      if (useRegisterFrame) {
+          stack_pop = RegisterPopSnippet::create(new RegisterPopSnippet(summary));
+      } else if (mid == nullptr) {
+          stack_pop = StackPopSnippet::create(new StackPopSnippet(summary, false));
+      } else {
+          p = patcher->findPoint(PatchAPI::Location::InstructionInstance(f, cloneB, mid->newInstAddress), Point::PreInsn);
+          assert(p);
+          stack_pop = StackPopSnippet::create(new StackPopSnippet(summary, true));
+      }
       p->pushBack(stack_pop);
       assert(parser.parser->markPatchBlockInstrumented(cloneB));
   }
@@ -843,6 +871,7 @@ void InstrumentCodeObject(BPatch_object* object, const litecfi::Parser& parser,
         ->AddPass(new LoweringStatistics())
         */
         ->AddPass(new DeadRegisterAnalysis())
+        ->AddPass(new UnusedRegisterAnalysis())
         ->AddPass(new BlockDeadRegisterAnalysis());
     std::set<FuncSummary*> summaries = pm->Run(co);
 
@@ -933,4 +962,5 @@ void Instrument(std::string binary, const litecfi::Parser& parser) {
     StdOut(Color::BLUE) << it << " ";
   }
   StdOut(Color::BLUE) << Endl;
+  StdOut(Color::RED) << "Functions with indirect jumps : " << func_with_indirect_jmp << "\n" << Endl;
 }
