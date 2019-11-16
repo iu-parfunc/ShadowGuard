@@ -25,6 +25,7 @@ deps () {
   fi
 
   ### Build Dyninst
+  cd $root_dir
 
   # Fetch
   if [ ! -d "thirdparty/dyninst-10.1.0" ]; then
