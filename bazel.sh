@@ -10,6 +10,8 @@ deps () {
     git checkout access-fixes
   fi
 
+  cd $root_dir
+
   if [ ! -d "thirdparty/capstone/install" ]; then
     cd thirdparty/dyninst-10.1.0/;\
     mkdir install;\
@@ -18,6 +20,25 @@ deps () {
 
     # Configure
     cmake -DCMAKE_INSTALL_PREFIX=`pwd`/../install ..
+
+    # Install
+    nprocs=`cat /proc/cpuinfo | awk '/^processor/{print $3}' | wc -l`
+    make -j "$(($nprocs / 2))" install
+  fi
+
+  ### Build libunwind
+  cd $root_dir
+  if [ ! -d "thirdparty/libunwind" ]; then
+    git clone  https://github.com/mxz297/libunwind.git thirdparty/libunwind
+  fi
+
+  if [ ! -d "thirdparty/libunwind/install" ]; then
+    cd thirdparty/libunwind/;\
+    mkdir install;\
+
+    # Configure
+    ./autogen.sh
+    ./configure --prefix=`pwd`/install --enable-cxx-exceptions
 
     # Install
     nprocs=`cat /proc/cpuinfo | awk '/^processor/{print $3}' | wc -l`
@@ -34,6 +55,8 @@ deps () {
     git checkout liteCFI
   fi
 
+  cd $root_dir
+
   if [ ! -d "thirdparty/dyninst-10.1.0/install" ]; then
     cd thirdparty/dyninst-10.1.0/;\
     mkdir install;\
@@ -41,7 +64,7 @@ deps () {
     cd build
 
     # Configure
-    cmake -DCapstone_ROOT_DIR=`pwd`/../../capstone/install/ -DCMAKE_INSTALL_PREFIX=`pwd`/../install -G 'Unix Makefiles' ..
+    cmake -DLibunwind_ROOT_DIR=`pwd`/../../libunwind/install -DCapstone_ROOT_DIR=`pwd`/../../capstone/install/ -DCMAKE_INSTALL_PREFIX=`pwd`/../install -G 'Unix Makefiles' ..
 
     # Build
     #   Dyninst build tends to succeed with a retry after an initial build failure.
