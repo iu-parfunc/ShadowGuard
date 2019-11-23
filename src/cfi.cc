@@ -44,6 +44,15 @@ DEFINE_string(
 DEFINE_string(
     skip_list, "", "\nA list of function entry addresses to skip instrumentation.\n");
 
+DEFINE_string(
+    dry_run, "", 
+    "\n Do not do actual shadow stack. Insert partial instrumentation to understand performance impact\n"
+    "By default, dry run mode is off.\n"
+    "Valid values are\n"
+    "   * empty : No instrumentation. Used to measure Dyninst internal overhead\n "
+    "   * only-save :  Only save GPR needed for shadow stack\n");
+
+
 static bool ValidateShadowStackFlag(const char* flagname,
                                     const std::string& value) {
   if (value == "light" || value == "full") {

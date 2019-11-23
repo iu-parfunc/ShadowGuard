@@ -56,7 +56,11 @@ static InstSpec is_init;
 static InstSpec is_empty;
 static std::set<Address> skip_addrs;
 static CFGMaker* cfgMaker;
+static int total_func = 0;
 static int func_with_indirect_jmp = 0;
+static int func_with_indirect_or_plt_call = 0;
+static int func_with_indirect_call = 0;
+static int func_with_plt_call = 0;
 
 struct InstrumentationResult {
   std::vector<std::string> safe_fns;
@@ -601,6 +605,7 @@ void InstrumentFunction(BPatch_function* function,
                         const litecfi::Parser& parser, PatchMgr::Ptr patcher,
                         const std::map<uint64_t, FuncSummary*>& analyses,
                         InstrumentationResult* res) {
+  total_func++;
   std::string fn_name = Dyninst::PatchAPI::convert(function)->name();
   StdOut(Color::YELLOW, FLAGS_vv) << "     Function : " << fn_name << Endl;
 
@@ -614,6 +619,13 @@ void InstrumentFunction(BPatch_function* function,
         reinterpret_cast<uintptr_t>(function->getBaseAddr())));
     if (it != analyses.end())
       summary = (*it).second;
+    if (summary->has_unknown_cf || summary->has_plt_call)
+        func_with_indirect_or_plt_call++;
+    if (summary->has_unknown_cf)
+        func_with_indirect_call++;
+    if (summary->has_plt_call)
+        func_with_plt_call++;
+
 
     // Check if this function is safe to skip and do so if it is.
     if (Skippable(function, summary)) {
@@ -963,4 +975,8 @@ void Instrument(std::string binary, const litecfi::Parser& parser) {
   }
   StdOut(Color::BLUE) << Endl;
   StdOut(Color::RED) << "Functions with indirect jumps : " << func_with_indirect_jmp << "\n" << Endl;
+  StdOut(Color::RED) << "Functions with indirect call or plt calls : " << func_with_indirect_or_plt_call << "\n" << Endl;
+  StdOut(Color::RED) << "Functions with indirect call: " << func_with_indirect_call << "\n" << Endl;
+  StdOut(Color::RED) << "Functions with plt calls : " << func_with_plt_call << "\n" << Endl;
+  StdOut(Color::RED) << "Total functions : " << total_func << "\n" << Endl;
 }

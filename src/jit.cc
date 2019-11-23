@@ -13,6 +13,7 @@ using namespace asmjit::x86;
 DECLARE_bool(optimize_regs);
 DECLARE_bool(validate_frame);
 DECLARE_string(shadow_stack);
+DECLARE_string(dry_run);
 
 static std::map<std::string, Gp> kRegisterMap = {
     {"x86_64::rax", rax}, {"x86_64::rbx", rbx}, {"x86_64::rcx", rcx},
@@ -188,6 +189,7 @@ void SaveRaAndFrame(const asmjit::x86::Mem& shadow_ptr, const Gp& sp_reg,
 
 std::string JitStackPush(Dyninst::PatchAPI::Point* pt, FuncSummary* s,
                          AssemblerHolder& ah, bool useOriginalCode, int height, bool useOriginalCodeFixed) {
+  if (FLAGS_dry_run == "empty") return "";
   Assembler* a = ah.GetAssembler();
   TempRegisters t;
   MoveInstData* mid = nullptr;
@@ -215,11 +217,12 @@ std::string JitStackPush(Dyninst::PatchAPI::Point* pt, FuncSummary* s,
   shadow_ptr.setSize(8);
   shadow_ptr.setSegment(gs);
   shadow_ptr = shadow_ptr.cloneAdjusted(0);
-
-  if (FLAGS_validate_frame) {
-    SaveRaAndFrame(shadow_ptr, sp_reg, ra_reg, t, a);
-  } else {
-    SaveRa(shadow_ptr, sp_reg, ra_reg, t, a);
+  if (FLAGS_dry_run != "only-save") {
+    if (FLAGS_validate_frame) {
+      SaveRaAndFrame(shadow_ptr, sp_reg, ra_reg, t, a);
+    } else {
+      SaveRa(shadow_ptr, sp_reg, ra_reg, t, a);
+    }
   }
 
   RestoreTempRegisters(a, t);
@@ -334,6 +337,7 @@ void ValidateRaAndFrame(const asmjit::x86::Mem& shadow_ptr, const Gp& sp_reg,
 
 std::string JitStackPop(Dyninst::PatchAPI::Point* pt, FuncSummary* s,
                         AssemblerHolder& ah, bool useOriginalCode, int, bool) {
+  if (FLAGS_dry_run == "empty") return "";
   Assembler* a = ah.GetAssembler();
 
   TempRegisters t;
@@ -365,11 +369,12 @@ std::string JitStackPop(Dyninst::PatchAPI::Point* pt, FuncSummary* s,
   shadow_ptr.setSize(8);
   shadow_ptr.setSegment(gs);
   shadow_ptr = shadow_ptr.cloneAdjusted(0);
-
-  if (FLAGS_validate_frame) {
-    ValidateRaAndFrame(shadow_ptr, sp_reg, ra_reg, t, a);
-  } else {
-    ValidateRa(shadow_ptr, sp_reg, ra_reg, t, a);
+  if (FLAGS_dry_run != "only-save") {
+    if (FLAGS_validate_frame) {
+      ValidateRaAndFrame(shadow_ptr, sp_reg, ra_reg, t, a);
+    } else {
+      ValidateRa(shadow_ptr, sp_reg, ra_reg, t, a);
+    }
   }
 
   RestoreTempRegisters(a, t);
@@ -389,6 +394,7 @@ std::pair<std::string, Gp> GetUnusedRegister(FuncSummary* s) {
 
 std::string JitRegisterPush(Dyninst::PatchAPI::Point* pt, FuncSummary* s,
                             AssemblerHolder& ah, bool, int height, bool) {
+  if (FLAGS_dry_run == "empty") return "";
   auto pair = GetUnusedRegister(s);
   Gp reg = pair.second;
 
@@ -402,7 +408,8 @@ std::string JitRegisterPush(Dyninst::PatchAPI::Point* pt, FuncSummary* s,
   //a->push(reg);
   //a->pushfq();
   a->mov(ptr(rsp, height - 128), reg);
-  a->mov(reg, ptr(rsp, height));
+  if (FLAGS_dry_run != "only-save")
+    a->mov(reg, ptr(rsp, height));
   //a->popfq();
 
   return "";
@@ -410,6 +417,7 @@ std::string JitRegisterPush(Dyninst::PatchAPI::Point* pt, FuncSummary* s,
 
 std::string JitRegisterPop(Dyninst::PatchAPI::Point* pt, FuncSummary* s,
                            AssemblerHolder& ah, bool, int, bool) {
+  if (FLAGS_dry_run == "empty") return "";
   // Here we rely on the fact that stl::set iteration order is deterministic
   // across multiple invocations (i.e: we will get the same register that we got
   // during stack push using the iterator).
@@ -443,31 +451,28 @@ std::string JitRegisterPop(Dyninst::PatchAPI::Point* pt, FuncSummary* s,
   //   popfq
   //   pop %<unused_reg>
   Assembler* a = ah.GetAssembler();
-  asmjit::Label success = a->newLabel();
+  if (FLAGS_dry_run != "only-save") {
+    asmjit::Label success = a->newLabel();
 
-  //a->pushfq();
-  a->cmp(reg, ptr(rsp));
-  a->je(success);
+    a->cmp(reg, ptr(rsp));
+    a->je(success);
 
-  // Fall through for stack unwind scenario.
-  std::set<std::string> dead;
-  TempRegisters t = SaveTempRegisters(a, dead, {reg_str});
+    // Fall through for stack unwind scenario.
+    std::set<std::string> dead;
+    TempRegisters t = SaveTempRegisters(a, dead, {reg_str});
 
-  Gp sp_reg = t.tmp1;
-  Gp ra_reg = t.tmp2;
+    Gp sp_reg = t.tmp1;
+    Gp ra_reg = t.tmp2;
 
-  asmjit::x86::Mem shadow_ptr;
-  shadow_ptr.setSize(8);
-  shadow_ptr.setSegment(gs);
-  shadow_ptr = shadow_ptr.cloneAdjusted(0);
+    asmjit::x86::Mem shadow_ptr;
+    shadow_ptr.setSize(8);
+    shadow_ptr.setSegment(gs);
+    shadow_ptr = shadow_ptr.cloneAdjusted(0);
+    ValidateRa(shadow_ptr, sp_reg, ra_reg, t, a, false /* save_flags */);
+    RestoreTempRegisters(a, t);
 
-  ValidateRa(shadow_ptr, sp_reg, ra_reg, t, a, false /* save_flags */);
-  RestoreTempRegisters(a, t);
-
-  a->bind(success);
-  //a->popfq();
-  //a->pop(reg);
-
+    a->bind(success);
+  }
   a->mov(reg, ptr(rsp, -128));
   return "";
 }
