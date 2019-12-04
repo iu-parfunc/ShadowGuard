@@ -863,6 +863,7 @@ void InstrumentCodeObject(BPatch_object* object, const litecfi::Parser& parser,
   if (FLAGS_shadow_stack == "light") {
     CodeObject* co = Dyninst::ParseAPI::convert(object);
     co->parse();
+    co->adjustJumpTableRange();
 
     PassManager* pm = new PassManager;
     pm->AddPass(new CallGraphAnalysis())
