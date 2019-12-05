@@ -57,6 +57,7 @@ class CallGraphAnalysis : public Pass {
   void UpdateCallees(CodeObject* co, Function* f, FuncSummary* s) {
     for (auto b : f->blocks()) {
       for (auto e : b->targets()) {
+        if (e->sinkEdge() && e->type() == ParseAPI::INDIRECT && e->interproc()) continue;
         if (e->sinkEdge() && e->type() != ParseAPI::RET) {
           s->has_unknown_cf = true;
           s->assume_unsafe = true;
@@ -64,7 +65,7 @@ class CallGraphAnalysis : public Pass {
         }
         if (e->type() == ParseAPI::INDIRECT) {
           s->has_indirect_cf = true;
-          s->assume_unsafe = true;
+          //s->assume_unsafe = true;
           continue;
         }
 
