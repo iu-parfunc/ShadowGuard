@@ -13,7 +13,7 @@ deps () {
   cd $root_dir
 
   if [ ! -d "thirdparty/capstone/install" ]; then
-    cd thirdparty/dyninst-10.1.0/;\
+    cd thirdparty/capstone/;\
     mkdir install;\
     mkdir -p build;\
     cd build
