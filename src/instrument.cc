@@ -291,92 +291,6 @@ bool DoStackOpsUsingRegisters(BPatch_function* function, FuncSummary* summary,
   return false;
 }
 
-Block* CopyBlock(Block* block) {
-  // Do CFGMaker::copyBlock magic here to copy the block.
-  return nullptr;
-}
-
-Block* StackPopAndCopyBlock(Block* block) {
-  // Insert a stack pop to the copied block.
-  return nullptr;
-}
-
-Block* CreateStackPushBlock() {
-  // Create and return a basic block with just stack push instrumentation.
-  return nullptr;
-}
-
-void RewireBlock(Block* src, Block* target) {
-  // Do PatchModifier::redirect magic here and rewire blocks.
-}
-
-void VisitAndCopyCFG(SCComponent* sc, std::set<SCComponent*>& visited,
-                     bool unsafe_flow) {
-  if (visited.find(sc) != visited.end())
-    return;
-
-  for (auto child : sc->children) {
-    VisitAndCopyCFG(child, visited, sc->stack_push || unsafe_flow);
-  }
-
-  if (sc->stack_push) {
-    Block* src = CreateStackPushBlock();
-    sc->blocks.insert(src);
-
-    DCHECK(sc->outgoing.size() == 1);
-    for (auto it : sc->outgoing) {
-      SCComponent* target_sc = it.second;
-      auto itt = target_sc->block_remappings.find(it.first);
-      DCHECK(itt != target_sc->block_remappings.end());
-      RewireBlock(src, itt->second);
-    }
-
-    visited.insert(sc);
-    return;
-  }
-
-  // Copy over the blocks.
-  for (auto b : sc->blocks) {
-    if (unsafe_flow && sc->returns.find(b) != sc->returns.end()) {
-      // Insert stack pop instrumentation while copying the nodes.
-      sc->block_remappings[b] = StackPopAndCopyBlock(b);
-      continue;
-    }
-    sc->block_remappings[b] = CopyBlock(b);
-  }
-
-  // Now rewire the blocks.
-  for (auto b : sc->blocks) {
-    Block* src = sc->block_remappings[b];
-    for (auto e : b->targets()) {
-      Block* target = e->trg();
-
-      // Check if this is an intra component edge and skip if so.
-      auto it = sc->block_remappings.find(target);
-      if (it != sc->block_remappings.end()) {
-        RewireBlock(src, it->second);
-        continue;
-      }
-
-      SCComponent* target_sc = sc->outgoing[target];
-      if (target_sc->stack_push) {
-        DCHECK(target_sc->blocks.size() == 1);
-        for (auto tgt : target_sc->blocks) {
-          RewireBlock(src, tgt);
-        }
-      } else {
-        auto it = target_sc->block_remappings.find(target);
-        DCHECK(it != target_sc->block_remappings.end());
-
-        RewireBlock(src, it->second);
-      }
-    }
-  }
-
-  visited.insert(sc);
-}
-
-
 bool skipPatchEdges(PatchEdge *e) {
     if (e->sinkEdge() || e->interproc()) return true;
     if (e->type() == ParseAPI::CATCH) return true;
@@ -425,6 +339,49 @@ void RedirectTransitionEdges(PatchBlock* cur,
     }
 }
 
+void GetReachableBlocks(PatchBlock* b, std::set<PatchBlock*> &visited) {
+    if (visited.find(b) != visited.end()) return;
+    visited.insert(b);
+    for (auto e : b->targets()) {
+        if (e->interproc()) continue;
+        if (e->sinkEdge()) continue;
+        if (e->type() == ParseAPI::RET || e->type() == ParseAPI::CATCH) continue;
+        GetReachableBlocks(e->trg(), visited);
+    }
+}
+
+void CoalesceEdgeInstrumentation(PatchFunction* f, 
+                                 std::set<PatchEdge*> &redirect, 
+                                 std::set<PatchBlock*> &instBlocks) {
+
+    std::set<PatchBlock*> reachableBlocks;
+    GetReachableBlocks(f->entry(), reachableBlocks);
+    for (auto b : reachableBlocks) {
+        if (!b->isClone()) continue;
+        int instEdges = 0;
+        int notInstEdges = 0;
+        bool hasCatchEdge = false;
+        for (auto e : b->sources()) {
+            if (redirect.find(e) != redirect.end()) {
+                instEdges += 1;
+                continue;
+            }
+            if (e->type() == ParseAPI::CATCH) {
+                hasCatchEdge = true;
+                continue;
+            }
+            if (reachableBlocks.find(e->src()) != reachableBlocks.end()) {
+                notInstEdges += 1;
+            }
+        }
+        if (!hasCatchEdge && instEdges > 0 && notInstEdges == 0) {
+            instBlocks.insert(b);
+            for (auto e : b->sources())
+                redirect.erase(e);
+        }
+    }
+}
+
 bool DoInstrumentationLowering(BPatch_function* function, FuncSummary* summary,
                                const litecfi::Parser& parser,
                                PatchMgr::Ptr patcher) {
@@ -438,14 +395,15 @@ bool DoInstrumentationLowering(BPatch_function* function, FuncSummary* summary,
   std::set<PatchEdge*> visited;
   std::set<PatchEdge*> redirect;
   RedirectTransitionEdges(f->entry(), summary, redirect, visited);
+
   for (auto e : redirect) 
-      if (summary->SPHeight.find(e->src()->start()) == summary->SPHeight.end())
+      if (summary->blockEndSPHeight.find(e->src()->start()) == summary->blockEndSPHeight.end())
           return false;
 
   bool useRegisterFrame = summary->shouldUseRegisterFrame();
   if (useRegisterFrame) {
       for (auto e: redirect) {
-          int height = summary->SPHeight[e->src()->start()];
+          int height = summary->blockEndSPHeight[e->src()->start()];
           if (height >= 128) {
               useRegisterFrame = false;
               break;
@@ -468,12 +426,14 @@ bool DoInstrumentationLowering(BPatch_function* function, FuncSummary* summary,
       assert(PatchModifier::redirect(e , cloneBlockMap[e->trg()]));
   }
 
+  std::set<PatchBlock*> instBlocks;
+  CoalesceEdgeInstrumentation(f, redirect, instBlocks);
 
-
-  // Insert stack push operations
+  // Insert stack push operations at edges
   for (auto e : redirect) {
-      assert(summary->SPHeight.find(e->src()->start()) != summary->SPHeight.end());
-      int height = summary->SPHeight[e->src()->start()];
+      // We get the stack height at block exit
+      assert(summary->blockEndSPHeight.find(e->src()->start()) != summary->blockEndSPHeight.end());
+      int height = summary->blockEndSPHeight[e->src()->start()];
       MoveInstData* mid = summary->getMoveInstDataFixedAtEntry(e->trg()->start());
       Snippet::Ptr stack_push;
       if (useRegisterFrame) {
@@ -488,6 +448,28 @@ bool DoInstrumentationLowering(BPatch_function* function, FuncSummary* summary,
       assert(p);
       p->pushBack(stack_push);
   }
+
+  // Insert stack push operations at blocks whose
+  // incoming edge instrumentations are coalesced
+  for (auto b : instBlocks) {
+      assert(summary->blockEntrySPHeight.find(b->start()) != summary->blockEntrySPHeight.end());
+      int height = summary->blockEntrySPHeight[b->start()];
+      MoveInstData* mid = summary->getMoveInstDataAtEntry(b->start());
+      Snippet::Ptr stack_push;
+      Point * p = patcher->findPoint(PatchAPI::Location::BlockInstance(f, b), Point::BlockEntry);
+      if (useRegisterFrame) {
+          stack_push = RegisterPushSnippet::create(new RegisterPushSnippet(summary, height));
+      } else if (mid == nullptr) {
+          stack_push = StackPushSnippet::create(new StackPushSnippet(summary, false, height));
+      } else {
+          p = patcher->findPoint(PatchAPI::Location::InstructionInstance(f, b, mid->newInstAddress), Point::PreInsn);
+          assert(p);
+          stack_push = StackPushSnippet::create(new StackPushSnippet(summary, true, height));
+      }
+      assert(p);
+      p->pushBack(stack_push);
+  }
+
 
   // Insert stack pop operations
   for (auto b: f->exitBlocks()) {

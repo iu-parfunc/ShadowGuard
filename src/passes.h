@@ -168,7 +168,11 @@ class IntraProceduralMemoryAnalysis : public Pass {
     for (auto b : f->blocks()) {
       StackAnalysis::Height h = sa.findSP(b, b->end());
       if (!h.isTop() && !h.isBottom()) {
-          s->SPHeight[b->start()] = -8 - h.height();
+          s->blockEndSPHeight[b->start()] = -8 - h.height();
+      }
+      h = sa.findSP(b, b->start());
+      if (!h.isTop() && !h.isBottom()) {
+          s->blockEntrySPHeight[b->start()] = -8 - h.height();
       }
 
       insns.clear();
