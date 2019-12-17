@@ -207,7 +207,9 @@ struct FuncSummary {
   std::map<Address, MoveInstData*> exitData;
   std::map<Address, MoveInstData*> entryFixedData;
 
-  std::map<Address, int> SPHeight;
+  // Use the block entry address as the key
+  std::map<Address, int> blockEndSPHeight;
+  std::map<Address, int> blockEntrySPHeight;
 
   int safe_paths;
 
@@ -266,7 +268,7 @@ struct FuncSummary {
   bool lowerInstrumentation() {
       if (unsafe_blocks.find(func->entry()) != unsafe_blocks.end()) return false;
       if (has_indirect_cf) return false;
-      if (SPHeight.empty()) return false;
+      if (blockEndSPHeight.empty()) return false;
       if (safe_paths == 0) return false;
       return true;
   }
