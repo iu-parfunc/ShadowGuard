@@ -70,7 +70,7 @@ PassManager *GetPassManager() {
   PassManager *pm = new PassManager;
   pm->AddPass(new CallGraphAnalysis())
       ->AddPass(new LargeFunctionFilter())
-      ->AddPass(new IntraProceduralMemoryAnalysis())
+      ->AddPass(new StackHeightAnalysis())
       ->AddPass(new InterProceduralMemoryAnalysis())
       ->AddPass(new DeadRegisterAnalysis());
   return pm;

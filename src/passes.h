@@ -17,11 +17,12 @@
 #include "Visitor.h"
 #include "bitArray.h"
 #include "glog/logging.h"
+#include "heap.h"
 #include "liveness.h"
 #include "pass_manager.h"
 #include "register_utils.h"
-#include "utils.h"
 #include "stackanalysis.h"
+#include "utils.h"
 
 using Dyninst::Absloc;
 using Dyninst::AbsRegion;
@@ -57,7 +58,8 @@ class CallGraphAnalysis : public Pass {
   void UpdateCallees(CodeObject* co, Function* f, FuncSummary* s) {
     for (auto b : f->blocks()) {
       for (auto e : b->targets()) {
-        if (e->sinkEdge() && e->type() == ParseAPI::INDIRECT && e->interproc()) continue;
+        if (e->sinkEdge() && e->type() == ParseAPI::INDIRECT && e->interproc())
+          continue;
         if (e->sinkEdge() && e->type() != ParseAPI::RET) {
           s->has_unknown_cf = true;
           s->assume_unsafe = true;
@@ -65,7 +67,7 @@ class CallGraphAnalysis : public Pass {
         }
         if (e->type() == ParseAPI::INDIRECT) {
           s->has_indirect_cf = true;
-          //s->assume_unsafe = true;
+          // s->assume_unsafe = true;
           continue;
         }
 
@@ -143,151 +145,6 @@ class LargeFunctionFilter : public Pass {
   }
 
   static constexpr unsigned int kCutoffSize_ = 20000;
-};
-
-class IntraProceduralMemoryAnalysis : public Pass {
- public:
-  IntraProceduralMemoryAnalysis()
-      : Pass("Intra-procedural Memory Write and Stack Pointer Overwrite "
-             "Analysis",
-             "Analyzes the memory writes within a function. Also detects stack"
-             " pointer overwrites.") {}
-
-  void RunLocalAnalysis(CodeObject* co, Function* f, FuncSummary* s,
-                        PassResult* result) override {
-
-    if (s->assume_unsafe)
-      return;
-
-    StackAnalysis sa(f);
-
-    AssignmentConverter converter(true /* cache results*/,
-                                  true /* use stack analysis*/);
-
-    std::map<Offset, Instruction> insns;
-    for (auto b : f->blocks()) {
-      StackAnalysis::Height h = sa.findSP(b, b->end());
-      if (!h.isTop() && !h.isBottom()) {
-          s->blockEndSPHeight[b->start()] = -8 - h.height();
-      }
-      h = sa.findSP(b, b->start());
-      if (!h.isTop() && !h.isBottom()) {
-          s->blockEntrySPHeight[b->start()] = -8 - h.height();
-      }
-
-      insns.clear();
-      b->getInsns(insns);
-
-      bool unsafe = false;
-      for (auto const& ins : insns) {
-        // Ignore writes due to frame switching instructions such as call/ ret.
-        if (IsFrameSwitchingInstruction(ins.second))
-          continue;
-
-        if (ins.second.writesMemory()) {
-          // Assignment is essentially SSA.
-          // So, an instruction may have multiple SSAs.
-          std::vector<Assignment::Ptr> assigns;
-          converter.convert(ins.second, ins.first, f, b, assigns);
-
-          MemoryWrite* write = new MemoryWrite;
-          write->function = f;
-          write->block = b;
-          write->ins = ins.second;
-          write->addr = ins.first;
-
-          for (auto a : assigns) {
-            AbsRegion& out = a->out();  // The lhs.
-            Absloc loc = out.absloc();
-            switch (loc.type()) {
-            case Absloc::Stack: {
-              // If the stack location is in the previous frame,
-              // it is a dangerous write.
-              write->stack = true;
-              s->stack_writes[loc.off()] = write;
-              if (loc.off() >= -8) {
-                s->self_writes = true;
-                unsafe = true;
-              }
-              break;
-            }
-            case Absloc::Unknown: {
-              // Unknown memory writes.
-              s->self_writes = true;
-              unsafe = true;
-              break;
-            }
-            case Absloc::Heap:
-              // This is actually a write to a global variable.
-              // That's why it will have a statically determined address.
-              break;
-            case Absloc::Register:
-              // Not a memory write.
-              break;
-            }
-          }
-
-          s->all_writes[write->addr] = write;
-        }
-      }
-
-      if (unsafe) {
-        s->unsafe_blocks.insert(b);
-      }
-    }
-  }
-
-  bool IsSafeFunction(FuncSummary* s) override {
-    return !s->self_writes && !s->assume_unsafe && s->callees.empty();
-  }
-
- private:
-  bool IsFrameSwitchingInstruction(const Instruction& ins) {
-    // Call or return instructions switch frames.
-    if (ins.getCategory() == Dyninst::InstructionAPI::c_CallInsn ||
-        ins.getCategory() == Dyninst::InstructionAPI::c_ReturnInsn) {
-      return true;
-    }
-    return false;
-  }
-};
-
-class InterProceduralMemoryAnalysis : public Pass {
- public:
-  InterProceduralMemoryAnalysis()
-      : Pass("Inter-procedural Memory Write Analysis",
-             "Analyses memory writes across functions.") {}
-
-  void RunGlobalAnalysis(CodeObject* co,
-                         std::map<Function*, FuncSummary*>& summaries,
-                         PassResult* result) override {
-    std::set<Function*> visited;
-    for (auto f : co->funcs()) {
-      auto it = visited.find(f);
-      if (it == visited.end()) {
-        VisitFunction(co, summaries[f], summaries, visited);
-      }
-    }
-  }
-
- private:
-  bool VisitFunction(CodeObject* co, FuncSummary* s,
-                     std::map<Function*, FuncSummary*>& summaries,
-                     std::set<Function*>& visited) {
-    visited.insert(s->func);
-
-    for (auto f : s->callees) {
-      auto it = visited.find(f);
-      if (it == visited.end()) {
-        s->child_writes |= VisitFunction(co, summaries[f], summaries, visited);
-      } else {
-        s->child_writes |= summaries[f]->writes;
-      }
-    }
-
-    s->writes = s->self_writes || s->child_writes || s->assume_unsafe;
-    return s->writes;
-  }
 };
 
 class CFGAnalysis : public Pass {
@@ -376,6 +233,202 @@ class CFGAnalysis : public Pass {
         VisitBlock(target, new_sc, s, visited, block_to_sc);
       }
     }
+  }
+};
+
+class StackHeightAnalysis : public Pass {
+ public:
+  StackHeightAnalysis()
+      : Pass("Stack height analysis", "Analyzes the stack memory accesses "
+                                      "within a function. Also detects stack"
+                                      " pointer overwrites.") {}
+
+  void RunLocalAnalysis(CodeObject* co, Function* f, FuncSummary* s,
+                        PassResult* result) override {
+
+    if (s->assume_unsafe)
+      return;
+
+    StackAnalysis sa(f);
+
+    AssignmentConverter converter(true /* cache results*/,
+                                  true /* use stack analysis*/);
+
+    std::map<Offset, Instruction> insns;
+    for (auto b : f->blocks()) {
+      StackAnalysis::Height h = sa.findSP(b, b->end());
+      if (!h.isTop() && !h.isBottom()) {
+        s->blockEndSPHeight[b->start()] = -8 - h.height();
+      }
+      h = sa.findSP(b, b->start());
+      if (!h.isTop() && !h.isBottom()) {
+        s->blockEntrySPHeight[b->start()] = -8 - h.height();
+      }
+
+      insns.clear();
+      b->getInsns(insns);
+
+      // Block start.
+      Address start = b->start();
+      bool unsafe = false;
+      for (auto const& ins : insns) {
+        // Ignore writes due to frame switching instructions such as call/ ret.
+        if (IsFrameSwitchingInstruction(ins.second))
+          continue;
+
+        // Assignment is essentially SSA.
+        // So, an instruction may have multiple SSAs.
+        std::vector<Assignment::Ptr> assigns;
+
+        // Instruction address.
+        Address addr = start + ins.first;
+
+        if (ins.second.writesMemory()) {
+          converter.convert(ins.second, ins.first, f, b, assigns);
+
+          MemoryWrite* write = new MemoryWrite;
+          write->function = f;
+          write->block = b;
+          write->ins = ins.second;
+          write->addr = ins.first;
+
+          for (auto a : assigns) {
+            AbsRegion& out = a->out();  // The lhs.
+            Absloc loc = out.absloc();
+            switch (loc.type()) {
+            case Absloc::Stack: {
+              // If the stack location is in the previous frame,
+              // it is a dangerous write.
+              write->stack = true;
+              s->stack_writes[loc.off()] = write;
+
+              s->stack_heights[addr].dest = loc.off();
+              if (loc.off() >= -8) {
+                s->self_writes = true;
+                unsafe = true;
+              }
+              break;
+            }
+            case Absloc::Unknown: {
+              // Unknown memory writes.
+              s->self_writes = true;
+              s->unknown_writes[start].insert(addr);
+              unsafe = true;
+              break;
+            }
+            case Absloc::Heap:
+              // This is actually a write to a global variable.
+              // That's why it will have a statically determined address.
+              break;
+            case Absloc::Register:
+              // Not a memory write.
+              break;
+            }
+          }
+
+          s->all_writes[write->addr] = write;
+          continue;
+        }
+
+        if (ins.second.readsMemory()) {
+          converter.convert(ins.second, ins.first, f, b, assigns);
+
+          for (auto a : assigns) {
+            std::vector<AbsRegion>& inputs = a->inputs();  // The rhs.
+            for (auto in : inputs) {
+              Absloc loc = in.absloc();
+              switch (loc.type()) {
+              case Absloc::Stack: {
+                s->stack_heights[addr].src = loc.off();
+                goto done;
+              }
+              default:
+                break;
+              }
+            }
+          }
+
+        done:
+          continue;
+        }
+      }
+
+      if (unsafe) {
+        s->unsafe_blocks.insert(b);
+      }
+    }
+  }
+
+  bool IsSafeFunction(FuncSummary* s) override {
+    return !s->self_writes && !s->assume_unsafe && s->callees.empty();
+  }
+
+ private:
+  bool IsFrameSwitchingInstruction(const Instruction& ins) {
+    // Call or return instructions switch frames.
+    if (ins.getCategory() == Dyninst::InstructionAPI::c_CallInsn ||
+        ins.getCategory() == Dyninst::InstructionAPI::c_ReturnInsn) {
+      return true;
+    }
+    return false;
+  }
+};
+
+class HeapWriteAnalysis : public Pass {
+ public:
+  HeapWriteAnalysis()
+      : Pass("Heap Write Analysis", "Analyses heap memory writes.") {}
+
+  void RunLocalAnalysis(CodeObject* co, Function* f, FuncSummary* s,
+                        PassResult* result) override {
+    if (s->assume_unsafe || s->has_unknown_cf || s->has_indirect_cf ||
+        s->cfg == nullptr) {
+      return;
+    }
+
+    // HeapAnalysis ha(s);
+
+    // Unknown memory write elimination
+
+    // Update unsafe basic blocks
+  }
+};
+
+class InterProceduralMemoryAnalysis : public Pass {
+ public:
+  InterProceduralMemoryAnalysis()
+      : Pass("Inter-procedural Memory Write Analysis",
+             "Analyses memory writes across functions.") {}
+
+  void RunGlobalAnalysis(CodeObject* co,
+                         std::map<Function*, FuncSummary*>& summaries,
+                         PassResult* result) override {
+    std::set<Function*> visited;
+    for (auto f : co->funcs()) {
+      auto it = visited.find(f);
+      if (it == visited.end()) {
+        VisitFunction(co, summaries[f], summaries, visited);
+      }
+    }
+  }
+
+ private:
+  bool VisitFunction(CodeObject* co, FuncSummary* s,
+                     std::map<Function*, FuncSummary*>& summaries,
+                     std::set<Function*>& visited) {
+    visited.insert(s->func);
+
+    for (auto f : s->callees) {
+      auto it = visited.find(f);
+      if (it == visited.end()) {
+        s->child_writes |= VisitFunction(co, summaries[f], summaries, visited);
+      } else {
+        s->child_writes |= summaries[f]->writes;
+      }
+    }
+
+    s->writes = s->self_writes || s->child_writes || s->assume_unsafe;
+    return s->writes;
   }
 };
 
@@ -921,21 +974,20 @@ class UnusedRegisterAnalysis : public Pass {
     for (auto b : f->blocks()) {
       b->getInsns(insns);
 
-
       for (auto const& ins : insns) {
-          StackAnalysis::Height h = sa.findSP(b, ins.first);
-          if (!h.isTop() && !h.isBottom()) {
-              int height = -8 - h.height();
-              if (height >= 128) s->moveDownSP = true;
-
-          }
+        StackAnalysis::Height h = sa.findSP(b, ins.first);
+        if (!h.isTop() && !h.isBottom()) {
+          int height = -8 - h.height();
+          if (height >= 128)
+            s->moveDownSP = true;
+        }
 
         std::set<Dyninst::InstructionAPI::RegisterAST::Ptr> read;
         std::set<Dyninst::InstructionAPI::RegisterAST::Ptr> written;
 
         ins.second.getReadSet(read);
         ins.second.getWriteSet(written);
-        
+
         for (auto const& r : read) {
           used.insert(NormalizeRegisterName(r->getID().name()));
         }
@@ -1033,171 +1085,181 @@ class BlockDeadRegisterAnalysis : public Pass {
       : Pass("Dead Register Analysis in a basic block",
              "Looking for concrete envidence that registers are dead") {}
 
-  void CalculateBlockLevelLiveness(std::map<Offset, Instruction> &insns,
-          std::map<Offset, std::set<std::string> > &d) {
-      std::set<std::string> cur;
-      for (auto it = insns.rbegin(); it != insns.rend(); ++it) {
-          auto& o = it->first;
-          Instruction& i = it->second;
-          std::set<Dyninst::InstructionAPI::RegisterAST::Ptr> read;
-          i.getReadSet(read);
+  void CalculateBlockLevelLiveness(std::map<Offset, Instruction>& insns,
+                                   std::map<Offset, std::set<std::string>>& d) {
+    std::set<std::string> cur;
+    for (auto it = insns.rbegin(); it != insns.rend(); ++it) {
+      auto& o = it->first;
+      Instruction& i = it->second;
+      std::set<Dyninst::InstructionAPI::RegisterAST::Ptr> read;
+      i.getReadSet(read);
 
-          std::set<Dyninst::InstructionAPI::RegisterAST::Ptr> written;
-          i.getWriteSet(written);
-          for (auto const& w: written) {
-            MachRegister actualReg = w->getID();
-            // Writing to lower 32-bit portion of a register
-            // will automatically clean the upper 32-bit.
-            //
-            // We cannot treat a partial writes to a register as a kill
-            if (actualReg.size() != 4 && actualReg.size() != 8) {
-                continue;
-            }
-            MachRegister baseReg = actualReg.getBaseRegister();
-            if (baseReg == x86_64::rsp) continue;
-            if (baseReg.regClass() != x86_64::GPR) continue;
-            std::string name = NormalizeRegisterName(baseReg.name());
-            cur.insert(name);
-          }
-          for (auto const& r : read) {
-            MachRegister baseReg = r->getID().getBaseRegister();
-            cur.erase(NormalizeRegisterName(baseReg.name()));
-          }
-          d[o] = cur;
+      std::set<Dyninst::InstructionAPI::RegisterAST::Ptr> written;
+      i.getWriteSet(written);
+      for (auto const& w : written) {
+        MachRegister actualReg = w->getID();
+        // Writing to lower 32-bit portion of a register
+        // will automatically clean the upper 32-bit.
+        //
+        // We cannot treat a partial writes to a register as a kill
+        if (actualReg.size() != 4 && actualReg.size() != 8) {
+          continue;
+        }
+        MachRegister baseReg = actualReg.getBaseRegister();
+        if (baseReg == x86_64::rsp)
+          continue;
+        if (baseReg.regClass() != x86_64::GPR)
+          continue;
+        std::string name = NormalizeRegisterName(baseReg.name());
+        cur.insert(name);
       }
+      for (auto const& r : read) {
+        MachRegister baseReg = r->getID().getBaseRegister();
+        cur.erase(NormalizeRegisterName(baseReg.name()));
+      }
+      d[o] = cur;
+    }
   }
 
-  bool MoveSP(Instruction &i) {
+  bool MoveSP(Instruction& i) {
     std::set<Dyninst::InstructionAPI::RegisterAST::Ptr> written;
     i.getWriteSet(written);
-    for (auto const& w: written) {
-      if (w->getID() == x86_64::rsp) return true;
+    for (auto const& w : written) {
+      if (w->getID() == x86_64::rsp)
+        return true;
     }
     return false;
   }
 
-  bool ReadFlags(Instruction &i) {
+  bool ReadFlags(Instruction& i) {
     std::set<Dyninst::InstructionAPI::RegisterAST::Ptr> read;
     i.getReadSet(read);
-    for (auto const &r : read) {
-        if (r->getID().isFlag()) return true;
+    for (auto const& r : read) {
+      if (r->getID().isFlag())
+        return true;
     }
     return false;
   }
 
-  void CalculateEntryInstPoint(std::map<Offset, Instruction> &insns,
-          std::map<Offset, std::set<std::string> > &d,
-          FuncSummary *s,
-          Address blockEntry) {
-      Address newAddr = 0;
-      int saveCount = 0;
-      int raOffset = 0;
-      int curHeight = 0;
-      for (auto it = insns.begin(); it != insns.end(); ++it) {
-          auto& deadRegs = d[it->first];
-          if ((int)deadRegs.size() > saveCount) {
-              saveCount = deadRegs.size();
-              if (saveCount > 2) saveCount = 2;
-              raOffset = curHeight;
-              newAddr = it->first;
-          }
-
-          if (saveCount > 0 && it == insns.begin()) {
-              MoveInstData *mid = new MoveInstData;
-              mid->newInstAddress = it->first;
-              mid->raOffset = raOffset;
-              mid->saveCount = saveCount;
-              
-              auto& deadRegs = d[it->first];
-              if (deadRegs.size() == 1) {
-                  mid->reg1 = *(deadRegs.begin());
-              } else {
-                  auto it = deadRegs.begin();
-                  mid->reg1 = *it;
-                  ++it;
-                  mid->reg2 = *it;
-              }
-              s->entryFixedData[blockEntry] = mid;
-          }
-
-          if (saveCount == 2) break;
-          if (it->second.getOperation().getID() == e_push) {
-              curHeight += 8;
-              continue;
-          }
-          if (it->second.writesMemory()) break;
-          if (MoveSP(it->second)) break;
+  void CalculateEntryInstPoint(std::map<Offset, Instruction>& insns,
+                               std::map<Offset, std::set<std::string>>& d,
+                               FuncSummary* s, Address blockEntry) {
+    Address newAddr = 0;
+    int saveCount = 0;
+    int raOffset = 0;
+    int curHeight = 0;
+    for (auto it = insns.begin(); it != insns.end(); ++it) {
+      auto& deadRegs = d[it->first];
+      if ((int)deadRegs.size() > saveCount) {
+        saveCount = deadRegs.size();
+        if (saveCount > 2)
+          saveCount = 2;
+        raOffset = curHeight;
+        newAddr = it->first;
       }
 
-      if (saveCount > 0 && newAddr > 0) {
-          MoveInstData *mid = new MoveInstData;
-          mid->newInstAddress = newAddr;
-          mid->raOffset = raOffset;
-          mid->saveCount = saveCount;
+      if (saveCount > 0 && it == insns.begin()) {
+        MoveInstData* mid = new MoveInstData;
+        mid->newInstAddress = it->first;
+        mid->raOffset = raOffset;
+        mid->saveCount = saveCount;
 
-          auto& deadRegs = d[newAddr];
-          if (deadRegs.size() == 1) {
-              mid->reg1 = *(deadRegs.begin());
-          } else {
-              auto it = deadRegs.begin();
-              mid->reg1 = *it;
-              ++it;
-              mid->reg2 = *it;
-          }
-          s->entryData[blockEntry] = mid;
+        auto& deadRegs = d[it->first];
+        if (deadRegs.size() == 1) {
+          mid->reg1 = *(deadRegs.begin());
+        } else {
+          auto it = deadRegs.begin();
+          mid->reg1 = *it;
+          ++it;
+          mid->reg2 = *it;
+        }
+        s->entryFixedData[blockEntry] = mid;
       }
+
+      if (saveCount == 2)
+        break;
+      if (it->second.getOperation().getID() == e_push) {
+        curHeight += 8;
+        continue;
+      }
+      if (it->second.writesMemory())
+        break;
+      if (MoveSP(it->second))
+        break;
+    }
+
+    if (saveCount > 0 && newAddr > 0) {
+      MoveInstData* mid = new MoveInstData;
+      mid->newInstAddress = newAddr;
+      mid->raOffset = raOffset;
+      mid->saveCount = saveCount;
+
+      auto& deadRegs = d[newAddr];
+      if (deadRegs.size() == 1) {
+        mid->reg1 = *(deadRegs.begin());
+      } else {
+        auto it = deadRegs.begin();
+        mid->reg1 = *it;
+        ++it;
+        mid->reg2 = *it;
+      }
+      s->entryData[blockEntry] = mid;
+    }
   }
 
-  void CalculateExitInstPoint(std::map<Offset, Instruction> &insns,
-          std::map<Offset, std::set<std::string> > &d,
-          FuncSummary* s,
-          Address blockEntry) {
-      Address newAddr = 0;
-      int saveCount = 0;
-      int raOffset = 0;
-      int curHeight = 0;
-      for (auto it = insns.rbegin(); it != insns.rend(); ++it) {
-          entryID e = it->second.getOperation().getID();
-          if (e == e_ret || e == e_ret_near || e == e_ret_far) continue;
-          // pop can writes to a memory location
-          if (it->second.writesMemory()) break;
+  void CalculateExitInstPoint(std::map<Offset, Instruction>& insns,
+                              std::map<Offset, std::set<std::string>>& d,
+                              FuncSummary* s, Address blockEntry) {
+    Address newAddr = 0;
+    int saveCount = 0;
+    int raOffset = 0;
+    int curHeight = 0;
+    for (auto it = insns.rbegin(); it != insns.rend(); ++it) {
+      entryID e = it->second.getOperation().getID();
+      if (e == e_ret || e == e_ret_near || e == e_ret_far)
+        continue;
+      // pop can writes to a memory location
+      if (it->second.writesMemory())
+        break;
 
-          if (e == e_pop) {
-              curHeight += 8;
-          } else {
-              if (MoveSP(it->second)) break;
-              if (ReadFlags(it->second)) break;
-          }
-
-          auto & deadRegs = d[it->first];
-          if ((int)deadRegs.size() > saveCount) {
-              saveCount = deadRegs.size();
-              if (saveCount > 2) saveCount = 2;
-              raOffset = curHeight;
-              newAddr = it->first;
-          }
-          if (saveCount == 2) break;
-
+      if (e == e_pop) {
+        curHeight += 8;
+      } else {
+        if (MoveSP(it->second))
+          break;
+        if (ReadFlags(it->second))
+          break;
       }
 
-      if (saveCount > 0 && newAddr > 0) {
-          MoveInstData *mid = new MoveInstData;
-          mid->newInstAddress = newAddr;
-          mid->raOffset = raOffset;
-          mid->saveCount = saveCount;
-
-          auto& deadRegs = d[newAddr];
-          if (deadRegs.size() == 1) {
-              mid->reg1 = *(deadRegs.begin());
-          } else {
-              auto it = deadRegs.begin();
-              mid->reg1 = *it;
-              ++it;
-              mid->reg2 = *it;
-          }
-          s->exitData[blockEntry] = mid;
+      auto& deadRegs = d[it->first];
+      if ((int)deadRegs.size() > saveCount) {
+        saveCount = deadRegs.size();
+        if (saveCount > 2)
+          saveCount = 2;
+        raOffset = curHeight;
+        newAddr = it->first;
       }
+      if (saveCount == 2)
+        break;
+    }
 
+    if (saveCount > 0 && newAddr > 0) {
+      MoveInstData* mid = new MoveInstData;
+      mid->newInstAddress = newAddr;
+      mid->raOffset = raOffset;
+      mid->saveCount = saveCount;
+
+      auto& deadRegs = d[newAddr];
+      if (deadRegs.size() == 1) {
+        mid->reg1 = *(deadRegs.begin());
+      } else {
+        auto it = deadRegs.begin();
+        mid->reg1 = *it;
+        ++it;
+        mid->reg2 = *it;
+      }
+      s->exitData[blockEntry] = mid;
+    }
   }
 
   void RunLocalAnalysis(CodeObject* co, Function* f, FuncSummary* s,
@@ -1206,7 +1268,7 @@ class BlockDeadRegisterAnalysis : public Pass {
     for (auto b : f->blocks()) {
       std::map<Offset, Instruction> insns;
       b->getInsns(insns);
-      std::map<Offset, std::set<std::string> > deadReg;
+      std::map<Offset, std::set<std::string>> deadReg;
 
       CalculateBlockLevelLiveness(insns, deadReg);
       CalculateEntryInstPoint(insns, deadReg, s, b->start());
@@ -1218,26 +1280,32 @@ class BlockDeadRegisterAnalysis : public Pass {
 class SafePathsCounting : public Pass {
  public:
   SafePathsCounting()
-      : Pass("Count the maximal number of safe control flow paths in a function",
-             "Do not collapse SCC to get as many safe CF paths as possible") {}
+      : Pass(
+            "Count the maximal number of safe control flow paths in a function",
+            "Do not collapse SCC to get as many safe CF paths as possible") {}
 
-  int countPaths(Block* cur, FuncSummary* s, std::set<ParseAPI::Edge*> &visited, std::set<Block*> &exitBlocks) {
-      if (s->unsafe_blocks.find(cur) != s->unsafe_blocks.end()) {
-          return 0;
-      }
-      if (exitBlocks.find(cur) != exitBlocks.end()) {
-          return 1;
-      }
-      int c = 0;
-      for (auto e : cur->targets()) {
-          if (e->sinkEdge()) continue;
-          if (e->interproc()) continue;
-          if (e->type() == ParseAPI::CATCH) continue;
-          if (visited.find(e) != visited.end()) continue;
-          visited.insert(e);
-          c += countPaths(e->trg(), s, visited, exitBlocks);
-      }
-      return c;
+  int countPaths(Block* cur, FuncSummary* s, std::set<ParseAPI::Edge*>& visited,
+                 std::set<Block*>& exitBlocks) {
+    if (s->unsafe_blocks.find(cur) != s->unsafe_blocks.end()) {
+      return 0;
+    }
+    if (exitBlocks.find(cur) != exitBlocks.end()) {
+      return 1;
+    }
+    int c = 0;
+    for (auto e : cur->targets()) {
+      if (e->sinkEdge())
+        continue;
+      if (e->interproc())
+        continue;
+      if (e->type() == ParseAPI::CATCH)
+        continue;
+      if (visited.find(e) != visited.end())
+        continue;
+      visited.insert(e);
+      c += countPaths(e->trg(), s, visited, exitBlocks);
+    }
+    return c;
   }
 
   void RunLocalAnalysis(CodeObject* co, Function* f, FuncSummary* s,
@@ -1245,10 +1313,9 @@ class SafePathsCounting : public Pass {
     std::set<ParseAPI::Edge*> visited;
     std::set<Block*> exitBlocks;
     for (auto b : f->exitBlocks())
-        exitBlocks.insert(b);
+      exitBlocks.insert(b);
     s->safe_paths = countPaths(f->entry(), s, visited, exitBlocks);
   }
-
 };
 
 class UnsafeCallBlockAnalysis : public Pass {
@@ -1259,30 +1326,30 @@ class UnsafeCallBlockAnalysis : public Pass {
   void RunGlobalAnalysis(CodeObject* co,
                          std::map<Function*, FuncSummary*>& summaries,
                          PassResult* result) override {
-      std::set<Address> safe_func;
-      for (auto f : co->funcs()) {
-          if (!summaries[f]->writes) {
-              safe_func.insert(f->addr());
-          }
+    std::set<Address> safe_func;
+    for (auto f : co->funcs()) {
+      if (!summaries[f]->writes) {
+        safe_func.insert(f->addr());
       }
+    }
 
-      for (auto f : co->funcs()) 
-          for (auto b: f->blocks()) {
-              Address callee = 0;
-              for (auto e : b->targets()) {
-                  if (e->sinkEdge() && e->type() == ParseAPI::CALL) {
-                      summaries[f]->unsafe_blocks.insert(b);
-                      break;
-                  }
-                  if (e->type() == ParseAPI::CALL) {
-                      callee = e->trg()->start();
-                      if (safe_func.find(callee) == safe_func.end()) summaries[f]->unsafe_blocks.insert(b);
-                      break;
-                  }
-              }
+    for (auto f : co->funcs())
+      for (auto b : f->blocks()) {
+        Address callee = 0;
+        for (auto e : b->targets()) {
+          if (e->sinkEdge() && e->type() == ParseAPI::CALL) {
+            summaries[f]->unsafe_blocks.insert(b);
+            break;
           }
+          if (e->type() == ParseAPI::CALL) {
+            callee = e->trg()->start();
+            if (safe_func.find(callee) == safe_func.end())
+              summaries[f]->unsafe_blocks.insert(b);
+            break;
+          }
+        }
+      }
   }
-
 };
 
 class FunctionExceptionAnalysis : public Pass {
@@ -1302,8 +1369,8 @@ class FunctionExceptionAnalysis : public Pass {
       }
     }
     for (auto f : co->funcs())
-        if (summaries[f]->func_exception_safe)
-            exception_free_func.insert(f->addr());
+      if (summaries[f]->func_exception_safe)
+        exception_free_func.insert(f->addr());
   }
 
  private:
@@ -1312,14 +1379,14 @@ class FunctionExceptionAnalysis : public Pass {
                      std::set<Function*>& visited) {
     visited.insert(s->func);
     if (s->has_plt_call) {
-        s->func_exception_safe = false;
-        return false;
+      s->func_exception_safe = false;
+      return false;
     }
     if (s->has_unknown_cf) {
-        s->func_exception_safe = false;
-        return false;
+      s->func_exception_safe = false;
+      return false;
     }
-    
+
     bool ret = true;
     for (auto f : s->callees) {
       auto it = visited.find(f);

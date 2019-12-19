@@ -13,9 +13,9 @@
 
 #include "InstSpec.h"
 #include "PatchMgr.h"
+#include "PatchModifier.h"
 #include "Point.h"
 #include "Snippet.h"
-#include "PatchModifier.h"
 
 #include "asmjit/asmjit.h"
 #include "assembler.h"
@@ -70,7 +70,9 @@ struct InstrumentationResult {
 
 class StackOpSnippet : public Dyninst::PatchAPI::Snippet {
  public:
-  explicit StackOpSnippet(FuncSummary* summary, bool u, int h, bool u2) : summary_(summary), useOriginalCode(u), height(h), useOriginalCodeFixed(u2) {}
+  explicit StackOpSnippet(FuncSummary* summary, bool u, int h, bool u2)
+      : summary_(summary), useOriginalCode(u), height(h),
+        useOriginalCodeFixed(u2) {}
 
   bool generate(Dyninst::PatchAPI::Point* pt, Dyninst::Buffer& buf) override {
     AssemblerHolder ah;
@@ -102,28 +104,33 @@ class StackOpSnippet : public Dyninst::PatchAPI::Snippet {
 
 class StackPushSnippet : public StackOpSnippet {
  public:
-  explicit StackPushSnippet(FuncSummary* summary, bool u, int h = 0, bool u2 = false) : StackOpSnippet(summary, u, h, u2) {
+  explicit StackPushSnippet(FuncSummary* summary, bool u, int h = 0,
+                            bool u2 = false)
+      : StackOpSnippet(summary, u, h, u2) {
     jit_fn_ = JitStackPush;
   }
 };
 
 class StackPopSnippet : public StackOpSnippet {
  public:
-  explicit StackPopSnippet(FuncSummary* summary, bool u) : StackOpSnippet(summary, u, 0, false) {
+  explicit StackPopSnippet(FuncSummary* summary, bool u)
+      : StackOpSnippet(summary, u, 0, false) {
     jit_fn_ = JitStackPop;
   }
 };
 
 class RegisterPushSnippet : public StackOpSnippet {
  public:
-  explicit RegisterPushSnippet(FuncSummary* summary, int height = 0) : StackOpSnippet(summary, false, height, false) {
+  explicit RegisterPushSnippet(FuncSummary* summary, int height = 0)
+      : StackOpSnippet(summary, false, height, false) {
     jit_fn_ = JitRegisterPush;
   }
 };
 
 class RegisterPopSnippet : public StackOpSnippet {
  public:
-  explicit RegisterPopSnippet(FuncSummary* summary) : StackOpSnippet(summary, false, 0, false) {
+  explicit RegisterPopSnippet(FuncSummary* summary)
+      : StackOpSnippet(summary, false, 0, false) {
     jit_fn_ = JitRegisterPop;
   }
 };
@@ -291,139 +298,152 @@ bool DoStackOpsUsingRegisters(BPatch_function* function, FuncSummary* summary,
   return false;
 }
 
-bool skipPatchEdges(PatchEdge *e) {
-    if (e->sinkEdge() || e->interproc()) return true;
-    if (e->type() == ParseAPI::CATCH) return true;
-    return false;
+bool skipPatchEdges(PatchEdge* e) {
+  if (e->sinkEdge() || e->interproc())
+    return true;
+  if (e->type() == ParseAPI::CATCH)
+    return true;
+  return false;
 }
 
-void CloneFunctionCFG(PatchFunction* f, 
-        PatchMgr::Ptr patcher, 
-        std::map<PatchBlock*, PatchBlock*> &cloneBlockMap) {    
-    // Clone all blocks
-    std::vector<PatchBlock*> newBlocks;
-    for (auto b : f->blocks()) {
-        PatchBlock* cloneB = cfgMaker->cloneBlock(b, b->object());
-        cloneBlockMap[b] = cloneB;
-        newBlocks.push_back(cloneB);
-    }
-    for (auto b: newBlocks) {
-        PatchModifier::addBlockToFunction(f, b);
-    }
+void CloneFunctionCFG(PatchFunction* f, PatchMgr::Ptr patcher,
+                      std::map<PatchBlock*, PatchBlock*>& cloneBlockMap) {
+  // Clone all blocks
+  std::vector<PatchBlock*> newBlocks;
+  for (auto b : f->blocks()) {
+    PatchBlock* cloneB = cfgMaker->cloneBlock(b, b->object());
+    cloneBlockMap[b] = cloneB;
+    newBlocks.push_back(cloneB);
+  }
+  for (auto b : newBlocks) {
+    PatchModifier::addBlockToFunction(f, b);
+  }
 
-    // The edges of the cloned blocks are still from/to original blocks
-    // Now we redirect all edges
-    for (auto b : newBlocks) {
-        for (auto e : b->targets()) {
-            if (skipPatchEdges(e)) continue;
-            PatchBlock* newTarget = cloneBlockMap[e->trg()];
-            assert (PatchModifier::redirect(e , newTarget) ); 
-        }
-    }
-}
-
-void RedirectTransitionEdges(PatchBlock* cur, 
-                            FuncSummary* summary, 
-                            std::set<PatchEdge*>& redirect,
-                            std::set<PatchEdge*>& visited) {
-    for (auto e : cur->targets()) {
-        if (skipPatchEdges(e)) continue;
-        if (visited.find(e) != visited.end()) continue;
-        visited.insert(e);
-        PatchBlock* target = e->trg();
-        if (summary->unsafe_blocks.find(target->block()) != summary->unsafe_blocks.end()) {
-            redirect.insert(e);
-        } else {
-            RedirectTransitionEdges(target, summary, redirect, visited);
-        }
-    }
-}
-
-void GetReachableBlocks(PatchBlock* b, std::set<PatchBlock*> &visited) {
-    if (visited.find(b) != visited.end()) return;
-    visited.insert(b);
+  // The edges of the cloned blocks are still from/to original blocks
+  // Now we redirect all edges
+  for (auto b : newBlocks) {
     for (auto e : b->targets()) {
-        if (e->interproc()) continue;
-        if (e->sinkEdge()) continue;
-        if (e->type() == ParseAPI::RET || e->type() == ParseAPI::CATCH) continue;
-        GetReachableBlocks(e->trg(), visited);
+      if (skipPatchEdges(e))
+        continue;
+      PatchBlock* newTarget = cloneBlockMap[e->trg()];
+      assert(PatchModifier::redirect(e, newTarget));
     }
+  }
 }
 
-void CoalesceEdgeInstrumentation(PatchFunction* f, 
-                                 std::set<PatchEdge*> &redirect, 
-                                 std::set<PatchBlock*> &instBlocks) {
-
-    std::set<PatchBlock*> reachableBlocks;
-    GetReachableBlocks(f->entry(), reachableBlocks);
-    for (auto b : reachableBlocks) {
-        if (!b->isClone()) continue;
-        int instEdges = 0;
-        int notInstEdges = 0;
-        bool hasCatchEdge = false;
-        for (auto e : b->sources()) {
-            if (redirect.find(e) != redirect.end()) {
-                instEdges += 1;
-                continue;
-            }
-            if (e->type() == ParseAPI::CATCH) {
-                hasCatchEdge = true;
-                continue;
-            }
-            if (reachableBlocks.find(e->src()) != reachableBlocks.end()) {
-                notInstEdges += 1;
-            }
-        }
-        if (!hasCatchEdge && instEdges > 0 && notInstEdges == 0) {
-            instBlocks.insert(b);
-            for (auto e : b->sources())
-                redirect.erase(e);
-        }
+void RedirectTransitionEdges(PatchBlock* cur, FuncSummary* summary,
+                             std::set<PatchEdge*>& redirect,
+                             std::set<PatchEdge*>& visited) {
+  for (auto e : cur->targets()) {
+    if (skipPatchEdges(e))
+      continue;
+    if (visited.find(e) != visited.end())
+      continue;
+    visited.insert(e);
+    PatchBlock* target = e->trg();
+    if (summary->unsafe_blocks.find(target->block()) !=
+        summary->unsafe_blocks.end()) {
+      redirect.insert(e);
+    } else {
+      RedirectTransitionEdges(target, summary, redirect, visited);
     }
+  }
+}
+
+void GetReachableBlocks(PatchBlock* b, std::set<PatchBlock*>& visited) {
+  if (visited.find(b) != visited.end())
+    return;
+  visited.insert(b);
+  for (auto e : b->targets()) {
+    if (e->interproc())
+      continue;
+    if (e->sinkEdge())
+      continue;
+    if (e->type() == ParseAPI::RET || e->type() == ParseAPI::CATCH)
+      continue;
+    GetReachableBlocks(e->trg(), visited);
+  }
+}
+
+void CoalesceEdgeInstrumentation(PatchFunction* f,
+                                 std::set<PatchEdge*>& redirect,
+                                 std::set<PatchBlock*>& instBlocks) {
+
+  std::set<PatchBlock*> reachableBlocks;
+  GetReachableBlocks(f->entry(), reachableBlocks);
+  for (auto b : reachableBlocks) {
+    if (!b->isClone())
+      continue;
+    int instEdges = 0;
+    int notInstEdges = 0;
+    bool hasCatchEdge = false;
+    for (auto e : b->sources()) {
+      if (redirect.find(e) != redirect.end()) {
+        instEdges += 1;
+        continue;
+      }
+      if (e->type() == ParseAPI::CATCH) {
+        hasCatchEdge = true;
+        continue;
+      }
+      if (reachableBlocks.find(e->src()) != reachableBlocks.end()) {
+        notInstEdges += 1;
+      }
+    }
+    if (!hasCatchEdge && instEdges > 0 && notInstEdges == 0) {
+      instBlocks.insert(b);
+      for (auto e : b->sources())
+        redirect.erase(e);
+    }
+  }
 }
 
 bool DoInstrumentationLowering(BPatch_function* function, FuncSummary* summary,
                                const litecfi::Parser& parser,
                                PatchMgr::Ptr patcher) {
   if (!summary || !summary->lowerInstrumentation()) {
-      if (summary->has_indirect_cf) {
-          func_with_indirect_jmp += 1;
-      }
-      return false;
+    if (summary->has_indirect_cf) {
+      func_with_indirect_jmp += 1;
+    }
+    return false;
   }
-  PatchFunction *f = PatchAPI::convert(function);
+  PatchFunction* f = PatchAPI::convert(function);
   std::set<PatchEdge*> visited;
   std::set<PatchEdge*> redirect;
   RedirectTransitionEdges(f->entry(), summary, redirect, visited);
 
-  for (auto e : redirect) 
-      if (summary->blockEndSPHeight.find(e->src()->start()) == summary->blockEndSPHeight.end())
-          return false;
+  for (auto e : redirect)
+    if (summary->blockEndSPHeight.find(e->src()->start()) ==
+        summary->blockEndSPHeight.end())
+      return false;
 
   bool useRegisterFrame = summary->shouldUseRegisterFrame();
   if (useRegisterFrame) {
-      for (auto e: redirect) {
-          int height = summary->blockEndSPHeight[e->src()->start()];
-          if (height >= 128) {
-              useRegisterFrame = false;
-              break;
-          }
+    for (auto e : redirect) {
+      int height = summary->blockEndSPHeight[e->src()->start()];
+      if (height >= 128) {
+        useRegisterFrame = false;
+        break;
       }
+    }
   }
   if (!useRegisterFrame && summary->redZoneAccess.size() > 0) {
-      for (auto e : redirect) {
-          MoveInstData* mid = summary->getMoveInstDataFixedAtEntry(e->trg()->start());
-          if (mid == nullptr) return false;
-          if (mid->saveCount < 2) return false;
-      }
+    for (auto e : redirect) {
+      MoveInstData* mid =
+          summary->getMoveInstDataFixedAtEntry(e->trg()->start());
+      if (mid == nullptr)
+        return false;
+      if (mid->saveCount < 2)
+        return false;
+    }
   }
 
   assert(parser.parser->markPatchFunctionEntryInstrumented(f));
 
-  std::map<PatchBlock*, PatchBlock*> cloneBlockMap; 
+  std::map<PatchBlock*, PatchBlock*> cloneBlockMap;
   CloneFunctionCFG(f, patcher, cloneBlockMap);
   for (auto e : redirect) {
-      assert(PatchModifier::redirect(e , cloneBlockMap[e->trg()]));
+    assert(PatchModifier::redirect(e, cloneBlockMap[e->trg()]));
   }
 
   std::set<PatchBlock*> instBlocks;
@@ -431,67 +451,82 @@ bool DoInstrumentationLowering(BPatch_function* function, FuncSummary* summary,
 
   // Insert stack push operations at edges
   for (auto e : redirect) {
-      // We get the stack height at block exit
-      assert(summary->blockEndSPHeight.find(e->src()->start()) != summary->blockEndSPHeight.end());
-      int height = summary->blockEndSPHeight[e->src()->start()];
-      MoveInstData* mid = summary->getMoveInstDataFixedAtEntry(e->trg()->start());
-      Snippet::Ptr stack_push;
-      if (useRegisterFrame) {
-          stack_push = RegisterPushSnippet::create(new RegisterPushSnippet(summary, height));
-      } else if (mid == nullptr) {
-          stack_push = StackPushSnippet::create(new StackPushSnippet(summary, false, height));
-      } else {
-          stack_push = StackPushSnippet::create(new StackPushSnippet(summary, false, height, true));
-      }
+    // We get the stack height at block exit
+    assert(summary->blockEndSPHeight.find(e->src()->start()) !=
+           summary->blockEndSPHeight.end());
+    int height = summary->blockEndSPHeight[e->src()->start()];
+    MoveInstData* mid = summary->getMoveInstDataFixedAtEntry(e->trg()->start());
+    Snippet::Ptr stack_push;
+    if (useRegisterFrame) {
+      stack_push =
+          RegisterPushSnippet::create(new RegisterPushSnippet(summary, height));
+    } else if (mid == nullptr) {
+      stack_push = StackPushSnippet::create(
+          new StackPushSnippet(summary, false, height));
+    } else {
+      stack_push = StackPushSnippet::create(
+          new StackPushSnippet(summary, false, height, true));
+    }
 
-      Point * p = patcher->findPoint(PatchAPI::Location::EdgeInstance(f, e), Point::EdgeDuring);
-      assert(p);
-      p->pushBack(stack_push);
+    Point* p = patcher->findPoint(PatchAPI::Location::EdgeInstance(f, e),
+                                  Point::EdgeDuring);
+    assert(p);
+    p->pushBack(stack_push);
   }
 
   // Insert stack push operations at blocks whose
   // incoming edge instrumentations are coalesced
   for (auto b : instBlocks) {
-      assert(summary->blockEntrySPHeight.find(b->start()) != summary->blockEntrySPHeight.end());
-      int height = summary->blockEntrySPHeight[b->start()];
-      MoveInstData* mid = summary->getMoveInstDataAtEntry(b->start());
-      Snippet::Ptr stack_push;
-      Point * p = patcher->findPoint(PatchAPI::Location::BlockInstance(f, b), Point::BlockEntry);
-      if (useRegisterFrame) {
-          stack_push = RegisterPushSnippet::create(new RegisterPushSnippet(summary, height));
-      } else if (mid == nullptr) {
-          stack_push = StackPushSnippet::create(new StackPushSnippet(summary, false, height));
-      } else {
-          p = patcher->findPoint(PatchAPI::Location::InstructionInstance(f, b, mid->newInstAddress), Point::PreInsn);
-          assert(p);
-          stack_push = StackPushSnippet::create(new StackPushSnippet(summary, true, height));
-      }
+    assert(summary->blockEntrySPHeight.find(b->start()) !=
+           summary->blockEntrySPHeight.end());
+    int height = summary->blockEntrySPHeight[b->start()];
+    MoveInstData* mid = summary->getMoveInstDataAtEntry(b->start());
+    Snippet::Ptr stack_push;
+    Point* p = patcher->findPoint(PatchAPI::Location::BlockInstance(f, b),
+                                  Point::BlockEntry);
+    if (useRegisterFrame) {
+      stack_push =
+          RegisterPushSnippet::create(new RegisterPushSnippet(summary, height));
+    } else if (mid == nullptr) {
+      stack_push = StackPushSnippet::create(
+          new StackPushSnippet(summary, false, height));
+    } else {
+      p = patcher->findPoint(
+          PatchAPI::Location::InstructionInstance(f, b, mid->newInstAddress),
+          Point::PreInsn);
       assert(p);
-      p->pushBack(stack_push);
+      stack_push =
+          StackPushSnippet::create(new StackPushSnippet(summary, true, height));
+    }
+    assert(p);
+    p->pushBack(stack_push);
   }
 
-
   // Insert stack pop operations
-  for (auto b: f->exitBlocks()) {
-      PatchBlock* cloneB = cloneBlockMap[b];
-      Point* p = patcher->findPoint(PatchAPI::Location::BlockInstance(f, cloneB), Point::BlockExit);
+  for (auto b : f->exitBlocks()) {
+    PatchBlock* cloneB = cloneBlockMap[b];
+    Point* p = patcher->findPoint(PatchAPI::Location::BlockInstance(f, cloneB),
+                                  Point::BlockExit);
+    assert(p);
+    if (IsNonreturningCall(p))
+      continue;
+
+    MoveInstData* mid = summary->getMoveInstDataAtExit(b->start());
+
+    Snippet::Ptr stack_pop;
+    if (useRegisterFrame) {
+      stack_pop = RegisterPopSnippet::create(new RegisterPopSnippet(summary));
+    } else if (mid == nullptr) {
+      stack_pop = StackPopSnippet::create(new StackPopSnippet(summary, false));
+    } else {
+      p = patcher->findPoint(PatchAPI::Location::InstructionInstance(
+                                 f, cloneB, mid->newInstAddress),
+                             Point::PreInsn);
       assert(p);
-      if (IsNonreturningCall(p)) continue;
-      
-      MoveInstData* mid = summary->getMoveInstDataAtExit(b->start());
-      
-      Snippet::Ptr stack_pop;
-      if (useRegisterFrame) {
-          stack_pop = RegisterPopSnippet::create(new RegisterPopSnippet(summary));
-      } else if (mid == nullptr) {
-          stack_pop = StackPopSnippet::create(new StackPopSnippet(summary, false));
-      } else {
-          p = patcher->findPoint(PatchAPI::Location::InstructionInstance(f, cloneB, mid->newInstAddress), Point::PreInsn);
-          assert(p);
-          stack_pop = StackPopSnippet::create(new StackPopSnippet(summary, true));
-      }
-      p->pushBack(stack_pop);
-      assert(parser.parser->markPatchBlockInstrumented(cloneB));
+      stack_pop = StackPopSnippet::create(new StackPopSnippet(summary, true));
+    }
+    p->pushBack(stack_pop);
+    assert(parser.parser->markPatchBlockInstrumented(cloneB));
   }
 
   return true;
@@ -521,11 +556,11 @@ bool Skippable(BPatch_function* function, FuncSummary* summary) {
   return false;
 }
 
-bool MoveInstrumentation(BPatch_point * &p, FuncSummary* s) {
+bool MoveInstrumentation(BPatch_point*& p, FuncSummary* s) {
   if (p->getPointType() == BPatch_locEntry) {
     BPatch_function* f = p->getFunction();
     BPatch_flowGraph* cfg = f->getCFG();
-    
+
     // Should have only one function entry block.
     std::vector<BPatch_basicBlock*> eb;
     cfg->getEntryBasicBlock(eb);
@@ -540,20 +575,22 @@ bool MoveInstrumentation(BPatch_point * &p, FuncSummary* s) {
     func_entry->getIncomingEdges(edges);
     if (edges.size() > 0)
       return false;
-    MoveInstData* mid = s->getMoveInstDataAtEntry(func_entry->getStartAddress());
-    if (mid == nullptr) 
+    MoveInstData* mid =
+        s->getMoveInstDataAtEntry(func_entry->getStartAddress());
+    if (mid == nullptr)
       return false;
     p = func_entry->findPoint(mid->newInstAddress);
   } else if (p->getPointType() == BPatch_locBasicBlockEntry) {
     BPatch_basicBlock* b = p->getBlock();
     MoveInstData* mid = s->getMoveInstDataAtEntry(b->getStartAddress());
-    if (mid == nullptr) 
+    if (mid == nullptr)
       return false;
     p = b->findPoint(mid->newInstAddress);
-  } else if (p->getPointType() == BPatch_locExit || p->getPointType() == BPatch_locBasicBlockExit) {
+  } else if (p->getPointType() == BPatch_locExit ||
+             p->getPointType() == BPatch_locBasicBlockExit) {
     BPatch_basicBlock* b = p->getBlock();
     MoveInstData* mid = s->getMoveInstDataAtExit(b->getStartAddress());
-    if (mid == nullptr) 
+    if (mid == nullptr)
       return false;
     p = b->findPoint(mid->newInstAddress);
   } else {
@@ -564,22 +601,23 @@ bool MoveInstrumentation(BPatch_point * &p, FuncSummary* s) {
 }
 
 void MarkExceptionSafeCalls(BPatch_function* function) {
-  PatchFunction *f = PatchAPI::convert(function);
+  PatchFunction* f = PatchAPI::convert(function);
   for (auto b : f->blocks()) {
-      Address callee = 0;
-      for (auto e : b->targets()) {
-          if (e->type() == ParseAPI::CALL && !e->sinkEdge()) {
-              callee = e->trg()->start();
-              break;
-          }
-          if (e->interproc() && (e->type() == ParseAPI::DIRECT || e->type() == ParseAPI::COND_TAKEN)) {
-              callee = e->trg()->start();
-              break;
-          }
+    Address callee = 0;
+    for (auto e : b->targets()) {
+      if (e->type() == ParseAPI::CALL && !e->sinkEdge()) {
+        callee = e->trg()->start();
+        break;
       }
-      if (exception_free_func.find(callee) != exception_free_func.end()) {
-          b->markExceptionSafe();
+      if (e->interproc() && (e->type() == ParseAPI::DIRECT ||
+                             e->type() == ParseAPI::COND_TAKEN)) {
+        callee = e->trg()->start();
+        break;
       }
+    }
+    if (exception_free_func.find(callee) != exception_free_func.end()) {
+      b->markExceptionSafe();
+    }
   }
 }
 
@@ -602,12 +640,11 @@ void InstrumentFunction(BPatch_function* function,
     if (it != analyses.end())
       summary = (*it).second;
     if (summary->has_unknown_cf || summary->has_plt_call)
-        func_with_indirect_or_plt_call++;
+      func_with_indirect_or_plt_call++;
     if (summary->has_unknown_cf)
-        func_with_indirect_call++;
+      func_with_indirect_call++;
     if (summary->has_plt_call)
-        func_with_plt_call++;
-
+      func_with_plt_call++;
 
     // Check if this function is safe to skip and do so if it is.
     if (Skippable(function, summary)) {
@@ -662,8 +699,8 @@ void InstrumentFunction(BPatch_function* function,
       // and nop snippet, which enables instrumentation frame spec.
       //
       // Also attempt to move instrumentation to utilize existing push & pop
-      BPatch_point* push_point = condNotTakenEntry->findEntryPoint() ;
-      bool moveInst = MoveInstrumentation(push_point, summary);      
+      BPatch_point* push_point = condNotTakenEntry->findEntryPoint();
+      bool moveInst = MoveInstrumentation(push_point, summary);
       Snippet::Ptr stack_push =
           StackPushSnippet::create(new StackPushSnippet(summary, moveInst));
       PatchAPI::convert(push_point, BPatch_callBefore)->pushBack(stack_push);
@@ -694,12 +731,12 @@ void InstrumentFunction(BPatch_function* function,
                                  BPatch_lastSnippet, &is_empty);
       return;
     } else {
-      // Attempt to move instrumentation to utilize 
+      // Attempt to move instrumentation to utilize
       // existing push & pop
       std::vector<BPatch_point*> entryPoints;
       function->getEntryPoints(entryPoints);
       for (auto& p : entryPoints) {
-        bool moveInst = MoveInstrumentation(p, summary);      
+        bool moveInst = MoveInstrumentation(p, summary);
         Snippet::Ptr stack_push =
             StackPushSnippet::create(new StackPushSnippet(summary, moveInst));
         PatchAPI::convert(p, BPatch_callBefore)->pushBack(stack_push);
@@ -713,7 +750,8 @@ void InstrumentFunction(BPatch_function* function,
       std::vector<BPatch_point*> beforePoints;
       std::vector<BPatch_point*> afterPoints;
       for (auto& p : exitPoints) {
-        if (IsNonreturningCall(PatchAPI::convert(p, BPatch_callAfter))) continue;
+        if (IsNonreturningCall(PatchAPI::convert(p, BPatch_callAfter)))
+          continue;
         bool moveInst = MoveInstrumentation(p, summary);
         Snippet::Ptr stack_pop =
             StackPopSnippet::create(new StackPopSnippet(summary, moveInst));
@@ -850,7 +888,7 @@ void InstrumentCodeObject(BPatch_object* object, const litecfi::Parser& parser,
     PassManager* pm = new PassManager;
     pm->AddPass(new CallGraphAnalysis())
         ->AddPass(new LargeFunctionFilter())
-        ->AddPass(new IntraProceduralMemoryAnalysis())
+        ->AddPass(new StackHeightAnalysis())
         ->AddPass(new InterProceduralMemoryAnalysis())
         ->AddPass(new FunctionExceptionAnalysis())
         ->AddPass(new UnsafeCallBlockAnalysis())
@@ -938,7 +976,8 @@ void Instrument(std::string binary, const litecfi::Parser& parser) {
     binary_edit->writeFile(FLAGS_output.c_str());
   }
 
-  StdOut(Color::RED) << "Safe functions : " << std::dec << res->safe_fns.size() << "\n  ";
+  StdOut(Color::RED) << "Safe functions : " << std::dec << res->safe_fns.size()
+                     << "\n  ";
   for (auto it : res->safe_fns) {
     StdOut(Color::BLUE) << it << " ";
   }
@@ -957,9 +996,17 @@ void Instrument(std::string binary, const litecfi::Parser& parser) {
     StdOut(Color::BLUE) << it << " ";
   }
   StdOut(Color::BLUE) << Endl;
-  StdOut(Color::RED) << "Functions with indirect jumps : " << func_with_indirect_jmp << "\n" << Endl;
-  StdOut(Color::RED) << "Functions with indirect call or plt calls : " << func_with_indirect_or_plt_call << "\n" << Endl;
-  StdOut(Color::RED) << "Functions with indirect call: " << func_with_indirect_call << "\n" << Endl;
-  StdOut(Color::RED) << "Functions with plt calls : " << func_with_plt_call << "\n" << Endl;
+  StdOut(Color::RED) << "Functions with indirect jumps : "
+                     << func_with_indirect_jmp << "\n"
+                     << Endl;
+  StdOut(Color::RED) << "Functions with indirect call or plt calls : "
+                     << func_with_indirect_or_plt_call << "\n"
+                     << Endl;
+  StdOut(Color::RED) << "Functions with indirect call: "
+                     << func_with_indirect_call << "\n"
+                     << Endl;
+  StdOut(Color::RED) << "Functions with plt calls : " << func_with_plt_call
+                     << "\n"
+                     << Endl;
   StdOut(Color::RED) << "Total functions : " << total_func << "\n" << Endl;
 }

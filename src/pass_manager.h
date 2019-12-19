@@ -29,13 +29,13 @@ DECLARE_string(stats);
 extern std::set<Address> exception_free_func;
 
 struct MoveInstData {
-    // Pre-instruction address for moving instrumentation
-    Address newInstAddress;
-    int raOffset;
+  // Pre-instruction address for moving instrumentation
+  Address newInstAddress;
+  int raOffset;
 
-    int saveCount;
-    std::string reg1;
-    std::string reg2;
+  int saveCount;
+  std::string reg1;
+  std::string reg2;
 };
 
 struct MemoryWrite {
@@ -131,6 +131,13 @@ struct SCComponent {
   std::map<SCComponent*, Block*> targets;
 };
 
+struct StackAccess {
+  // Stack height at src operand. INT_MAX if src is not a stack memory access.
+  int src;
+  // Stack height at dest operand. INT_MAX if dest is not a stack memory access.
+  int dest;
+};
+
 struct FuncSummary {
   Function* func;
 
@@ -211,6 +218,18 @@ struct FuncSummary {
   std::map<Address, int> blockEndSPHeight;
   std::map<Address, int> blockEntrySPHeight;
 
+  // All stack memory accesses within the function. Keyed by the instruction
+  // address.
+  std::map<Address, StackAccess> stack_heights;
+  // All unknown memory accesses within basic blocks. Keyed by block start
+  // addresses.
+  std::map<Address, std::set<Address>> unknown_writes;
+  // All heap accesses within basic blocks. Keyed by block start addresses.
+  std::map<Address, std::set<Address>> heap_writes;
+  // All out parameter writes within basic blocks. Keyed by block start
+  // addresses.
+  std::map<Address, std::set<Address>> arg_writes;
+
   int safe_paths;
 
   bool func_exception_safe;
@@ -249,30 +268,36 @@ struct FuncSummary {
   }
 
   MoveInstData* getMoveInstDataAtEntry(Address a) {
-      auto it = entryData.find(a);
-      if (it == entryData.end()) return nullptr;
-      return it->second;
+    auto it = entryData.find(a);
+    if (it == entryData.end())
+      return nullptr;
+    return it->second;
   }
   MoveInstData* getMoveInstDataFixedAtEntry(Address a) {
-      auto it = entryFixedData.find(a);
-      if (it == entryFixedData.end()) return nullptr;
-      return it->second;
+    auto it = entryFixedData.find(a);
+    if (it == entryFixedData.end())
+      return nullptr;
+    return it->second;
   }
 
   MoveInstData* getMoveInstDataAtExit(Address a) {
-      auto it = exitData.find(a);
-      if (it == exitData.end()) return nullptr;
-      return it->second;
+    auto it = exitData.find(a);
+    if (it == exitData.end())
+      return nullptr;
+    return it->second;
   }
 
   bool lowerInstrumentation() {
-      if (unsafe_blocks.find(func->entry()) != unsafe_blocks.end()) return false;
-      if (has_indirect_cf) return false;
-      if (blockEndSPHeight.empty()) return false;
-      if (safe_paths == 0) return false;
-      return true;
+    if (unsafe_blocks.find(func->entry()) != unsafe_blocks.end())
+      return false;
+    if (has_indirect_cf)
+      return false;
+    if (blockEndSPHeight.empty())
+      return false;
+    if (safe_paths == 0)
+      return false;
+    return true;
   }
-
 };
 
 struct PassResult {

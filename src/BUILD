@@ -7,6 +7,7 @@ cc_binary(
         "cfi.cc",
 	"codegen.cc",
 	"codegen.h",
+	"heap.h",
 	"instrument.cc",
 	"instrument.h",
         "jit.cc",
@@ -59,6 +60,7 @@ cc_library(
 cc_library(
     name = "analysis",
     srcs = [
+	"heap.h",
         "passes.h",
         "pass_manager.h",
 	"register_utils.h",
@@ -100,6 +102,7 @@ cc_binary(
 cc_binary(
     name = "test",
     srcs = [
+	"heap.h",
 	"test.cc",
 	"passes.h",
 	"pass_manager.h",
