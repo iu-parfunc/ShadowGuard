@@ -1,6 +1,10 @@
 #ifndef LITECFI_HEAP_H_
 #define LITECFI_HEAP_H_
 
+#include <map>
+#include <set>
+#include <stack>
+
 #include "CFG.h"
 #include "Instruction.h"
 #include "Register.h"
@@ -148,15 +152,32 @@ struct AbstractLocation {
 
 struct HeapContext {
   Address addr;
-  Address block;
+  Block* block;
   Instruction ins;
 
   std::map<MachRegister, AbstractLocation*> regs;
   std::map<int, AbstractLocation*> stack;
 
-  std::set<HeapContext*> successors;
+  HeapContext* successor;
 
-  HeapContext() {}
+  HeapContext() : successor(nullptr) {
+    regs[Dyninst::x86_64::rax] = AbstractLocation::GetBottom();
+    regs[Dyninst::x86_64::rbx] = AbstractLocation::GetBottom();
+    regs[Dyninst::x86_64::rcx] = AbstractLocation::GetBottom();
+    regs[Dyninst::x86_64::rdx] = AbstractLocation::GetBottom();
+    regs[Dyninst::x86_64::rsp] = AbstractLocation::GetBottom();
+    regs[Dyninst::x86_64::rbp] = AbstractLocation::GetBottom();
+    regs[Dyninst::x86_64::rsi] = AbstractLocation::GetBottom();
+    regs[Dyninst::x86_64::rdi] = AbstractLocation::GetBottom();
+    regs[Dyninst::x86_64::r8] = AbstractLocation::GetBottom();
+    regs[Dyninst::x86_64::r9] = AbstractLocation::GetBottom();
+    regs[Dyninst::x86_64::r10] = AbstractLocation::GetBottom();
+    regs[Dyninst::x86_64::r11] = AbstractLocation::GetBottom();
+    regs[Dyninst::x86_64::r12] = AbstractLocation::GetBottom();
+    regs[Dyninst::x86_64::r13] = AbstractLocation::GetBottom();
+    regs[Dyninst::x86_64::r14] = AbstractLocation::GetBottom();
+    regs[Dyninst::x86_64::r15] = AbstractLocation::GetBottom();
+  }
 
   ~HeapContext() {
     for (auto it : regs) {
@@ -203,145 +224,117 @@ class HeapAnalysis {
 
  private:
   using FlowInfo = std::map<Address, std::map<Address, HeapContext*>>;
+  using WorkList = std::deque<std::pair<HeapContext*, std::set<HeapContext*>>>;
 
-  void UpdateFunctionSummary() {
-    std::set<Address> to_remove_blocks;
-    for (auto it : s_->unknown_writes) {
-      Address block = it.first;
-      std::set<Address>& addrs = it.second;
+  void InitFlowInfo() {
+    Function* f = s_->func;
+    auto blocks = f->blocks();
 
-      auto& ctxs = info_[block];
-      std::set<Address> to_remove;
-      for (auto addr : addrs) {
-        auto cit = ctxs.find(addr);
-        if (cit != ctxs.end()) {
-          HeapContext* ctx = cit->second;
-          MachRegister dest_reg;
-          RegisterVisitor v = RegisterVisitor();
+    for (auto b : blocks) {
+      std::map<Offset, Instruction> insns;
+      b->getInsns(insns);
 
-          Instruction ins = ctx->ins;
-          Expression::Ptr expr = ins.getOperand(0).getValue();
-          ParseOperand(expr, &v, &dest_reg);
-
-          DCHECK(dest_reg.isValid());
-
-          AbstractLocation* loc = ctx->regs[dest_reg];
-          switch (loc->type) {
-          case Location::HEAP:
-            s_->heap_writes[block].insert(addr);
-            to_remove.insert(addr);
-            break;
-          case Location::ARG:
-            s_->arg_writes[block].insert(addr);
-            to_remove.insert(addr);
-            break;
-          case Location::HEAP_OR_ARG:
-            s_->heap_or_arg_writes[block].insert(addr);
-            to_remove.insert(addr);
-            break;
-          default:
-            break;
-          }
+      Address start = b->start();
+      auto& ctxs = info_[start];
+      HeapContext* prev = nullptr;
+      for (auto const& ins : insns) {
+        Address addr = start + ins.first;
+        auto it = ctxs.find(addr);
+        HeapContext* ctx;
+        if (it == ctxs.end()) {
+          ctx = new HeapContext;
+          ctx->addr = addr;
+          ctx->block = b;
+          ctx->ins = ins.second;
+        } else {
+          ctx = it->second;
+          ctx->ins = ins.second;
         }
-      }
 
-      for (auto addr : to_remove) {
-        addrs.erase(addr);
-      }
+        ctxs[ctx->addr] = ctx;
 
-      if (addrs.empty()) {
-        to_remove_blocks.insert(block);
-      }
-    }
-
-    for (auto b : to_remove_blocks) {
-      s_->unknown_writes.erase(b);
-    }
-  }
-
-  void Cleanup() {
-    for (auto it : info_) {
-      auto& ctxs = it.second;
-
-      for (auto& cit : ctxs) {
-        delete cit.second;
+        if (prev != nullptr) {
+          prev->successor = ctx;
+        }
+        prev = ctx;
       }
     }
   }
 
   void Analyse() {
-    std::set<SCComponent*> visited;
-    AnalyseComponent(s_->cfg, visited, true);
+    std::stack<SCComponent*> rpo;
+    PostOrderTraverse(s_->cfg, rpo);
+
+    while (!rpo.empty()) {
+      AnalyseBlocks(rpo.top()->blocks, s_->func->entry());
+      rpo.pop();
+    }
   }
 
-  void AnalyseComponent(SCComponent* sc, std::set<SCComponent*>& visited,
-                        bool root = false) {
-    visited.insert(sc);
-
-    AnalyseBlocks(sc->blocks, root);
-
+  void PostOrderTraverse(SCComponent* sc, std::stack<SCComponent*>& rpo) {
     for (auto child : sc->children) {
-      if (visited.find(child) == visited.end()) {
-        AnalyseComponent(child, visited);
-      }
+      PostOrderTraverse(child, rpo);
     }
+    rpo.push(sc);
   }
 
-  void AnalyseBlocks(std::set<Block*>& blocks, bool root) {
-    Block* b;
-    if (root) {
-      b = s_->func->entry();
-    } else {
-      b = *(blocks.begin());
-    }
-
-    auto& ctxs = info_[b->start()];
-    HeapContext* ctx = ctxs[b->start()];
-    DCHECK(ctx != nullptr);
-
-    std::deque<std::pair<HeapContext*, HeapContext*>> worklist;
-    if (root) {
-      ctx->regs[Dyninst::x86_64::rdi] = AbstractLocation::GetArgLocation();
-      ctx->regs[Dyninst::x86_64::rsi] = AbstractLocation::GetArgLocation();
-      ctx->regs[Dyninst::x86_64::rdx] = AbstractLocation::GetArgLocation();
-      ctx->regs[Dyninst::x86_64::rcx] = AbstractLocation::GetArgLocation();
-      ctx->regs[Dyninst::x86_64::r8] = AbstractLocation::GetArgLocation();
-      ctx->regs[Dyninst::x86_64::r9] = AbstractLocation::GetArgLocation();
-    }
-    worklist.push_back(std::make_pair(ctx, nullptr));
+  void AnalyseBlocks(std::set<Block*>& blocks, Block* func_entry) {
+    WorkList worklist;
+    Block* b = *(blocks.begin());
+    UpdateWorkList(worklist, b, func_entry);
 
     while (!worklist.empty()) {
       auto work = worklist.front();
       HeapContext* ctx = work.first;
-      HeapContext* predecessor = work.second;
+      std::set<HeapContext*>& predecessors = work.second;
 
-      if (predecessor != nullptr) {
-        ctx->Meet(predecessor);
+      for (auto pred : predecessors) {
+        ctx->Meet(pred);
       }
 
       if (TransferFunction(ctx)) {
-        for (auto successor : ctx->successors) {
-          bool edge_propagate = true;
-          if (successor->block != ctx->block) {
-            bool is_component_block = false;
-            for (auto b : blocks) {
-              if (b->start() == successor->block) {
-                is_component_block = true;
-              }
+        if (ctx->successor != nullptr) {
+          std::set<HeapContext*> predecessors;
+          predecessors.insert(ctx);
+          worklist.push_back(std::make_pair(ctx->successor, predecessors));
+        } else {
+          for (auto& e : ctx->block->targets()) {
+            Block* target = e->trg();
+            // We only process intra component targets.
+            if (blocks.find(target) != blocks.end()) {
+              UpdateWorkList(worklist, b, func_entry);
             }
-            if (!is_component_block) {
-              edge_propagate = false;
-            }
-          }
-
-          if (edge_propagate) {
-            worklist.push_back(std::make_pair(successor, ctx));
           }
         }
       }
 
       worklist.pop_front();
     }
+  }
+
+  void UpdateWorkList(WorkList& worklist, Block* b, Block* func_entry) {
+    auto& ctxs = info_[b->start()];
+    HeapContext* ctx = ctxs[b->start()];
+    DCHECK(ctx != nullptr);
+
+    std::set<HeapContext*> predecessors;
+    if (b->start() == func_entry->start()) {
+      ctx->regs[Dyninst::x86_64::rdi]->type = Location::ARG;
+      ctx->regs[Dyninst::x86_64::rsi]->type = Location::ARG;
+      ctx->regs[Dyninst::x86_64::rdx]->type = Location::ARG;
+      ctx->regs[Dyninst::x86_64::rcx]->type = Location::ARG;
+      ctx->regs[Dyninst::x86_64::r8]->type = Location::ARG;
+      ctx->regs[Dyninst::x86_64::r9]->type = Location::ARG;
+    } else {
+      for (auto& e : b->sources()) {
+        Block* src = e->src();
+        Address start = src->start();
+
+        auto& src_ctxs = info_[start];
+        predecessors.insert(src_ctxs[src->last()]);
+      }
+    }
+    worklist.push_back(std::make_pair(ctx, predecessors));
   }
 
   class RegisterVisitor : public Visitor {
@@ -476,55 +469,67 @@ class HeapAnalysis {
     }
   }
 
-  void InitFlowInfo() {
-    Function* f = s_->func;
-    auto blocks = f->blocks();
+  void UpdateFunctionSummary() {
+    std::set<Address> to_remove_blocks;
+    for (auto it : s_->unknown_writes) {
+      Address block = it.first;
+      std::set<Address>& addrs = it.second;
 
-    for (auto b : blocks) {
-      std::map<Offset, Instruction> insns;
-      b->getInsns(insns);
+      auto& ctxs = info_[block];
+      std::set<Address> to_remove;
+      for (auto addr : addrs) {
+        auto cit = ctxs.find(addr);
+        if (cit != ctxs.end()) {
+          HeapContext* ctx = cit->second;
+          MachRegister dest_reg;
+          RegisterVisitor v = RegisterVisitor();
 
-      // Handle instructions within a block.
-      Address start = b->start();
-      auto& ctxs = info_[start];
-      HeapContext* prev = nullptr;
-      for (auto const& ins : insns) {
-        Address addr = start + ins.first;
-        auto it = ctxs.find(addr);
-        HeapContext* ctx;
-        if (it == ctxs.end()) {
-          ctx = new HeapContext;
-          ctx->addr = addr;
-          ctx->block = start;
-          ctx->ins = ins.second;
-        } else {
-          ctx = it->second;
-          ctx->ins = ins.second;
+          Instruction ins = ctx->ins;
+          Expression::Ptr expr = ins.getOperand(0).getValue();
+          ParseOperand(expr, &v, &dest_reg);
+
+          DCHECK(dest_reg.isValid());
+
+          AbstractLocation* loc = ctx->regs[dest_reg];
+          switch (loc->type) {
+          case Location::HEAP:
+            s_->heap_writes[block].insert(addr);
+            to_remove.insert(addr);
+            break;
+          case Location::ARG:
+            s_->arg_writes[block].insert(addr);
+            to_remove.insert(addr);
+            break;
+          case Location::HEAP_OR_ARG:
+            s_->heap_or_arg_writes[block].insert(addr);
+            to_remove.insert(addr);
+            break;
+          default:
+            break;
+          }
         }
-
-        ctxs[ctx->addr] = ctx;
-
-        if (prev != nullptr) {
-          prev->successors.insert(ctx);
-        }
-        prev = ctx;
       }
 
-      // Handle inter-block edges.
-      HeapContext* first = ctxs[b->start()];
-      for (auto& e : b->sources()) {
-        Block* src = e->src();
-        Address src_start = src->start();
+      for (auto addr : to_remove) {
+        addrs.erase(addr);
+      }
 
-        auto& src_ctxs = info_[src_start];
-        auto it = src_ctxs.find(src->last());
-        if (it == src_ctxs.end()) {
-          HeapContext* ctx = new HeapContext;
-          ctx->addr = src->last();
-          ctx->block = src_start;
-          ctx->successors.insert(first);
-          src_ctxs[src->last()] = ctx;
-        }
+      if (addrs.empty()) {
+        to_remove_blocks.insert(block);
+      }
+    }
+
+    for (auto b : to_remove_blocks) {
+      s_->unknown_writes.erase(b);
+    }
+  }
+
+  void Cleanup() {
+    for (auto it : info_) {
+      auto& ctxs = it.second;
+
+      for (auto& cit : ctxs) {
+        delete cit.second;
       }
     }
   }
