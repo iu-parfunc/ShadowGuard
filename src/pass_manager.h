@@ -229,6 +229,9 @@ struct FuncSummary {
   // All out parameter writes within basic blocks. Keyed by block start
   // addresses.
   std::map<Address, std::set<Address>> arg_writes;
+  // All potentially heap or out parameter writes within basic blocks. Keyed by
+  // block startaddresses.
+  std::map<Address, std::set<Address>> heap_or_arg_writes;
 
   int safe_paths;
 

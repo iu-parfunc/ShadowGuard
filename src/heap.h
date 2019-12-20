@@ -28,6 +28,9 @@ struct AbstractLocation {
   AbstractLocation()
       : type(Location::BOTTOM), stack_height(INT_MAX), points_to(nullptr) {}
 
+  AbstractLocation(const AbstractLocation& l)
+      : type(l.type), stack_height(l.stack_height), points_to(l.points_to) {}
+
   Location type;
   int stack_height;
   AbstractLocation* points_to;
@@ -52,6 +55,13 @@ struct AbstractLocation {
   }
 
   bool operator!=(const AbstractLocation& l) { return !(*this == l); }
+
+  AbstractLocation& operator=(const AbstractLocation& l) {
+    type = l.type;
+    stack_height = l.stack_height;
+    points_to = l.points_to;
+    return *this;
+  }
 
   AbstractLocation* Meet(AbstractLocation* other) {
     if (type == Location::TOP || other->type == Location::TOP) {
@@ -105,8 +115,6 @@ struct AbstractLocation {
     return loc;
   }
 
-  // Implement == operator
-
   static AbstractLocation* GetArgLocation() {
     AbstractLocation* loc = new AbstractLocation;
     loc->type = Location::ARG;
@@ -148,6 +156,18 @@ struct HeapContext {
 
   std::set<HeapContext*> successors;
 
+  HeapContext() {}
+
+  ~HeapContext() {
+    for (auto it : regs) {
+      delete it.second;
+    }
+
+    for (auto it : stack) {
+      delete it.second;
+    }
+  }
+
   void Meet(HeapContext* other) {
     PointWiseMeet<MachRegister>(regs, other->regs);
     PointWiseMeet<int>(stack, other->stack);
@@ -177,10 +197,77 @@ class HeapAnalysis {
   HeapAnalysis(FuncSummary* s) : s_(s) {
     InitFlowInfo();
     Analyse();
+    UpdateFunctionSummary();
+    Cleanup();
   }
 
  private:
   using FlowInfo = std::map<Address, std::map<Address, HeapContext*>>;
+
+  void UpdateFunctionSummary() {
+    std::set<Address> to_remove_blocks;
+    for (auto it : s_->unknown_writes) {
+      Address block = it.first;
+      std::set<Address>& addrs = it.second;
+
+      auto& ctxs = info_[block];
+      std::set<Address> to_remove;
+      for (auto addr : addrs) {
+        auto cit = ctxs.find(addr);
+        if (cit != ctxs.end()) {
+          HeapContext* ctx = cit->second;
+          MachRegister dest_reg;
+          RegisterVisitor v = RegisterVisitor();
+
+          Instruction ins = ctx->ins;
+          Expression::Ptr expr = ins.getOperand(0).getValue();
+          ParseOperand(expr, &v, &dest_reg);
+
+          DCHECK(dest_reg.isValid());
+
+          AbstractLocation* loc = ctx->regs[dest_reg];
+          switch (loc->type) {
+          case Location::HEAP:
+            s_->heap_writes[block].insert(addr);
+            to_remove.insert(addr);
+            break;
+          case Location::ARG:
+            s_->arg_writes[block].insert(addr);
+            to_remove.insert(addr);
+            break;
+          case Location::HEAP_OR_ARG:
+            s_->heap_or_arg_writes[block].insert(addr);
+            to_remove.insert(addr);
+            break;
+          default:
+            break;
+          }
+        }
+      }
+
+      for (auto addr : to_remove) {
+        addrs.erase(addr);
+      }
+
+      if (addrs.empty()) {
+        to_remove_blocks.insert(block);
+      }
+    }
+
+    for (auto b : to_remove_blocks) {
+      s_->unknown_writes.erase(b);
+    }
+  }
+
+  void Cleanup() {
+    for (auto it : info_) {
+      auto& ctxs = it.second;
+
+      for (auto& cit : ctxs) {
+        delete cit.second;
+      }
+    }
+  }
 
   void Analyse() {
     std::set<SCComponent*> visited;
@@ -299,16 +386,15 @@ class HeapAnalysis {
   }
 
   bool HandleMov(HeapContext* ctx) {
-    Instruction ins = ctx->ins;
-
-    RegisterVisitor v = RegisterVisitor();
     MachRegister src_reg;
     MachRegister dest_reg;
+    RegisterVisitor v = RegisterVisitor();
 
-    DCHECK(dest_reg.isValid());
-
+    Instruction ins = ctx->ins;
     Expression::Ptr expr = ins.getOperand(0).getValue();
     ParseOperand(expr, &v, &dest_reg);
+
+    DCHECK(dest_reg.isValid());
 
     v.reset();
     expr = ins.getOperand(1).getValue();
