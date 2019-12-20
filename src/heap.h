@@ -300,7 +300,8 @@ class HeapAnalysis {
         } else {
           for (auto& e : ctx->block->targets()) {
             Block* target = e->trg();
-            // We only process intra component targets.
+            // We only process intra component targets. Inter component edges
+            // will be processed subsequently in reverse post order.
             if (blocks.find(target) != blocks.end()) {
               UpdateWorkList(worklist, b, func_entry);
             }
@@ -337,6 +338,11 @@ class HeapAnalysis {
     worklist.push_back(std::make_pair(ctx, predecessors));
   }
 
+  // Pattern match any memory operand to get the base register.
+  // e.g:
+  //   (%rbx) -> %rbx
+  //   4(%rax, %rcx, 2) -> %rax
+  //   (,%rdx, 2) -> %rdx
   class RegisterVisitor : public Visitor {
    public:
     RegisterVisitor() : add_found_(false), complex_operand_(false) {}
@@ -376,6 +382,36 @@ class HeapAnalysis {
         *reg = v->base_;
       }
     }
+  }
+
+  bool IsCall(Instruction& insn) {
+    return insn.getCategory() == Dyninst::InstructionAPI::c_CallInsn;
+  }
+
+  bool TransferFunction(HeapContext* ctx) {
+    Instruction& ins = ctx->ins;
+    if (IsCall(ins)) {
+      return HandleCall(ctx);
+    }
+
+    entryID id = ins.getOperation().getID();
+    switch (id) {
+    case e_mov:
+      return HandleMov(ctx);
+    case e_lea:
+      return HandleLea(ctx);
+    default:
+      return false;
+    }
+  }
+
+  bool HandleLea(HeapContext* ctx) { return false; }
+
+  bool HandleCall(HeapContext* ctx) {
+    // Pattern match the call to determine if the call is heap
+    // allocation function or not. If so ctx->regs[rax] == HEAP.
+    // Otherwise ctx->regs[rax] == TOP.
+    return false;
   }
 
   bool HandleMov(HeapContext* ctx) {
@@ -457,16 +493,6 @@ class HeapAnalysis {
     modified = (*ctx->regs[dest_reg] != *top);
     ctx->regs[dest_reg] = top;
     return modified;
-  }
-
-  bool TransferFunction(HeapContext* ctx) {
-    entryID id = ctx->ins.getOperation().getID();
-    switch (id) {
-    case e_mov:
-      return HandleMov(ctx);
-    default:
-      return false;
-    }
   }
 
   void UpdateFunctionSummary() {
