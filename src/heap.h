@@ -447,7 +447,7 @@ class HeapAnalysis {
           }
 
           AbstractLocation* old = ctx->regs[dest_reg];
-          ctx->regs[dest_reg] = loc;
+          ctx->regs[dest_reg] = loc->points_to;
           modified = modified || (*old != *loc);
         }
         return modified;
@@ -472,11 +472,12 @@ class HeapAnalysis {
             loc = sit->second;
           } else {
             loc = AbstractLocation::GetStackLocation(height);
+            ctx->stack[height] = loc;
+            modified = true;
           }
-          AbstractLocation* old = loc;
+          AbstractLocation* old = loc->points_to;
           loc->points_to = ctx->regs[src_reg];
-          modified = (*old != *loc);
-          ctx->stack[height] = loc;
+          modified = modified || (*old != *(loc->points_to));
         }
       }
       return modified;
