@@ -69,8 +69,6 @@ int pthread_create(pthread_t *thread, pthread_attr_t *attr, pthread_fn_type fn,
   if (!real_create)
     real_create = (pthread_create_type)dlsym(RTLD_NEXT, "pthread_create");
 
-  printf("Calling real pthread_create at : %p\n", real_create);
-
   pthread_fn_info *info = (pthread_fn_info *)malloc(sizeof(pthread_fn_info));
   info->original_arg = arg;
   info->original_fn = (pthread_fn_type)fn;
