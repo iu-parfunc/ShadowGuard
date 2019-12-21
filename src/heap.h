@@ -435,21 +435,19 @@ class HeapAnalysis {
       if (it != s_->stack_heights.end()) {
         // Stack read.
         int height = it->second.src;
-        if (height != INT_MAX) {
-          auto sit = ctx->stack.find(height);
-          AbstractLocation* loc;
-          if (sit != ctx->stack.end()) {
-            loc = sit->second;
-          } else {
-            loc = AbstractLocation::GetStackLocation(height);
-            ctx->stack[height] = loc;
-            modified = true;
-          }
-
-          AbstractLocation* old = ctx->regs[dest_reg];
-          ctx->regs[dest_reg] = loc->points_to;
-          modified = modified || (*old != *loc);
+        auto sit = ctx->stack.find(height);
+        AbstractLocation* loc;
+        if (sit != ctx->stack.end()) {
+          loc = sit->second;
+        } else {
+          loc = AbstractLocation::GetStackLocation(height);
+          ctx->stack[height] = loc;
+          modified = true;
         }
+
+        AbstractLocation* old = ctx->regs[dest_reg];
+        ctx->regs[dest_reg] = loc->points_to;
+        modified = modified || (*old != *loc);
         return modified;
       }
 
@@ -465,20 +463,18 @@ class HeapAnalysis {
       if (it != s_->stack_heights.end()) {
         // Stack write.
         int height = it->second.dest;
-        if (height != INT_MAX) {
-          auto sit = ctx->stack.find(height);
-          AbstractLocation* loc;
-          if (sit != ctx->stack.end()) {
-            loc = sit->second;
-          } else {
-            loc = AbstractLocation::GetStackLocation(height);
-            ctx->stack[height] = loc;
-            modified = true;
-          }
-          AbstractLocation* old = loc->points_to;
-          loc->points_to = ctx->regs[src_reg];
-          modified = modified || (*old != *(loc->points_to));
+        auto sit = ctx->stack.find(height);
+        AbstractLocation* loc;
+        if (sit != ctx->stack.end()) {
+          loc = sit->second;
+        } else {
+          loc = AbstractLocation::GetStackLocation(height);
+          ctx->stack[height] = loc;
+          modified = true;
         }
+        AbstractLocation* old = loc->points_to;
+        loc->points_to = ctx->regs[src_reg];
+        modified = modified || (*old != *(loc->points_to));
       }
       return modified;
     }
