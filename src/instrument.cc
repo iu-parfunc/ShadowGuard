@@ -61,6 +61,10 @@ static int func_with_indirect_jmp = 0;
 static int func_with_indirect_or_plt_call = 0;
 static int func_with_indirect_call = 0;
 static int func_with_plt_call = 0;
+static int memory_writes = 0;
+static int stack_writes = 0;
+static int heap_writes = 0;
+static int global_writes = 0;
 
 struct InstrumentationResult {
   std::vector<std::string> safe_fns;
@@ -621,6 +625,15 @@ void MarkExceptionSafeCalls(BPatch_function* function) {
   }
 }
 
+void CountMemoryWrites(FuncSummary* s) {
+  for (auto const &it : s->all_writes) {
+    auto const& w = it.second;
+    memory_writes += 1;
+    if (w->stack) stack_writes += 1;
+    if (w->global) global_writes += 1;
+  }
+}
+
 void InstrumentFunction(BPatch_function* function,
                         const litecfi::Parser& parser, PatchMgr::Ptr patcher,
                         const std::map<uint64_t, FuncSummary*>& analyses,
@@ -645,6 +658,8 @@ void InstrumentFunction(BPatch_function* function,
       func_with_indirect_call++;
     if (summary->has_plt_call)
       func_with_plt_call++;
+
+    CountMemoryWrites(summary);
 
     // Check if this function is safe to skip and do so if it is.
     if (Skippable(function, summary)) {
@@ -1009,4 +1024,10 @@ void Instrument(std::string binary, const litecfi::Parser& parser) {
                      << "\n"
                      << Endl;
   StdOut(Color::RED) << "Total functions : " << total_func << "\n" << Endl;
+
+  StdOut(Color::RED) << "Total memory writes : " << memory_writes << "\n" << Endl;
+  StdOut(Color::RED) << "\tStack writes : " << stack_writes << "\n" << Endl;
+  StdOut(Color::RED) << "\tGlobal writes : " << global_writes << "\n" << Endl;
+  StdOut(Color::RED) << "\tHeap writes : " << heap_writes << "\n" << Endl;
+  StdOut(Color::RED) << "\tUnknown writes : " << (memory_writes - stack_writes - global_writes - heap_writes) << "\n" << Endl;
 }

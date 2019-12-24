@@ -316,10 +316,12 @@ class StackHeightAnalysis : public Pass {
               unsafe = true;
               break;
             }
-            case Absloc::Heap:
+            case Absloc::Heap: {
               // This is actually a write to a global variable.
               // That's why it will have a statically determined address.
+              write->global = true;
               break;
+            }
             case Absloc::Register:
               // Not a memory write.
               break;

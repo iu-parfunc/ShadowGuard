@@ -59,6 +59,8 @@ struct MemoryWrite {
   bool stack;
   // Denotes if this write has been resolved for defines and uses.
   bool resolved;
+  // Denotes if this is a global variable write
+  bool global;
 };
 
 struct CFGStats {
