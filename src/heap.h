@@ -33,13 +33,42 @@ struct AbstractLocation {
       : type(Location::BOTTOM), stack_height(INT_MAX), points_to(nullptr) {}
 
   AbstractLocation(const AbstractLocation& l)
-      : type(l.type), stack_height(l.stack_height), points_to(l.points_to) {}
+      : type(l.type), stack_height(l.stack_height) {
+    if (l.points_to == nullptr) {
+      points_to = nullptr;
+    } else {
+      points_to = new AbstractLocation;
+      *points_to = *l.points_to;
+    }
+  }
+
+  ~AbstractLocation() {
+    if (points_to != nullptr) delete points_to;
+    points_to = nullptr;
+  }
 
   Location type;
   int stack_height;
   AbstractLocation* points_to;
 
-  bool operator==(const AbstractLocation& l) {
+  AbstractLocation pointToLocation() const {
+    if (points_to == nullptr)
+      return GetTop();
+    else
+      return *points_to;
+  }
+
+  void setPointToLocation(const AbstractLocation& l) {
+    if (points_to != nullptr) delete points_to;
+    if (l == GetTop()) {
+      points_to = nullptr;
+    } else {
+      points_to = new AbstractLocation;
+      *points_to = l;
+    }
+  }
+
+  bool operator==(const AbstractLocation& l) const {
     if (type != l.type)
       return false;
 
@@ -58,49 +87,56 @@ struct AbstractLocation {
     return true;
   }
 
-  bool operator!=(const AbstractLocation& l) { return !(*this == l); }
+  bool operator!=(const AbstractLocation& l) const { return !(*this == l); }
 
   AbstractLocation& operator=(const AbstractLocation& l) {
     type = l.type;
     stack_height = l.stack_height;
-    points_to = l.points_to;
+    if (l.points_to == nullptr) {
+      points_to = nullptr;
+    } else {
+      points_to = new AbstractLocation;
+      assert(l.points_to->points_to == nullptr);
+      points_to->type = l.points_to->type;
+      points_to->stack_height = l.points_to->stack_height;
+      points_to->points_to = nullptr;
+    }
     return *this;
   }
 
-  AbstractLocation* Meet(AbstractLocation* other) {
-    if (type == Location::TOP || other->type == Location::TOP) {
+  void Meet(const AbstractLocation& other) {
+    if (type == Location::TOP || other.type == Location::TOP) {
       Reset();
       type = Location::TOP;
-      return this;
     }
 
     if (type == Location::BOTTOM) {
-      *this = *other;
-      return this;
+      *this = other;
     }
 
-    if (other->type == Location::BOTTOM)
-      return this;
+    if (other.type == Location::BOTTOM)
+      return;
 
-    if (other->type == type) {
+    if (other.type == type) {
       if (type == Location::STACK) {
-        if (stack_height != other->stack_height) {
+        if (stack_height != other.stack_height) {
           Reset();
           type = Location::TOP;
-          return this;
+          return;
         }
 
-        points_to = points_to->Meet(other->points_to);
-        return this;
+        if (points_to != nullptr) {
+          points_to->Meet(other.pointToLocation());
+        }
       }
-      return this;
+      return;
     }
 
-    if ((type == Location::ARG && other->type == Location::HEAP) ||
-        (type == Location::HEAP && other->type == Location::ARG)) {
+    if ((type == Location::ARG && other.type == Location::HEAP) ||
+        (type == Location::HEAP && other.type == Location::ARG)) {
       Reset();
       type = Location::HEAP_OR_ARG;
-      return this;
+      return;
     }
 
     DCHECK(false);
@@ -109,43 +145,44 @@ struct AbstractLocation {
   void Reset() {
     type = Location::BOTTOM;
     stack_height = INT_MAX;
+    if (points_to != nullptr) delete points_to;
     points_to = nullptr;
   }
 
-  static AbstractLocation* GetStackLocation(int height) {
-    AbstractLocation* loc = new AbstractLocation;
-    loc->type = Location::STACK;
-    loc->stack_height = height;
+  static AbstractLocation GetStackLocation(int height) {
+    AbstractLocation loc;
+    loc.type = Location::STACK;
+    loc.stack_height = height;
     return loc;
   }
 
-  static AbstractLocation* GetArgLocation() {
-    AbstractLocation* loc = new AbstractLocation;
-    loc->type = Location::ARG;
+  static AbstractLocation GetArgLocation() {
+    AbstractLocation loc;
+    loc.type = Location::ARG;
     return loc;
   }
 
-  static AbstractLocation* GetHeapLocation() {
-    AbstractLocation* loc = new AbstractLocation;
-    loc->type = Location::HEAP;
+  static AbstractLocation GetHeapLocation() {
+    AbstractLocation loc;
+    loc.type = Location::HEAP;
     return loc;
   }
 
-  static AbstractLocation* GetHeapOrArgLocation() {
-    AbstractLocation* loc = new AbstractLocation;
-    loc->type = Location::HEAP_OR_ARG;
+  static AbstractLocation GetHeapOrArgLocation() {
+    AbstractLocation loc;
+    loc.type = Location::HEAP_OR_ARG;
     return loc;
   }
 
-  static AbstractLocation* GetTop() {
-    AbstractLocation* loc = new AbstractLocation;
-    loc->type = Location::TOP;
+  static AbstractLocation GetTop() {
+    AbstractLocation loc;
+    loc.type = Location::TOP;
     return loc;
   }
 
-  static AbstractLocation* GetBottom() {
-    AbstractLocation* loc = new AbstractLocation;
-    loc->type = Location::BOTTOM;
+  static AbstractLocation GetBottom() {
+    AbstractLocation loc;
+    loc.type = Location::BOTTOM;
     return loc;
   }
 };
@@ -155,8 +192,8 @@ struct HeapContext {
   Block* block;
   Instruction ins;
 
-  std::map<MachRegister, AbstractLocation*> regs;
-  std::map<int, AbstractLocation*> stack;
+  std::map<MachRegister, AbstractLocation> regs;
+  std::map<int, AbstractLocation> stack;
 
   HeapContext* successor;
 
@@ -180,13 +217,8 @@ struct HeapContext {
   }
 
   ~HeapContext() {
-    for (auto it : regs) {
-      delete it.second;
-    }
-
-    for (auto it : stack) {
-      delete it.second;
-    }
+    regs.clear();
+    stack.clear();
   }
 
   void Meet(HeapContext* other) {
@@ -195,19 +227,19 @@ struct HeapContext {
   }
 
   template <class T>
-  void PointWiseMeet(std::map<T, AbstractLocation*>& m1,
-                     std::map<T, AbstractLocation*>& m2) {
+  void PointWiseMeet(std::map<T, AbstractLocation>& m1,
+                     std::map<T, AbstractLocation>& m2) {
     for (auto& it1 : m1) {
       auto it2 = m2.find(it1.first);
       if (it2 != m2.end()) {
-        m1[it1.first] = it1.second->Meet(it2->second);
+        it1.second.Meet(it2->second);
       }
     }
 
     for (auto& it2 : m2) {
       auto it1 = m1.find(it2.first);
       if (it1 == m1.end()) {
-        m1[it2.first] = it2.second;
+        m1.insert(std::make_pair(it2.first, it2.second));
       }
     }
   }
@@ -238,7 +270,7 @@ class HeapAnalysis {
       auto& ctxs = info_[start];
       HeapContext* prev = nullptr;
       for (auto const& ins : insns) {
-        Address addr = start + ins.first;
+        Address addr = ins.first;
         auto it = ctxs.find(addr);
         HeapContext* ctx;
         if (it == ctxs.end()) {
@@ -263,7 +295,8 @@ class HeapAnalysis {
 
   void Analyse() {
     std::stack<SCComponent*> rpo;
-    PostOrderTraverse(s_->cfg, rpo);
+    std::set<SCComponent*> visited;
+    PostOrderTraverse(s_->cfg, rpo, visited);
 
     while (!rpo.empty()) {
       AnalyseBlocks(rpo.top()->blocks, s_->func->entry());
@@ -271,9 +304,11 @@ class HeapAnalysis {
     }
   }
 
-  void PostOrderTraverse(SCComponent* sc, std::stack<SCComponent*>& rpo) {
+  void PostOrderTraverse(SCComponent* sc, std::stack<SCComponent*>& rpo, std::set<SCComponent*> &visited) {
+    if (visited.find(sc) != visited.end()) return;
+    visited.insert(sc);
     for (auto child : sc->children) {
-      PostOrderTraverse(child, rpo);
+      PostOrderTraverse(child, rpo, visited);
     }
     rpo.push(sc);
   }
@@ -303,7 +338,7 @@ class HeapAnalysis {
             // We only process intra component targets. Inter component edges
             // will be processed subsequently in reverse post order.
             if (blocks.find(target) != blocks.end()) {
-              UpdateWorkList(worklist, b, func_entry);
+              UpdateWorkList(worklist, target, func_entry);
             }
           }
         }
@@ -320,14 +355,16 @@ class HeapAnalysis {
 
     std::set<HeapContext*> predecessors;
     if (b->start() == func_entry->start()) {
-      ctx->regs[Dyninst::x86_64::rdi]->type = Location::ARG;
-      ctx->regs[Dyninst::x86_64::rsi]->type = Location::ARG;
-      ctx->regs[Dyninst::x86_64::rdx]->type = Location::ARG;
-      ctx->regs[Dyninst::x86_64::rcx]->type = Location::ARG;
-      ctx->regs[Dyninst::x86_64::r8]->type = Location::ARG;
-      ctx->regs[Dyninst::x86_64::r9]->type = Location::ARG;
+      ctx->regs[Dyninst::x86_64::rdi].type = Location::ARG;
+      ctx->regs[Dyninst::x86_64::rsi].type = Location::ARG;
+      ctx->regs[Dyninst::x86_64::rdx].type = Location::ARG;
+      ctx->regs[Dyninst::x86_64::rcx].type = Location::ARG;
+      ctx->regs[Dyninst::x86_64::r8].type = Location::ARG;
+      ctx->regs[Dyninst::x86_64::r9].type = Location::ARG;
     } else {
       for (auto& e : b->sources()) {
+        if (e->interproc()) continue;
+        if (e->type() == Dyninst::ParseAPI::CATCH) continue;
         Block* src = e->src();
         Address start = src->start();
 
@@ -363,7 +400,7 @@ class HeapAnalysis {
         return;
 
       if (!base_.isValid())
-        base_ = r->getID();
+        base_ = r->getID().getBaseRegister();
     }
 
     void reset() { base_ = MachRegister(); }
@@ -436,25 +473,20 @@ class HeapAnalysis {
         // Stack read.
         int height = it->second.src;
         auto sit = ctx->stack.find(height);
-        AbstractLocation* loc;
-        if (sit != ctx->stack.end()) {
-          loc = sit->second;
-        } else {
-          loc = AbstractLocation::GetStackLocation(height);
-          ctx->stack[height] = loc;
+        if (sit == ctx->stack.end()) {
+          ctx->stack[height] = AbstractLocation::GetStackLocation(height);
           modified = true;
         }
-
-        AbstractLocation* old = ctx->regs[dest_reg];
-        ctx->regs[dest_reg] = loc->points_to;
-        modified = modified || (*old != *loc);
+        AbstractLocation old = ctx->regs[dest_reg];
+        ctx->regs[dest_reg] = ctx->stack[height].pointToLocation();
+        modified = modified || (old != ctx->regs[dest_reg]);
         return modified;
       }
 
       // Non stack read.
-      AbstractLocation* old = ctx->regs[dest_reg];
+      AbstractLocation old = ctx->regs[dest_reg];
       ctx->regs[dest_reg] = AbstractLocation::GetTop();
-      modified = (*old != *ctx->regs[dest_reg]);
+      modified = (old != ctx->regs[dest_reg]);
       return modified;
     }
 
@@ -464,30 +496,27 @@ class HeapAnalysis {
         // Stack write.
         int height = it->second.dest;
         auto sit = ctx->stack.find(height);
-        AbstractLocation* loc;
-        if (sit != ctx->stack.end()) {
-          loc = sit->second;
-        } else {
-          loc = AbstractLocation::GetStackLocation(height);
-          ctx->stack[height] = loc;
+        if (sit == ctx->stack.end()) {
+          ctx->stack[height] = AbstractLocation::GetStackLocation(height);
           modified = true;
         }
-        AbstractLocation* old = loc->points_to;
-        loc->points_to = ctx->regs[src_reg];
-        modified = modified || (*old != *(loc->points_to));
+        AbstractLocation &loc = ctx->stack[height];
+        AbstractLocation old = loc.pointToLocation();
+        loc.setPointToLocation(ctx->regs[src_reg]);
+        modified = modified || (old != loc);
       }
       return modified;
     }
 
     if (src_reg.isValid() && dest_reg.isValid()) {
-      AbstractLocation* loc = ctx->regs[src_reg];
-      modified = (*loc != *ctx->regs[dest_reg]);
-      ctx->regs[dest_reg] = loc;
+      AbstractLocation old = ctx->regs[dest_reg];
+      ctx->regs[dest_reg] = ctx->regs[src_reg];
+      modified = (old != ctx->regs[dest_reg]);
       return modified;
     }
 
-    AbstractLocation* top = AbstractLocation::GetTop();
-    modified = (*ctx->regs[dest_reg] != *top);
+    AbstractLocation top = AbstractLocation::GetTop();
+    modified = (ctx->regs[dest_reg] != top);
     ctx->regs[dest_reg] = top;
     return modified;
   }
@@ -513,12 +542,15 @@ class HeapAnalysis {
 
           DCHECK(dest_reg.isValid());
 
-          AbstractLocation* loc = ctx->regs[dest_reg];
-          switch (loc->type) {
+          AbstractLocation& loc = ctx->regs[dest_reg];
+          switch (loc.type) {
           case Location::HEAP:
             s_->heap_writes[block].insert(addr);
+            assert(s_->all_writes.find(addr) != s_->all_writes.end());
+            s_->all_writes[addr]->heap = true;
             to_remove.insert(addr);
             break;
+          /*
           case Location::ARG:
             s_->arg_writes[block].insert(addr);
             to_remove.insert(addr);
@@ -527,6 +559,7 @@ class HeapAnalysis {
             s_->heap_or_arg_writes[block].insert(addr);
             to_remove.insert(addr);
             break;
+          */
           default:
             break;
           }

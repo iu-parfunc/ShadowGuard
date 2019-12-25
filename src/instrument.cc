@@ -631,6 +631,7 @@ void CountMemoryWrites(FuncSummary* s) {
     memory_writes += 1;
     if (w->stack) stack_writes += 1;
     if (w->global) global_writes += 1;
+    if (w->heap) heap_writes += 1;
   }
 }
 
@@ -908,8 +909,9 @@ void InstrumentCodeObject(BPatch_object* object, const litecfi::Parser& parser,
         ->AddPass(new FunctionExceptionAnalysis())
         ->AddPass(new UnsafeCallBlockAnalysis())
         ->AddPass(new SafePathsCounting())
-        /*
         ->AddPass(new CFGAnalysis())
+        ->AddPass(new HeapWriteAnalysis())
+        /*
         ->AddPass(new CFGStatistics())
         ->AddPass(new LowerInstrumentation())
         ->AddPass(new LinkParentsOfCFG())

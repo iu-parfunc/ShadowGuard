@@ -201,6 +201,7 @@ class CFGAnalysis : public Pass {
       sc->unsafe = true;
 
     for (auto e : b->targets()) {
+      if (e->type() == ParseAPI::CATCH) continue;
       Block* target = e->trg();
       if (e->type() == ParseAPI::CALL) {
         sc->unsafe = true;
@@ -211,6 +212,8 @@ class CFGAnalysis : public Pass {
         sc->returns.insert(b);
         continue;
       }
+
+      if (e->interproc()) continue;
 
       auto it = block_to_sc.find(target);
       SCComponent* new_sc = nullptr;
@@ -387,12 +390,7 @@ class HeapWriteAnalysis : public Pass {
         s->cfg == nullptr) {
       return;
     }
-
-    // HeapAnalysis ha(s);
-
-    // Unknown memory write elimination
-
-    // Update unsafe basic blocks
+    heap::HeapAnalysis ha(s);
   }
 };
 

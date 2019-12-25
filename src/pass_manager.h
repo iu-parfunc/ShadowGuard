@@ -61,6 +61,9 @@ struct MemoryWrite {
   bool resolved;
   // Denotes if this is a global variable write
   bool global;
+  // Denotes if this is a heap write
+  bool heap;
+
 };
 
 struct CFGStats {
