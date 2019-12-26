@@ -108,10 +108,12 @@ struct AbstractLocation {
     if (type == Location::TOP || other.type == Location::TOP) {
       Reset();
       type = Location::TOP;
+      return;
     }
 
     if (type == Location::BOTTOM) {
       *this = other;
+      return;
     }
 
     if (other.type == Location::BOTTOM)
@@ -138,7 +140,6 @@ struct AbstractLocation {
       type = Location::HEAP_OR_ARG;
       return;
     }
-
     DCHECK(false);
   }
 
@@ -460,7 +461,10 @@ class HeapAnalysis {
     Expression::Ptr expr = ins.getOperand(0).getValue();
     ParseOperand(expr, &v, &dest_reg);
 
-    DCHECK(dest_reg.isValid());
+    if (!dest_reg.isValid()) {
+      fprintf(stderr, " Handle move, unknown dest reg, %s at %lx\n", ins.format().c_str(), ctx->addr);
+      return false;
+    }
 
     v.reset();
     expr = ins.getOperand(1).getValue();
@@ -540,7 +544,12 @@ class HeapAnalysis {
           Expression::Ptr expr = ins.getOperand(0).getValue();
           ParseOperand(expr, &v, &dest_reg);
 
-          DCHECK(dest_reg.isValid());
+          // Push instructions that do have a known stack height
+          // can lead to unvalid dest register
+          if (!dest_reg.isValid()) {
+              fprintf(stderr, " UpdateFunctionSummary, unknown dest reg, %s at %lx\n", ins.format().c_str(), ctx->addr);
+              continue;
+          }
 
           AbstractLocation& loc = ctx->regs[dest_reg];
           switch (loc.type) {

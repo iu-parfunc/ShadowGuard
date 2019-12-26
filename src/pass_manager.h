@@ -39,7 +39,14 @@ struct MoveInstData {
 };
 
 struct MemoryWrite {
-  MemoryWrite() {}
+  MemoryWrite():
+    function(nullptr),
+    block(nullptr),
+    addr(0),
+    stack(false),
+    resolved(false),
+    global(false),
+    heap(false) {}
 
   // Memory write coordinate information.
   Instruction ins;

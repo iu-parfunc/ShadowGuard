@@ -629,6 +629,16 @@ void CountMemoryWrites(FuncSummary* s) {
   for (auto const &it : s->all_writes) {
     auto const& w = it.second;
     memory_writes += 1;
+    int type_count = 0;
+    type_count += (int)(w->stack);
+    type_count += (int)(w->global);
+    type_count += (int)(w->heap);
+    if (type_count >= 2) {
+        fprintf(stderr, "write at %lx classified more than one type\n", w->addr);
+        fprintf(stderr, "\tstack: %d, global: %d, heap: %d\n", w->stack, w->global, w->heap);
+        assert(0);
+
+    }
     if (w->stack) stack_writes += 1;
     if (w->global) global_writes += 1;
     if (w->heap) heap_writes += 1;

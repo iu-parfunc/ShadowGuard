@@ -284,7 +284,7 @@ class StackHeightAnalysis : public Pass {
         std::vector<Assignment::Ptr> assigns;
 
         // Instruction address.
-        Address addr = start + ins.first;
+        Address addr = ins.first;
 
         if (ins.second.writesMemory()) {
           converter.convert(ins.second, ins.first, f, b, assigns);
