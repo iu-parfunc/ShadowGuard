@@ -32,15 +32,15 @@ PassManager *GetPassManager() {
       ->AddPass(new StackHeightAnalysis())
       ->AddPass(new InterProceduralMemoryAnalysis())
       ->AddPass(new CFGAnalysis())
+      /*
       ->AddPass(new CFGStatistics())
       ->AddPass(new LowerInstrumentation())
-      /*
       ->AddPass(new LinkParentsOfCFG())
       ->AddPass(new CoalesceIngressInstrumentation())
       ->AddPass(new CoalesceEgressInstrumentation())
-      */
       ->AddPass(new ValidateCFG())
       ->AddPass(new LoweringStatistics())
+      */
       ->AddPass(new DeadRegisterAnalysis());
   return pm;
 }

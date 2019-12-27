@@ -101,13 +101,6 @@ struct CFGStats {
 
 // Strongly connected components in the control flow graph.
 struct SCComponent {
-  // If this features unsafe memory writes or function calls.
-  bool unsafe;
-  // If this node features a coalesced and merged stack push instrumentation
-  // header.
-  bool header_instrumentation;
-  // If this is a generated stack push node.
-  bool stack_push;
   // Blocks belonging to the strongly connected component.
   std::set<Block*> blocks;
   // Return blocks contained within the component if any.
@@ -119,15 +112,10 @@ struct SCComponent {
   // Outgoing edges from this component. This maps the target block to the
   // target component. Only features inter component edges.
   std::map<Block*, SCComponent*> outgoing;
-  // Mapping from original blocks to new blocks generated during
-  // instrumentation.
-  std::map<Block*, Block*> block_remappings;
 
-  SCComponent()
-      : unsafe(false), header_instrumentation(false), stack_push(false) {}
+  SCComponent() {}
 
   SCComponent(const SCComponent& sc) {
-    unsafe = sc.unsafe;
     blocks = sc.blocks;
     returns = sc.returns;
   }
@@ -136,7 +124,6 @@ struct SCComponent {
     if (this == &sc)
       return *this;
 
-    unsafe = sc.unsafe;
     blocks = sc.blocks;
     returns = sc.returns;
     return *this;
@@ -190,7 +177,7 @@ struct FuncSummary {
   bool assume_unsafe;
 
   // Denotes whether this function itself unsafely writes to memory.
-  bool self_writes;
+  bool self_unsafe_writes;
   // Denotes whether this function's callees unsafely write to memory.
   bool child_writes;
   // Denotes overall if it should be considered that this function will write to
@@ -205,8 +192,9 @@ struct FuncSummary {
   // Unsafe basic blocks due to memory writes and calls.
   std::set<Block*> unsafe_blocks;
 
-  // Denotes whether this function calls PLT functions.
-  bool has_plt_call;
+  // PLT call map. Keyed by the address of the call
+  // and the value is the callee's name.
+  std::map<Address, std::string> plt_calls;
   // Denotes whether this function has unknown control flows.
   bool has_unknown_cf;
   // Denotes whether this function has indirect control flows;.
@@ -239,9 +227,8 @@ struct FuncSummary {
   // All stack memory accesses within the function. Keyed by the instruction
   // address.
   std::map<Address, StackAccess> stack_heights;
-  // All unknown memory accesses within basic blocks. Keyed by block start
-  // addresses.
-  std::map<Address, std::set<Address>> unknown_writes;
+  // All unknown memory accesses within basic blocks. Keyed by the ParseAPI::Block pointer
+  std::map<Block*, std::set<Address>> unknown_writes;
   // All heap accesses within basic blocks. Keyed by block start addresses.
   std::map<Address, std::set<Address>> heap_writes;
   // All out parameter writes within basic blocks. Keyed by block start
@@ -257,7 +244,7 @@ struct FuncSummary {
 
   void Print() {
     printf("Writes to memory = %d ", writes);
-    printf("Has PLT calls = %d ", has_plt_call);
+    printf("Has PLT calls = %lu ", plt_calls.size());
     printf("Has unknown control flow = %d ", has_unknown_cf);
     printf("Number of callees = %lu\n", callees.size());
   }
@@ -267,7 +254,7 @@ struct FuncSummary {
       return false;
     if (unused_regs.size() == 0)
       return false;
-    if (has_unknown_cf || has_plt_call)
+    if (has_unknown_cf || !plt_calls.empty())
       return false;
 
     // If this function creates a stack frame, it may over-write
@@ -318,6 +305,15 @@ struct FuncSummary {
     if (safe_paths == 0)
       return false;
     return true;
+  }
+
+  bool unsafePLTCalls() {
+    for (auto it : plt_calls ) {
+      if (it.second == "malloc") continue;
+      if (it.second.find("_Zna") == 0) continue;
+      return true;
+    }
+    return false;
   }
 };
 

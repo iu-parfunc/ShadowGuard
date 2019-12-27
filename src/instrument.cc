@@ -645,14 +645,10 @@ void CountMemoryWrites(FuncSummary* s) {
     if (w->stack) stack_writes += 1;
     if (w->global) global_writes += 1;
     if (w->heap) {
-        fprintf(stderr,"heap write at %lx\n", w->addr);
         heap_writes += 1;
     }
     if (w->arg) arg_writes += 1;
     if (w->heap_or_arg) heap_or_arg_writes += 1;
-    if (type_count == 0) {
-        fprintf(stderr, "Unknown memory write at %lx\n", w->addr);
-    }
   }
 }
 
@@ -674,11 +670,11 @@ void InstrumentFunction(BPatch_function* function,
         reinterpret_cast<uintptr_t>(function->getBaseAddr())));
     if (it != analyses.end())
       summary = (*it).second;
-    if (summary->has_unknown_cf || summary->has_plt_call)
+    if (summary->has_unknown_cf || !summary->plt_calls.empty())
       func_with_indirect_or_plt_call++;
     if (summary->has_unknown_cf)
       func_with_indirect_call++;
-    if (summary->has_plt_call)
+    if (!summary->plt_calls.empty())
       func_with_plt_call++;
 
     CountMemoryWrites(summary);
@@ -926,21 +922,12 @@ void InstrumentCodeObject(BPatch_object* object, const litecfi::Parser& parser,
     pm->AddPass(new CallGraphAnalysis())
         ->AddPass(new LargeFunctionFilter())
         ->AddPass(new StackHeightAnalysis())
+        ->AddPass(new CFGAnalysis())
+        ->AddPass(new HeapWriteAnalysis())
         ->AddPass(new InterProceduralMemoryAnalysis())
         ->AddPass(new FunctionExceptionAnalysis())
         ->AddPass(new UnsafeCallBlockAnalysis())
         ->AddPass(new SafePathsCounting())
-        ->AddPass(new CFGAnalysis())
-        ->AddPass(new HeapWriteAnalysis())
-        /*
-        ->AddPass(new CFGStatistics())
-        ->AddPass(new LowerInstrumentation())
-        ->AddPass(new LinkParentsOfCFG())
-        ->AddPass(new CoalesceIngressInstrumentation())
-        ->AddPass(new CoalesceEgressInstrumentation())
-        ->AddPass(new ValidateCFG())
-        ->AddPass(new LoweringStatistics())
-        */
         ->AddPass(new DeadRegisterAnalysis())
         ->AddPass(new UnusedRegisterAnalysis())
         ->AddPass(new BlockDeadRegisterAnalysis());
@@ -1016,37 +1003,41 @@ void Instrument(std::string binary, const litecfi::Parser& parser) {
 
   StdOut(Color::RED) << "Safe functions : " << std::dec << res->safe_fns.size()
                      << "\n  ";
+  /*
   for (auto it : res->safe_fns) {
     StdOut(Color::BLUE) << it << " ";
   }
+  */
   StdOut(Color::BLUE) << Endl << Endl;
 
   StdOut(Color::RED) << "Register stack functions : "
                      << res->reg_stack_fns.size() << "\n  ";
+  /*
   for (auto it : res->reg_stack_fns) {
     StdOut(Color::BLUE) << it << " ";
   }
+  */
   StdOut(Color::BLUE) << Endl << Endl;
-
   StdOut(Color::RED) << "Lowering stack functions : " << res->lowered_fns.size()
                      << "\n  ";
+  /*
   for (auto it : res->lowered_fns) {
     StdOut(Color::BLUE) << it << " ";
   }
+  */
   StdOut(Color::BLUE) << Endl;
   StdOut(Color::RED) << "Functions with indirect jumps : "
-                     << func_with_indirect_jmp << "\n"
+                     << func_with_indirect_jmp
                      << Endl;
   StdOut(Color::RED) << "Functions with indirect call or plt calls : "
-                     << func_with_indirect_or_plt_call << "\n"
+                     << func_with_indirect_or_plt_call
                      << Endl;
   StdOut(Color::RED) << "Functions with indirect call: "
-                     << func_with_indirect_call << "\n"
+                     << func_with_indirect_call 
                      << Endl;
   StdOut(Color::RED) << "Functions with plt calls : " << func_with_plt_call
-                     << "\n"
                      << Endl;
-  StdOut(Color::RED) << "Total functions : " << total_func << "\n" << Endl;
+  StdOut(Color::RED) << "Total functions : " << total_func << Endl;
 
   StdOut(Color::RED) << "Total memory writes : " << memory_writes << Endl;
   StdOut(Color::RED) << "\tStack writes : " << stack_writes << Endl;

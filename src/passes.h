@@ -62,6 +62,7 @@ class CallGraphAnalysis : public Pass {
           continue;
         if (e->sinkEdge() && e->type() != ParseAPI::RET) {
           s->has_unknown_cf = true;
+          s->assume_unsafe = true;
           continue;
         }
         if (e->type() == ParseAPI::INDIRECT) {
@@ -73,7 +74,7 @@ class CallGraphAnalysis : public Pass {
           continue;
         if (co->cs()->linkage().find(e->trg()->start()) !=
             co->cs()->linkage().end()) {
-          s->has_plt_call = true;
+          s->plt_calls[b->last()] = co->cs()->linkage()[e->trg()->start()];
           continue;
         }
         std::vector<Function*> funcs;
@@ -153,10 +154,7 @@ class CFGAnalysis : public Pass {
 
   void RunLocalAnalysis(CodeObject* co, Function* f, FuncSummary* s,
                         PassResult* result) override {
-    if (s->assume_unsafe || s->has_unknown_cf || s->has_indirect_cf) {
-      fprintf(stderr, "do not analyze CFG for function %s at %lx\n", f->name().c_str(), f->addr());
-      fprintf(stderr, "\tassume_unsafe %d, has_unknown_cf %d, has_indirect_cf %d\n",
-              s->assume_unsafe, s->has_unknown_cf, s->has_indirect_cf);
+    if (s->assume_unsafe || s->has_unknown_cf) {
       s->cfg = nullptr;
       return;
     }
@@ -173,9 +171,6 @@ class CFGAnalysis : public Pass {
       SCComponent* sc = new SCComponent;
       for (auto b : blocks) {
         sc->blocks.insert(b);
-        if (s->unsafe_blocks.find(b) != s->unsafe_blocks.end()) {
-          sc->unsafe = true;
-        }
         block_to_sc[b] = sc;
       }
     }
@@ -197,14 +192,11 @@ class CFGAnalysis : public Pass {
     visited.insert(b);
     sc->blocks.insert(b);
     block_to_sc[b] = sc;
-    if (s->unsafe_blocks.find(b) != s->unsafe_blocks.end())
-      sc->unsafe = true;
 
     for (auto e : b->targets()) {
       if (e->type() == ParseAPI::CATCH) continue;
       Block* target = e->trg();
       if (e->type() == ParseAPI::CALL) {
-        sc->unsafe = true;
         continue;
       }
 
@@ -271,9 +263,6 @@ class StackHeightAnalysis : public Pass {
       insns.clear();
       b->getInsns(insns);
 
-      // Block start.
-      Address start = b->start();
-      bool unsafe = false;
       for (auto const& ins : insns) {
         // Ignore writes due to frame switching instructions such as call/ ret.
         if (IsFrameSwitchingInstruction(ins.second))
@@ -307,16 +296,15 @@ class StackHeightAnalysis : public Pass {
 
               s->stack_heights[addr].dest = loc.off();
               if (loc.off() >= -8) {
-                s->self_writes = true;
-                unsafe = true;
+                s->self_unsafe_writes = true;
+                s->unsafe_blocks.insert(b);
               }
               break;
             }
             case Absloc::Unknown: {
               // Unknown memory writes.
-              s->self_writes = true;
-              s->unknown_writes[start].insert(addr);
-              unsafe = true;
+              s->unknown_writes[b].insert(addr);
+              s->unsafe_blocks.insert(b);
               break;
             }
             case Absloc::Heap: {
@@ -357,15 +345,11 @@ class StackHeightAnalysis : public Pass {
           continue;
         }
       }
-
-      if (unsafe) {
-        s->unsafe_blocks.insert(b);
-      }
     }
   }
 
   bool IsSafeFunction(FuncSummary* s) override {
-    return !s->self_writes && !s->assume_unsafe && s->callees.empty();
+    return !s->self_unsafe_writes && !s->assume_unsafe && s->callees.empty() && !s->unknown_writes.empty();
   }
 
  private:
@@ -386,16 +370,9 @@ class HeapWriteAnalysis : public Pass {
 
   void RunLocalAnalysis(CodeObject* co, Function* f, FuncSummary* s,
                         PassResult* result) override {
-//    if (s->assume_unsafe || s->has_unknown_cf || s->has_indirect_cf ||
-//        s->cfg == nullptr) {
-      if (s->assume_unsafe ||
-        s->cfg == nullptr) {
-      if (s->cfg == nullptr) {
-          fprintf(stderr, "Skip heap analysis for function %s at %lx, no cfg\n", f->name().c_str(), f->addr());
-      }
+    if (s->assume_unsafe || s->cfg == nullptr) {
       return;
     }
-    fprintf(stderr, "Function %s at %lx\n", f->name().c_str(), f->addr());
     heap::HeapAnalysis ha(s);
   }
 };
@@ -427,493 +404,18 @@ class InterProceduralMemoryAnalysis : public Pass {
     for (auto f : s->callees) {
       auto it = visited.find(f);
       if (it == visited.end()) {
-        s->child_writes |= VisitFunction(co, summaries[f], summaries, visited);
-      } else {
-        s->child_writes |= summaries[f]->writes;
+        VisitFunction(co, summaries[f], summaries, visited);
       }
+      s->child_writes |= summaries[f]->writes;
+      s->assume_unsafe |= summaries[f]->assume_unsafe;
     }
 
-    s->writes = s->self_writes || s->child_writes || s->assume_unsafe;
+    s->writes = s->self_unsafe_writes || 
+        s->child_writes || 
+        s->assume_unsafe || 
+        !s->unknown_writes.empty() ||
+        s->unsafePLTCalls();
     return s->writes;
-  }
-};
-
-class CFGStatistics : public Pass {
- public:
-  CFGStatistics()
-      : Pass("CFG Statistics",
-             "Calculates statistics about the control flow graph.") {}
-
-  void RunLocalAnalysis(CodeObject* co, Function* f, FuncSummary* s,
-                        PassResult* result) override {
-    if (s->cfg == nullptr)
-      return;
-
-    s->stats = new CFGStats;
-    std::set<SCComponent*> visited;
-    VisitComponent(s->cfg, s->stats, visited, s->func->name());
-  }
-
- private:
-  void VisitComponent(SCComponent* sc, CFGStats* stats,
-                      std::set<SCComponent*>& visited, std::string name) {
-    visited.insert(sc);
-    stats->n_original_nodes += sc->blocks.size();
-
-    for (auto child : sc->children) {
-      if (visited.find(child) == visited.end()) {
-        VisitComponent(child, stats, visited, name);
-      }
-    }
-  }
-};
-
-class LowerInstrumentation : public Pass {
- public:
-  LowerInstrumentation()
-      : Pass("Lower Instrumentation",
-             "Lowers stack push instrumentation to cover unsafe portions of "
-             "SCC based CFG by generating stack push nodes") {}
-
-  void RunLocalAnalysis(CodeObject* co, Function* f, FuncSummary* s,
-                        PassResult* result) override {
-    if (s->cfg == nullptr)
-      return;
-
-    std::map<SCComponent*, Components*> components;
-    SCComponent* new_root = new SCComponent;
-    // Process non safe root separately.
-    if (s->cfg->unsafe) {
-      new_root->stack_push = true;
-
-      SCComponent* child = new SCComponent;
-      *child = *(s->cfg);
-      new_root->children.insert(child);
-    } else {
-      *new_root = *(s->cfg);
-    }
-
-    // We don't track visited nodes in this traversal since by now the loops
-    // should have been each flattened to strongly connected components. Only
-    // edges we should encounter are forward and cross edges, not back edges.
-    // Also we need to repeatedly traverse cross edges since we may have to do
-    // block duplication if the cross edge traverses both safe and unsafe
-    // control flow paths.
-    VisitComponent(s->cfg, new_root, components, true /* in_safe_region */);
-    s->cfg = new_root;
-  }
-
- private:
-  struct Components {
-    SCComponent* safe;
-    SCComponent* unsafe;
-
-    Components() : safe(nullptr), unsafe(nullptr) {}
-  };
-
-  void VisitComponent(SCComponent* sc, SCComponent* new_sc,
-                      std::map<SCComponent*, Components*>& components,
-                      bool in_safe_region) {
-    if (components.find(sc) == components.end())
-      components[sc] = new Components;
-
-    // If we are encountering a generated stack push node just pass it through.
-    if (new_sc->stack_push) {
-      DCHECK(new_sc->children.size() == 1);
-      for (auto c : new_sc->children) {
-        VisitComponent(sc, c, components, false /* in_safe_region */);
-      }
-      return;
-    }
-
-    for (auto c : sc->children) {
-      if (c->unsafe && in_safe_region) {
-        SCComponent* child = new SCComponent;
-        child->stack_push = true;
-
-        SCComponent* grand_child = nullptr;
-        // We need a safe to unsafe region transition.
-        // First check if there is already existing unsafe version and if so
-        // reuse it.
-        auto it = components.find(grand_child);
-        if (it != components.end() && it->second->unsafe != nullptr) {
-          grand_child = it->second->unsafe;
-        } else {
-          grand_child = new SCComponent;
-          *grand_child = *c;
-
-          Components* new_component = new Components;
-          new_component->unsafe = grand_child;
-          components[grand_child] = new_component;
-        }
-
-        Block* target = sc->targets[c];
-        new_sc->targets[child] = target;
-        new_sc->outgoing[target] = child;
-        child->outgoing[target] = grand_child;
-
-        child->children.insert(grand_child);
-        new_sc->children.insert(child);
-        VisitComponent(c, child, components, false /* in_safe_region */);
-        continue;
-      }
-
-      SCComponent* child = nullptr;
-      if (c->unsafe) {
-        auto it = components.find(c);
-        if (it != components.end() && it->second->unsafe != nullptr) {
-          child = it->second->unsafe;
-        } else {
-          child = new SCComponent;
-          *child = *c;
-
-          Components* new_component = new Components;
-          new_component->unsafe = child;
-          components[c] = new_component;
-        }
-      }
-
-      if (!c->unsafe && !in_safe_region) {
-        auto it = components.find(c);
-        if (it != components.end() && it->second->unsafe != nullptr) {
-          child = it->second->unsafe;
-        } else {
-          child = new SCComponent;
-          *child = *c;
-
-          Components* new_component = new Components;
-          new_component->unsafe = child;
-          components[c] = new_component;
-        }
-      }
-
-      if (!c->unsafe && in_safe_region) {
-        auto it = components.find(c);
-        if (it != components.end() && it->second->safe != nullptr) {
-          child = it->second->safe;
-        } else {
-          child = new SCComponent;
-          *child = *c;
-
-          Components* new_component = new Components;
-          new_component->safe = child;
-          components[c] = new_component;
-        }
-      }
-
-      Block* target = sc->targets[c];
-      new_sc->targets[child] = target;
-      new_sc->outgoing[target] = child;
-      new_sc->children.insert(child);
-      VisitComponent(c, child, components, in_safe_region);
-    }
-  }
-};
-
-class LinkParentsOfCFG : public Pass {
- public:
-  LinkParentsOfCFG()
-      : Pass("Link parent nodes", "Creates parent node links in the CFG DAG.") {
-  }
-
-  void RunLocalAnalysis(CodeObject* co, Function* f, FuncSummary* s,
-                        PassResult* result) override {
-    if (s->cfg == nullptr)
-      return;
-
-    std::set<SCComponent*> visited;
-    VisitComponent(s->cfg, visited);
-  }
-
- private:
-  void VisitComponent(SCComponent* sc, std::set<SCComponent*>& visited) {
-    visited.insert(sc);
-
-    for (auto child : sc->children) {
-      child->parents.insert(sc);
-      if (visited.find(child) == visited.end()) {
-        VisitComponent(child, visited);
-      }
-    }
-  }
-};
-
-class CoalesceIngressInstrumentation : public Pass {
- public:
-  CoalesceIngressInstrumentation()
-      : Pass("Coalesce Ingress Instrumentation",
-             "Coalesces generated stack push nodes at incoming edges where "
-             "possible.") {}
-
-  void RunLocalAnalysis(CodeObject* co, Function* f, FuncSummary* s,
-                        PassResult* result) override {
-    if (s->cfg == nullptr)
-      return;
-
-    std::map<SCComponent*, SCComponent*> components;
-    SCComponent* new_root = new SCComponent;
-    *new_root = *(s->cfg);
-    VisitComponent(s->cfg, new_root, components);
-
-    s->cfg = new_root;
-  }
-
- private:
-  SCComponent* GetOnlyChild(SCComponent* sc) {
-    DCHECK(sc->children.size() == 1);
-
-    auto it = sc->children.begin();
-    return *it;
-  }
-
-  bool IsAllInstrumentation(std::set<SCComponent*>& nodes) {
-    for (auto node : nodes) {
-      if (!node->stack_push) {
-        return false;
-      }
-    }
-    return true;
-  }
-
-  bool GetOrCopyNode(SCComponent* sc,
-                     std::map<SCComponent*, SCComponent*>& components,
-                     SCComponent** copy) {
-    auto it = components.find(sc);
-    if (it != components.end()) {
-      *copy = it->second;
-      return true;
-    }
-
-    *copy = new SCComponent;
-    **copy = *sc;
-    return false;
-  }
-
-  void VisitComponent(SCComponent* sc, SCComponent* new_sc,
-                      std::map<SCComponent*, SCComponent*>& components) {
-    components[sc] = new_sc;
-
-    if (sc->stack_push) {
-      DCHECK(sc->children.size() == 1);
-      for (auto child : sc->children) {
-        SCComponent* new_child = nullptr;
-        bool visited = GetOrCopyNode(child, components, &new_child);
-
-        Block* target = sc->targets[child];
-        new_sc->targets[new_child] = target;
-        new_sc->outgoing[target] = new_child;
-        new_sc->children.insert(new_child);
-
-        if (!visited) {
-          VisitComponent(child, new_child, components);
-        }
-      }
-      return;
-    }
-
-    for (auto child : sc->children) {
-      if (child->stack_push) {
-        // Any child stack_push (i.e instrumentation) node is dominated by its
-        // parent node. So if this is the first time the parent is being visited
-        // then it must be the first the child is being visited as well. So the
-        // visited check is not necessary for recursion on stack_push nodes.
-        SCComponent* grand_child = GetOnlyChild(child);
-        if (grand_child->header_instrumentation) {
-          // If the 'header_instrumentation' of grand_child is set it means that
-          // the grand child has already been processed and had its entry
-          // instrumentation coaleseced.
-          SCComponent* new_grand_child = nullptr;
-          GetOrCopyNode(grand_child, components, &new_grand_child);
-          new_sc->children.insert(new_grand_child);
-
-          Block* target = sc->targets[child];
-          new_sc->targets[new_grand_child] = target;
-          new_sc->outgoing[target] = new_grand_child;
-          continue;
-        }
-
-        if (IsAllInstrumentation(grand_child->parents) &&
-            grand_child->blocks.size() == 1) {
-          SCComponent* new_grand_child = nullptr;
-          GetOrCopyNode(grand_child, components, &new_grand_child);
-          new_grand_child->header_instrumentation = true;
-          new_sc->children.insert(new_grand_child);
-
-          Block* target = sc->targets[child];
-          new_sc->targets[new_grand_child] = target;
-          new_sc->outgoing[target] = new_grand_child;
-
-          // Mark grand_child as entry instrumentation coalesced for future
-          // traversals from cross edges.
-          grand_child->header_instrumentation = true;
-
-          VisitComponent(grand_child, new_grand_child, components);
-        } else {
-          SCComponent* copy = nullptr;
-          GetOrCopyNode(child, components, &copy);
-          new_sc->children.insert(copy);
-
-          Block* target = sc->targets[child];
-          new_sc->targets[copy] = target;
-          new_sc->outgoing[target] = copy;
-
-          VisitComponent(child, copy, components);
-        }
-        continue;
-      }
-
-      SCComponent* copy = nullptr;
-      bool visited = GetOrCopyNode(child, components, &copy);
-      new_sc->children.insert(copy);
-
-      Block* target = sc->targets[child];
-      new_sc->targets[copy] = target;
-      new_sc->outgoing[target] = copy;
-
-      if (!visited) {
-        VisitComponent(child, copy, components);
-      }
-    }
-  }
-};
-
-class CoalesceEgressInstrumentation : public Pass {
- public:
-  CoalesceEgressInstrumentation()
-      : Pass("Coalesce Egress Instrumentation",
-             "Coalesces generated stack push nodes at outgoing edges where "
-             "possible.") {}
-
-  void RunLocalAnalysis(CodeObject* co, Function* f, FuncSummary* s,
-                        PassResult* result) override {
-    if (s->cfg == nullptr)
-      return;
-
-    std::set<SCComponent*> visited;
-    VisitComponent(s->cfg, visited);
-  }
-
- private:
-  SCComponent* GetOnlyChild(SCComponent* sc) {
-    DCHECK(sc->children.size() == 1);
-
-    auto it = sc->children.begin();
-    return *it;
-  }
-
-  void VisitComponent(SCComponent* sc, std::set<SCComponent*>& visited) {
-    visited.insert(sc);
-
-    bool all_instrumentation = true;
-    for (auto child : sc->children) {
-      all_instrumentation &= child->stack_push;
-    }
-
-    if (all_instrumentation && sc->blocks.size() == 1) {
-      std::set<SCComponent*> new_children;
-      for (auto child : sc->children) {
-        SCComponent* grand_child = GetOnlyChild(child);
-        new_children.insert(grand_child);
-
-        Block* target = sc->targets[child];
-        sc->targets[grand_child] = target;
-        sc->targets.erase(child);
-        sc->outgoing[target] = grand_child;
-      }
-      sc->children.clear();
-      sc->children = new_children;
-      sc->header_instrumentation = true;
-    }
-
-    for (auto child : sc->children) {
-      if (visited.find(child) == visited.end()) {
-        VisitComponent(child, visited);
-      }
-    }
-  }
-};
-
-class ValidateCFG : public Pass {
- public:
-  ValidateCFG()
-      : Pass("Validate CFG", "Validate lowered CFG for correctness.") {}
-
-  void RunLocalAnalysis(CodeObject* co, Function* f, FuncSummary* s,
-                        PassResult* result) override {
-    if (s->cfg == nullptr)
-      return;
-
-    std::set<SCComponent*> visited;
-    VisitComponent(s->cfg, true /* safe_flow */, visited);
-  }
-
- private:
-  void VisitComponent(SCComponent* sc, bool safe_flow,
-                      std::set<SCComponent*>& visited) {
-    visited.insert(sc);
-    if (!safe_flow && (sc->stack_push || sc->header_instrumentation)) {
-      StdOut(Color::RED, FLAGS_vv) << "Invalid lowering found." << Endl;
-      abort();
-    }
-
-    if (safe_flow && (sc->stack_push || sc->header_instrumentation)) {
-      for (auto child : sc->children) {
-        VisitComponent(child, false /* safe_flow */, visited);
-      }
-    }
-  }
-};
-
-class LoweringStatistics : public Pass {
- public:
-  LoweringStatistics()
-      : Pass("Lowering Statistics",
-             "Generates graph statistics for the final lowered CFG.") {}
-
-  void RunLocalAnalysis(CodeObject* co, Function* f, FuncSummary* s,
-                        PassResult* result) override {
-    if (s->cfg == nullptr)
-      return;
-
-    std::set<SCComponent*> visited;
-    CFGStats* stats = s->stats;
-    VisitComponent(s->cfg, stats, true /* safe_flow */, visited);
-
-    stats->safe_ratio = (static_cast<double>(stats->safe_paths) /
-                         (stats->safe_paths + stats->unsafe_paths)) *
-                        100;
-    stats->increase = ((static_cast<double>(stats->n_lowered_nodes -
-                                            stats->n_original_nodes)) /
-                       stats->n_original_nodes) *
-                      100;
-  }
-
- private:
-  void VisitComponent(SCComponent* sc, CFGStats* stats, bool safe_flow,
-                      std::set<SCComponent*>& visited) {
-    visited.insert(sc);
-    if (sc->stack_push) {
-      stats->n_lowered_nodes++;
-    } else {
-      stats->n_lowered_nodes += sc->blocks.size();
-    }
-
-    // This is a return or sink node.
-    if (sc->children.size() == 0) {
-      if (safe_flow) {
-        stats->safe_paths++;
-      } else {
-        stats->unsafe_paths++;
-      }
-      return;
-    }
-
-    bool safe = safe_flow && !sc->stack_push;
-    for (auto child : sc->children) {
-      if (visited.find(child) == visited.end()) {
-        VisitComponent(child, stats, safe, visited);
-      }
-    }
   }
 };
 
@@ -1334,6 +836,7 @@ class UnsafeCallBlockAnalysis : public Pass {
                          PassResult* result) override {
     std::set<Address> safe_func;
     for (auto f : co->funcs()) {
+      if (f->obj()->cs()->linkage().find(f->addr()) != f->obj()->cs()->linkage().end()) continue;
       if (!summaries[f]->writes) {
         safe_func.insert(f->addr());
       }
@@ -1384,7 +887,7 @@ class FunctionExceptionAnalysis : public Pass {
                      std::map<Function*, FuncSummary*>& summaries,
                      std::set<Function*>& visited) {
     visited.insert(s->func);
-    if (s->has_plt_call) {
+    if (!s->plt_calls.empty()) {
       s->func_exception_safe = false;
       return false;
     }

@@ -273,6 +273,7 @@ struct HeapContext {
   }
 
   void Meet(HeapContext* other) {
+    if (this == other) return;
     PointWiseMeet<MachRegister>(regs, other->regs);
     PointWiseMeet<int>(stack, other->stack);
   }
@@ -385,6 +386,7 @@ class HeapAnalysis {
       HeapContext old_fact(*ctx);
 
       for (auto pred : predecessors) {
+        assert(pred);
         ctx->Meet(pred);
       }
       TransferFunction(ctx);
@@ -427,7 +429,9 @@ class HeapAnalysis {
         if (e->type() == Dyninst::ParseAPI::CATCH) continue;
         Block* src = e->src();
         Address start = src->start();
-
+        // A block can be shared by multiple functions.
+        // An intra-procedural source edge can come from other functions
+        if (info_.find(start) == info_.end()) continue;
         auto& src_ctxs = info_[start];
         predecessors.insert(src_ctxs[src->last()]);
       }
@@ -618,9 +622,9 @@ class HeapAnalysis {
   }
 
   void UpdateFunctionSummary() {
-    std::set<Address> to_remove_blocks;
+    std::set<Block*> to_remove_blocks;
     for (auto it : s_->unknown_writes) {
-      Address block = it.first;
+      Address block = it.first->start();
       std::set<Address>& addrs = it.second;
 
       auto& ctxs = info_[block];
@@ -674,12 +678,13 @@ class HeapAnalysis {
       }
 
       if (addrs.empty()) {
-        to_remove_blocks.insert(block);
+        to_remove_blocks.insert(it.first);
       }
     }
 
     for (auto b : to_remove_blocks) {
       s_->unknown_writes.erase(b);
+      s_->unsafe_blocks.erase(b);
     }
   }
 
