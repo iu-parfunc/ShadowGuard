@@ -476,12 +476,10 @@ class UnusedRegisterAnalysis : public Pass {
     };
 
     StackAnalysis sa(f);
-
-    std::map<Dyninst::Offset, Dyninst::InstructionAPI::Instruction> insns;
     std::set<std::string> used;
     for (auto b : f->blocks()) {
+      ParseAPI::Block::Insns insns;
       b->getInsns(insns);
-
       for (auto const& ins : insns) {
         StackAnalysis::Height h = sa.findSP(b, ins.first);
         if (!h.isTop() && !h.isBottom()) {
