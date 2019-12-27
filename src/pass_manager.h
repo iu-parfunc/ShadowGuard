@@ -46,7 +46,9 @@ struct MemoryWrite {
     stack(false),
     resolved(false),
     global(false),
-    heap(false) {}
+    heap(false),
+    arg(false),
+    heap_or_arg(false) {}
 
   // Memory write coordinate information.
   Instruction ins;
@@ -70,6 +72,10 @@ struct MemoryWrite {
   bool global;
   // Denotes if this is a heap write
   bool heap;
+  // Denotes if this is a write to a memory location passed in as an input parameter
+  bool arg;
+  // Denotes if it is heap or arg-specified memory location
+  bool heap_or_arg;
 
 };
 

@@ -62,12 +62,10 @@ class CallGraphAnalysis : public Pass {
           continue;
         if (e->sinkEdge() && e->type() != ParseAPI::RET) {
           s->has_unknown_cf = true;
-          s->assume_unsafe = true;
           continue;
         }
         if (e->type() == ParseAPI::INDIRECT) {
           s->has_indirect_cf = true;
-          // s->assume_unsafe = true;
           continue;
         }
 
@@ -76,7 +74,6 @@ class CallGraphAnalysis : public Pass {
         if (co->cs()->linkage().find(e->trg()->start()) !=
             co->cs()->linkage().end()) {
           s->has_plt_call = true;
-          s->assume_unsafe = true;
           continue;
         }
         std::vector<Function*> funcs;
@@ -157,6 +154,9 @@ class CFGAnalysis : public Pass {
   void RunLocalAnalysis(CodeObject* co, Function* f, FuncSummary* s,
                         PassResult* result) override {
     if (s->assume_unsafe || s->has_unknown_cf || s->has_indirect_cf) {
+      fprintf(stderr, "do not analyze CFG for function %s at %lx\n", f->name().c_str(), f->addr());
+      fprintf(stderr, "\tassume_unsafe %d, has_unknown_cf %d, has_indirect_cf %d\n",
+              s->assume_unsafe, s->has_unknown_cf, s->has_indirect_cf);
       s->cfg = nullptr;
       return;
     }
@@ -386,10 +386,16 @@ class HeapWriteAnalysis : public Pass {
 
   void RunLocalAnalysis(CodeObject* co, Function* f, FuncSummary* s,
                         PassResult* result) override {
-    if (s->assume_unsafe || s->has_unknown_cf || s->has_indirect_cf ||
+//    if (s->assume_unsafe || s->has_unknown_cf || s->has_indirect_cf ||
+//        s->cfg == nullptr) {
+      if (s->assume_unsafe ||
         s->cfg == nullptr) {
+      if (s->cfg == nullptr) {
+          fprintf(stderr, "Skip heap analysis for function %s at %lx, no cfg\n", f->name().c_str(), f->addr());
+      }
       return;
     }
+    fprintf(stderr, "Function %s at %lx\n", f->name().c_str(), f->addr());
     heap::HeapAnalysis ha(s);
   }
 };

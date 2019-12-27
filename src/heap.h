@@ -28,6 +28,8 @@ using Dyninst::ParseAPI::Function;
 
 enum class Location { HEAP, STACK, ARG, HEAP_OR_ARG, TOP, BOTTOM };
 
+char buf[128];
+
 struct AbstractLocation {
   AbstractLocation()
       : type(Location::BOTTOM), stack_height(INT_MAX), points_to(nullptr) {}
@@ -50,6 +52,41 @@ struct AbstractLocation {
   Location type;
   int stack_height;
   AbstractLocation* points_to;
+
+  std::string format() const {
+    std::string ret = "AbsLoc: ";
+    switch (type) {
+      case Location::HEAP:
+        ret += "HEAP";
+        break;
+      case Location::STACK:
+        ret += "STACK(";
+        snprintf(buf, 128, "%d", stack_height);
+        ret += buf;
+        ret += ")";
+        break;
+      case Location::ARG:
+        ret += "ARG";
+        break;
+      case Location::HEAP_OR_ARG:
+        ret += "HEAP_OR_ARG";
+        break;
+      case Location::TOP:
+        ret += "TOP";
+        break;
+      case Location::BOTTOM:
+        ret += "BOTTOM";
+        break;
+      default:
+        ret += "ERROR TYPE";
+    }
+    if (points_to != nullptr) {
+      ret += ", point to [";
+      ret += points_to->format();
+      ret += "]";
+    }
+    return ret;
+  }
 
   AbstractLocation pointToLocation() const {
     if (points_to == nullptr)
@@ -135,7 +172,11 @@ struct AbstractLocation {
     }
 
     if ((type == Location::ARG && other.type == Location::HEAP) ||
-        (type == Location::HEAP && other.type == Location::ARG)) {
+        (type == Location::HEAP && other.type == Location::ARG) ||
+        (type == Location::HEAP_OR_ARG && other.type == Location::HEAP) ||
+        (type == Location::HEAP_OR_ARG && other.type == Location::ARG) ||
+        (type == Location::HEAP && other.type == Location::HEAP_OR_ARG) ||
+        (type == Location::ARG && other.type == Location::HEAP_OR_ARG)) {
       Reset();
       type = Location::HEAP_OR_ARG;
       return;
@@ -217,6 +258,15 @@ struct HeapContext {
     regs[Dyninst::x86_64::r15] = AbstractLocation::GetBottom();
   }
 
+  // This copy constructor is used to compare whether
+  // data flow fact has changed. The successor field is
+  // not part of the data flow fact.
+  HeapContext(const HeapContext& c) {
+    regs = c.regs;
+    stack = c.stack;
+    successor = nullptr;
+  }
+
   ~HeapContext() {
     regs.clear();
     stack.clear();
@@ -243,6 +293,14 @@ struct HeapContext {
         m1.insert(std::make_pair(it2.first, it2.second));
       }
     }
+  }
+
+  bool operator==(const HeapContext& c) const {
+    return (regs == c.regs) && (stack == c.stack);
+  }
+
+  bool operator!=(const HeapContext& c) const {
+    return !(*this == c);
   }
 };
 
@@ -324,11 +382,13 @@ class HeapAnalysis {
       HeapContext* ctx = work.first;
       std::set<HeapContext*>& predecessors = work.second;
 
+      HeapContext old_fact(*ctx);
+
       for (auto pred : predecessors) {
         ctx->Meet(pred);
       }
-
-      if (TransferFunction(ctx)) {
+      TransferFunction(ctx);
+      if (old_fact != *ctx) {
         if (ctx->successor != nullptr) {
           std::set<HeapContext*> predecessors;
           predecessors.insert(ctx);
@@ -344,7 +404,6 @@ class HeapAnalysis {
           }
         }
       }
-
       worklist.pop_front();
     }
   }
@@ -422,25 +481,35 @@ class HeapAnalysis {
     }
   }
 
-  bool IsCall(Instruction& insn) {
-    return insn.getCategory() == Dyninst::InstructionAPI::c_CallInsn;
-  }
-
   bool TransferFunction(HeapContext* ctx) {
     Instruction& ins = ctx->ins;
-    if (IsCall(ins)) {
-      return HandleCall(ctx);
-    }
-
     entryID id = ins.getOperation().getID();
     switch (id) {
     case e_mov:
       return HandleMov(ctx);
-    case e_lea:
-      return HandleLea(ctx);
+    case e_call:
+      return HandleCall(ctx);
+    //case e_lea:
+      //return HandleLea(ctx);
     default:
-      return false;
+      break;
     }
+    return HandleUnknown(ctx);
+  }
+
+  bool HandleUnknown(HeapContext *ctx) {
+    std::set<Dyninst::InstructionAPI::RegisterAST::Ptr> written;
+    ctx->ins.getWriteSet(written);
+    bool modified = false;
+    for (auto const& w : written) {
+      Dyninst::MachRegister reg = w->getID().getBaseRegister();
+      if (reg.regClass() == Dyninst::x86_64::GPR) {
+        AbstractLocation top = AbstractLocation::GetTop();
+        modified = modified || (ctx->regs[reg] != top);
+        ctx->regs[reg] = top;
+      }
+    }
+    return modified;
   }
 
   bool HandleLea(HeapContext* ctx) { return false; }
@@ -449,7 +518,30 @@ class HeapAnalysis {
     // Pattern match the call to determine if the call is heap
     // allocation function or not. If so ctx->regs[rax] == HEAP.
     // Otherwise ctx->regs[rax] == TOP.
-    return false;
+    Block* b = ctx->block;
+    Address target = 0;
+    for (auto e : b->targets())
+      if (e->type() == Dyninst::ParseAPI::CALL && !e->sinkEdge()) {
+        target = e->trg()->start();
+      }
+    bool setToHeap = false;
+    if (target != 0 && b->obj()->cs()->linkage().find(target) != b->obj()->cs()->linkage().end()) {
+      std::string name = b->obj()->cs()->linkage()[target];
+      if (name == "malloc" || name.find("_Zna") == 0) {
+        setToHeap = true;
+      }
+    }
+    if (!setToHeap) {
+      AbstractLocation top = AbstractLocation::GetTop();
+      bool modified = (ctx->regs[Dyninst::x86_64::rax] != top);
+      ctx->regs[Dyninst::x86_64::rax] = top;
+      return modified;
+    } else {
+      AbstractLocation h = AbstractLocation::GetHeapLocation();
+      bool modified = (ctx->regs[Dyninst::x86_64::rax] != h);
+      ctx->regs[Dyninst::x86_64::rax] = h;
+      return modified;
+    }
   }
 
   bool HandleMov(HeapContext* ctx) {
@@ -463,7 +555,7 @@ class HeapAnalysis {
 
     if (!dest_reg.isValid()) {
       fprintf(stderr, " Handle move, unknown dest reg, %s at %lx\n", ins.format().c_str(), ctx->addr);
-      return false;
+      return true;
     }
 
     v.reset();
@@ -559,16 +651,18 @@ class HeapAnalysis {
             s_->all_writes[addr]->heap = true;
             to_remove.insert(addr);
             break;
-          /*
           case Location::ARG:
             s_->arg_writes[block].insert(addr);
-            to_remove.insert(addr);
+            assert(s_->all_writes.find(addr) != s_->all_writes.end());
+            s_->all_writes[addr]->arg = true;
+            //to_remove.insert(addr);
             break;
           case Location::HEAP_OR_ARG:
             s_->heap_or_arg_writes[block].insert(addr);
-            to_remove.insert(addr);
+            assert(s_->all_writes.find(addr) != s_->all_writes.end());
+            s_->all_writes[addr]->heap_or_arg = true;
+            //to_remove.insert(addr);
             break;
-          */
           default:
             break;
           }

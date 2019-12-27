@@ -65,6 +65,8 @@ static int memory_writes = 0;
 static int stack_writes = 0;
 static int heap_writes = 0;
 static int global_writes = 0;
+static int arg_writes = 0;
+static int heap_or_arg_writes = 0;
 
 struct InstrumentationResult {
   std::vector<std::string> safe_fns;
@@ -633,15 +635,24 @@ void CountMemoryWrites(FuncSummary* s) {
     type_count += (int)(w->stack);
     type_count += (int)(w->global);
     type_count += (int)(w->heap);
+    type_count += (int)(w->arg);
+    type_count += (int)(w->heap_or_arg);
     if (type_count >= 2) {
         fprintf(stderr, "write at %lx classified more than one type\n", w->addr);
-        fprintf(stderr, "\tstack: %d, global: %d, heap: %d\n", w->stack, w->global, w->heap);
+        fprintf(stderr, "\tstack: %d, global: %d, heap: %d, arg: %d, heap_or_arg: %d\n", w->stack, w->global, w->heap, w->arg, w->heap_or_arg);
         assert(0);
-
     }
     if (w->stack) stack_writes += 1;
     if (w->global) global_writes += 1;
-    if (w->heap) heap_writes += 1;
+    if (w->heap) {
+        fprintf(stderr,"heap write at %lx\n", w->addr);
+        heap_writes += 1;
+    }
+    if (w->arg) arg_writes += 1;
+    if (w->heap_or_arg) heap_or_arg_writes += 1;
+    if (type_count == 0) {
+        fprintf(stderr, "Unknown memory write at %lx\n", w->addr);
+    }
   }
 }
 
@@ -1037,9 +1048,18 @@ void Instrument(std::string binary, const litecfi::Parser& parser) {
                      << Endl;
   StdOut(Color::RED) << "Total functions : " << total_func << "\n" << Endl;
 
-  StdOut(Color::RED) << "Total memory writes : " << memory_writes << "\n" << Endl;
-  StdOut(Color::RED) << "\tStack writes : " << stack_writes << "\n" << Endl;
-  StdOut(Color::RED) << "\tGlobal writes : " << global_writes << "\n" << Endl;
-  StdOut(Color::RED) << "\tHeap writes : " << heap_writes << "\n" << Endl;
-  StdOut(Color::RED) << "\tUnknown writes : " << (memory_writes - stack_writes - global_writes - heap_writes) << "\n" << Endl;
+  StdOut(Color::RED) << "Total memory writes : " << memory_writes << Endl;
+  StdOut(Color::RED) << "\tStack writes : " << stack_writes << Endl;
+  StdOut(Color::RED) << "\tGlobal writes : " << global_writes << Endl;
+  StdOut(Color::RED) << "\tHeap writes : " << heap_writes <<  Endl;
+  StdOut(Color::RED) << "\tArg writes : " << arg_writes <<  Endl;
+  StdOut(Color::RED) << "\tHeap_or_arg writes : " << heap_or_arg_writes <<  Endl;
+
+  int unknown = memory_writes;
+  unknown -= stack_writes;
+  unknown -= global_writes;
+  unknown -= heap_writes;
+  unknown -= arg_writes;
+  unknown -= heap_or_arg_writes;
+  StdOut(Color::RED) << "\tUnknown writes : " << unknown << Endl;
 }
