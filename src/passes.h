@@ -62,7 +62,6 @@ class CallGraphAnalysis : public Pass {
           continue;
         if (e->sinkEdge() && e->type() != ParseAPI::RET) {
           s->has_unknown_cf = true;
-          s->assume_unsafe = true;
           continue;
         }
         if (e->type() == ParseAPI::INDIRECT) {
@@ -413,6 +412,7 @@ class InterProceduralMemoryAnalysis : public Pass {
     s->writes = s->self_unsafe_writes || 
         s->child_writes || 
         s->assume_unsafe || 
+        s->has_unknown_cf ||
         !s->unknown_writes.empty() ||
         s->unsafePLTCalls();
     return s->writes;
