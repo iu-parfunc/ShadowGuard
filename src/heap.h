@@ -485,40 +485,56 @@ class HeapAnalysis {
     }
   }
 
-  bool TransferFunction(HeapContext* ctx) {
+  void TransferFunction(HeapContext* ctx) {
     Instruction& ins = ctx->ins;
     entryID id = ins.getOperation().getID();
     switch (id) {
     case e_mov:
-      return HandleMov(ctx);
+      HandleMov(ctx);
+      return;
     case e_call:
-      return HandleCall(ctx);
-    //case e_lea:
-      //return HandleLea(ctx);
+      HandleCall(ctx);
+      return;
+    case e_lea:
+      HandleLea(ctx);
+      return;
     default:
       break;
     }
-    return HandleUnknown(ctx);
+    HandleUnknown(ctx);
   }
 
-  bool HandleUnknown(HeapContext *ctx) {
+  void HandleUnknown(HeapContext *ctx) {
     std::set<Dyninst::InstructionAPI::RegisterAST::Ptr> written;
     ctx->ins.getWriteSet(written);
-    bool modified = false;
     for (auto const& w : written) {
       Dyninst::MachRegister reg = w->getID().getBaseRegister();
       if (reg.regClass() == Dyninst::x86_64::GPR) {
-        AbstractLocation top = AbstractLocation::GetTop();
-        modified = modified || (ctx->regs[reg] != top);
-        ctx->regs[reg] = top;
+        ctx->regs[reg] = AbstractLocation::GetTop();
       }
     }
-    return modified;
   }
 
-  bool HandleLea(HeapContext* ctx) { return false; }
+  void HandleLea(HeapContext* ctx) {
+    MachRegister src_reg;
+    MachRegister dest_reg;
+    RegisterVisitor v = RegisterVisitor();
 
-  bool HandleCall(HeapContext* ctx) {
+    Instruction ins = ctx->ins;
+    Expression::Ptr expr = ins.getOperand(0).getValue();
+    ParseOperand(expr, &v, &dest_reg);
+
+    v.reset();
+    expr = ins.getOperand(1).getValue();
+    ParseOperand(expr, &v, &src_reg);
+    if (src_reg.regClass() == Dyninst::x86_64::GPR && dest_reg.regClass() == Dyninst::x86_64::GPR) {
+      ctx->regs[dest_reg] = ctx->regs[src_reg]; 
+      return;
+    }
+    HandleUnknown(ctx);
+  }
+
+  void HandleCall(HeapContext* ctx) {
     // Pattern match the call to determine if the call is heap
     // allocation function or not. If so ctx->regs[rax] == HEAP.
     // Otherwise ctx->regs[rax] == TOP.
@@ -536,19 +552,13 @@ class HeapAnalysis {
       }
     }
     if (!setToHeap) {
-      AbstractLocation top = AbstractLocation::GetTop();
-      bool modified = (ctx->regs[Dyninst::x86_64::rax] != top);
-      ctx->regs[Dyninst::x86_64::rax] = top;
-      return modified;
+      ctx->regs[Dyninst::x86_64::rax] = AbstractLocation::GetTop();
     } else {
-      AbstractLocation h = AbstractLocation::GetHeapLocation();
-      bool modified = (ctx->regs[Dyninst::x86_64::rax] != h);
-      ctx->regs[Dyninst::x86_64::rax] = h;
-      return modified;
+      ctx->regs[Dyninst::x86_64::rax] = AbstractLocation::GetHeapLocation();
     }
   }
 
-  bool HandleMov(HeapContext* ctx) {
+  void HandleMov(HeapContext* ctx) {
     MachRegister src_reg;
     MachRegister dest_reg;
     RegisterVisitor v = RegisterVisitor();
@@ -559,14 +569,13 @@ class HeapAnalysis {
 
     if (!dest_reg.isValid()) {
       fprintf(stderr, " Handle move, unknown dest reg, %s at %lx\n", ins.format().c_str(), ctx->addr);
-      return true;
+      return;
     }
 
     v.reset();
     expr = ins.getOperand(1).getValue();
     ParseOperand(expr, &v, &src_reg);
 
-    bool modified = false;
     if (ins.readsMemory()) {
       auto it = s_->stack_heights.find(ctx->addr);
       if (it != s_->stack_heights.end()) {
@@ -575,19 +584,14 @@ class HeapAnalysis {
         auto sit = ctx->stack.find(height);
         if (sit == ctx->stack.end()) {
           ctx->stack[height] = AbstractLocation::GetStackLocation(height);
-          modified = true;
         }
-        AbstractLocation old = ctx->regs[dest_reg];
         ctx->regs[dest_reg] = ctx->stack[height].pointToLocation();
-        modified = modified || (old != ctx->regs[dest_reg]);
-        return modified;
+        return;
       }
 
       // Non stack read.
-      AbstractLocation old = ctx->regs[dest_reg];
       ctx->regs[dest_reg] = AbstractLocation::GetTop();
-      modified = (old != ctx->regs[dest_reg]);
-      return modified;
+      return;
     }
 
     if (ins.writesMemory()) {
@@ -598,27 +602,19 @@ class HeapAnalysis {
         auto sit = ctx->stack.find(height);
         if (sit == ctx->stack.end()) {
           ctx->stack[height] = AbstractLocation::GetStackLocation(height);
-          modified = true;
         }
-        AbstractLocation &loc = ctx->stack[height];
-        AbstractLocation old = loc.pointToLocation();
-        loc.setPointToLocation(ctx->regs[src_reg]);
-        modified = modified || (old != loc);
+        ctx->stack[height].setPointToLocation(ctx->regs[src_reg]);
       }
-      return modified;
+      return ;
     }
 
     if (src_reg.isValid() && dest_reg.isValid()) {
-      AbstractLocation old = ctx->regs[dest_reg];
       ctx->regs[dest_reg] = ctx->regs[src_reg];
-      modified = (old != ctx->regs[dest_reg]);
-      return modified;
+      return;
     }
 
-    AbstractLocation top = AbstractLocation::GetTop();
-    modified = (ctx->regs[dest_reg] != top);
-    ctx->regs[dest_reg] = top;
-    return modified;
+    ctx->regs[dest_reg] = AbstractLocation::GetTop();
+    return;
   }
 
   void UpdateFunctionSummary() {

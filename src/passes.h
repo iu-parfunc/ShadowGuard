@@ -834,7 +834,10 @@ class UnsafeCallBlockAnalysis : public Pass {
                          PassResult* result) override {
     std::set<Address> safe_func;
     for (auto f : co->funcs()) {
-      if (f->obj()->cs()->linkage().find(f->addr()) != f->obj()->cs()->linkage().end()) continue;
+      auto it = f->obj()->cs()->linkage().find(f->addr());
+      if (it != f->obj()->cs()->linkage().end()) {
+        if (!FuncSummary::IsSafePLTCall(it->second)) continue;
+      }
       if (!summaries[f]->writes) {
         safe_func.insert(f->addr());
       }

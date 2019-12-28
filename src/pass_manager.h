@@ -309,12 +309,24 @@ struct FuncSummary {
 
   bool unsafePLTCalls() {
     for (auto it : plt_calls ) {
-      if (it.second == "malloc") continue;
-      if (it.second.find("_Zna") == 0) continue;
+      if (IsSafePLTCall(it.second)) continue;
       return true;
     }
     return false;
   }
+  
+  static bool IsSafePLTCall(std::string name) {
+    if (name == "malloc") return true;
+
+    // C++ new operators
+    if (name.find("_Zna") == 0) return true;
+
+    if (name == "strlen") return true;
+    if (name == "strcmp") return true;
+    return false;
+  }
+
+
 };
 
 struct PassResult {
