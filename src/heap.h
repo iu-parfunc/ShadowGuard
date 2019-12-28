@@ -538,6 +538,19 @@ class HeapAnalysis {
     // Pattern match the call to determine if the call is heap
     // allocation function or not. If so ctx->regs[rax] == HEAP.
     // Otherwise ctx->regs[rax] == TOP.
+    //
+    // Other caller saved registers are set to TOP
+
+    ctx->regs[Dyninst::x86_64::rcx] = AbstractLocation::GetTop();
+    ctx->regs[Dyninst::x86_64::rdx] = AbstractLocation::GetTop();
+    ctx->regs[Dyninst::x86_64::rsi] = AbstractLocation::GetTop();
+    ctx->regs[Dyninst::x86_64::rdi] = AbstractLocation::GetTop();
+    ctx->regs[Dyninst::x86_64::r8] = AbstractLocation::GetTop();
+    ctx->regs[Dyninst::x86_64::r9] = AbstractLocation::GetTop();
+    ctx->regs[Dyninst::x86_64::r10] = AbstractLocation::GetTop();
+    ctx->regs[Dyninst::x86_64::r11] = AbstractLocation::GetTop();
+
+    // Start to handle rax depending on the callee
     Block* b = ctx->block;
     Address target = 0;
     for (auto e : b->targets())
