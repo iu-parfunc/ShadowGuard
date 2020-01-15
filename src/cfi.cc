@@ -16,6 +16,10 @@ DEFINE_bool(validate_frame, false,
             "Validate stack frame in addition to the "
             "return address");
 
+DEFINE_bool(disable_lowering, false, "Disable instrumentation lowering");
+DEFINE_bool(disable_reg_frame, false, "Disable register frame");
+DEFINE_bool(disable_reg_save_opt, false, "Disable register save optimization");
+
 DEFINE_bool(libs, false, "Protect shared libraries as well.");
 
 DEFINE_string(

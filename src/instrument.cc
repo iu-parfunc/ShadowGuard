@@ -43,6 +43,10 @@ DECLARE_string(threat_model);
 DECLARE_string(stats);
 DECLARE_string(skip_list);
 
+DECLARE_bool(disable_lowering);
+DECLARE_bool(disable_reg_frame);
+DECLARE_bool(disable_reg_save_opt);
+
 std::set<Address> exception_free_func;
 
 // Thread local shadow stack initialization function name.
@@ -175,6 +179,7 @@ void InsertSnippet(BPatch_function* function, Point::Type location,
 bool CheckFastPathFunction(BPatch_basicBlock*& entry,
                            vector<BPatch_basicBlock*>& exits,
                            BPatch_function* f) {
+  if (FLAGS_disable_lowering) return false;
   BPatch_flowGraph* cfg = f->getCFG();
 
   // Should have only one function entry block.
@@ -276,6 +281,7 @@ bool CheckFastPathFunction(BPatch_basicBlock*& entry,
 bool DoStackOpsUsingRegisters(BPatch_function* function, FuncSummary* summary,
                               const litecfi::Parser& parser,
                               PatchMgr::Ptr patcher) {
+  if (FLAGS_disable_reg_frame) return false;
   if (summary->shouldUseRegisterFrame()) {
     fprintf(stdout, "[Register Stack] Function : %s\n",
             Dyninst::PatchAPI::convert(function)->name().c_str());
@@ -407,6 +413,7 @@ void CoalesceEdgeInstrumentation(PatchFunction* f,
 bool DoInstrumentationLowering(BPatch_function* function, FuncSummary* summary,
                                const litecfi::Parser& parser,
                                PatchMgr::Ptr patcher) {
+  if (FLAGS_disable_lowering) return false;
   if (!summary || !summary->lowerInstrumentation()) {
     if (summary->has_indirect_cf) {
       func_with_indirect_jmp += 1;
@@ -424,6 +431,7 @@ bool DoInstrumentationLowering(BPatch_function* function, FuncSummary* summary,
       return false;
 
   bool useRegisterFrame = summary->shouldUseRegisterFrame();
+  if (FLAGS_disable_reg_frame) useRegisterFrame = false;
   if (useRegisterFrame) {
     for (auto e : redirect) {
       int height = summary->blockEndSPHeight[e->src()->start()];
@@ -462,6 +470,7 @@ bool DoInstrumentationLowering(BPatch_function* function, FuncSummary* summary,
            summary->blockEndSPHeight.end());
     int height = summary->blockEndSPHeight[e->src()->start()];
     MoveInstData* mid = summary->getMoveInstDataFixedAtEntry(e->trg()->start());
+    if (FLAGS_disable_reg_save_opt) mid = nullptr;
     Snippet::Ptr stack_push;
     if (useRegisterFrame) {
       stack_push =
@@ -487,6 +496,7 @@ bool DoInstrumentationLowering(BPatch_function* function, FuncSummary* summary,
            summary->blockEntrySPHeight.end());
     int height = summary->blockEntrySPHeight[b->start()];
     MoveInstData* mid = summary->getMoveInstDataAtEntry(b->start());
+    if (FLAGS_disable_reg_save_opt) mid = nullptr;
     Snippet::Ptr stack_push;
     Point* p = patcher->findPoint(PatchAPI::Location::BlockInstance(f, b),
                                   Point::BlockEntry);
@@ -518,6 +528,7 @@ bool DoInstrumentationLowering(BPatch_function* function, FuncSummary* summary,
       continue;
 
     MoveInstData* mid = summary->getMoveInstDataAtExit(b->start());
+    if (FLAGS_disable_reg_save_opt) mid = nullptr;
 
     Snippet::Ptr stack_pop;
     if (useRegisterFrame) {
@@ -563,6 +574,7 @@ bool Skippable(BPatch_function* function, FuncSummary* summary) {
 }
 
 bool MoveInstrumentation(BPatch_point*& p, FuncSummary* s) {
+  if (FLAGS_disable_reg_save_opt) return false;
   if (p->getPointType() == BPatch_locEntry) {
     BPatch_function* f = p->getFunction();
     BPatch_flowGraph* cfg = f->getCFG();
