@@ -1,7 +1,9 @@
 #!/bin/bash
 
-bench=$1
+bench=$*
 
-dyninst_lib=/home/buddhika/Builds/retguard/thirdparty/dyninst-10.1.0/install/lib
+root=$LITECFI_HOME
 
-LD_PRELOAD=/home/buddhika/Builds/retguard/bazel-bin/src/libstackrt.so:/home/buddhika/Builds/retguard/thirdparty/dyninst-10.1.0/install/lib/libdyninstAPI_RT.so $bench
+dyninst_lib=$root/thirdparty/dyninst-10.1.0/install/lib
+
+LD_PRELOAD=$root/bazel-bin/src/libstackrt.so:$root/thirdparty/dyninst-10.1.0/install/lib/libdyninstAPI_RT.so $bench
