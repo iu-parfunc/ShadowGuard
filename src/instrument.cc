@@ -71,7 +71,8 @@ static int heap_writes = 0;
 static int global_writes = 0;
 static int arg_writes = 0;
 static int heap_or_arg_writes = 0;
-
+static int total_dead_reg_site = 0;
+static int no_dead_reg_site = 0;
 struct InstrumentationResult {
   std::vector<std::string> safe_fns;
   std::vector<std::string> lowered_fns;
@@ -575,6 +576,7 @@ bool Skippable(BPatch_function* function, FuncSummary* summary) {
 
 bool MoveInstrumentation(BPatch_point*& p, FuncSummary* s) {
   if (FLAGS_disable_reg_save_opt) return false;
+  ++total_dead_reg_site;
   if (p->getPointType() == BPatch_locEntry) {
     BPatch_function* f = p->getFunction();
     BPatch_flowGraph* cfg = f->getCFG();
@@ -582,8 +584,10 @@ bool MoveInstrumentation(BPatch_point*& p, FuncSummary* s) {
     // Should have only one function entry block.
     std::vector<BPatch_basicBlock*> eb;
     cfg->getEntryBasicBlock(eb);
-    if (eb.size() != 1)
+    if (eb.size() != 1) {
+      ++no_dead_reg_site;
       return false;
+    }
 
     // If the function entry block has intra-procedural
     // incoming edges, then we have to instrument at function entry.
@@ -591,28 +595,38 @@ bool MoveInstrumentation(BPatch_point*& p, FuncSummary* s) {
     BPatch_basicBlock* func_entry = eb[0];
     std::vector<BPatch_edge*> edges;
     func_entry->getIncomingEdges(edges);
-    if (edges.size() > 0)
+    if (edges.size() > 0) {
+      ++no_dead_reg_site;
       return false;
+    }
     MoveInstData* mid =
         s->getMoveInstDataAtEntry(func_entry->getStartAddress());
-    if (mid == nullptr)
+    if (mid == nullptr) {
+      fprintf(stderr, "Cannot find dead register for func entry instrumentation %s at %p\n", f->getName().c_str(), f->getBaseAddr());
+      ++no_dead_reg_site;
       return false;
+    }
     p = func_entry->findPoint(mid->newInstAddress);
   } else if (p->getPointType() == BPatch_locBasicBlockEntry) {
     BPatch_basicBlock* b = p->getBlock();
     MoveInstData* mid = s->getMoveInstDataAtEntry(b->getStartAddress());
-    if (mid == nullptr)
+    if (mid == nullptr) {
+      ++no_dead_reg_site;
       return false;
+    }
     p = b->findPoint(mid->newInstAddress);
   } else if (p->getPointType() == BPatch_locExit ||
              p->getPointType() == BPatch_locBasicBlockExit) {
     BPatch_basicBlock* b = p->getBlock();
     MoveInstData* mid = s->getMoveInstDataAtExit(b->getStartAddress());
-    if (mid == nullptr)
+    if (mid == nullptr) {
+      ++no_dead_reg_site;
       return false;
+    }
     p = b->findPoint(mid->newInstAddress);
   } else {
     // Cannot move instrumentation if instrumenting at an edge
+    ++no_dead_reg_site;
     return false;
   }
   return true;
@@ -1065,4 +1079,5 @@ void Instrument(std::string binary, const litecfi::Parser& parser) {
   unknown -= arg_writes;
   unknown -= heap_or_arg_writes;
   StdOut(Color::RED) << "\tUnknown writes : " << unknown << Endl;
+  StdOut(Color::RED) << "Dead register optimization : " << no_dead_reg_site << "/" << total_dead_reg_site << Endl;
 }
