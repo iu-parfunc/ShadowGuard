@@ -808,6 +808,7 @@ class SafePathsCounting : public Pass {
         continue;
       if (visited.find(e) != visited.end())
         continue;
+      if (e->type() == ParseAPI::INDIRECT) return 0;
       visited.insert(e);
       c += countPaths(e->trg(), s, visited, exitBlocks);
     }

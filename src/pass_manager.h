@@ -298,8 +298,6 @@ struct FuncSummary {
   bool lowerInstrumentation() {
     if (unsafe_blocks.find(func->entry()) != unsafe_blocks.end())
       return false;
-    if (has_indirect_cf)
-      return false;
     if (blockEndSPHeight.empty())
       return false;
     if (safe_paths == 0)

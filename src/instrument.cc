@@ -61,7 +61,6 @@ static InstSpec is_empty;
 static std::set<Address> skip_addrs;
 static CFGMaker* cfgMaker;
 static int total_func = 0;
-static int func_with_indirect_jmp = 0;
 static int func_with_indirect_or_plt_call = 0;
 static int func_with_indirect_call = 0;
 static int func_with_plt_call = 0;
@@ -73,6 +72,10 @@ static int arg_writes = 0;
 static int heap_or_arg_writes = 0;
 static int total_dead_reg_site = 0;
 static int no_dead_reg_site = 0;
+static int lowering_dead_reg_site = 0;
+static int lowering_no_dead_reg_entry_site = 0;
+static int lowering_no_dead_reg_exit_site = 0;
+
 struct InstrumentationResult {
   std::vector<std::string> safe_fns;
   std::vector<std::string> lowered_fns;
@@ -283,7 +286,7 @@ bool DoStackOpsUsingRegisters(BPatch_function* function, FuncSummary* summary,
                               const litecfi::Parser& parser,
                               PatchMgr::Ptr patcher) {
   if (FLAGS_disable_reg_frame) return false;
-  if (summary->shouldUseRegisterFrame()) {
+  if (summary != nullptr && summary->shouldUseRegisterFrame()) {
     fprintf(stdout, "[Register Stack] Function : %s\n",
             Dyninst::PatchAPI::convert(function)->name().c_str());
     Snippet::Ptr stack_push =
@@ -354,8 +357,18 @@ void RedirectTransitionEdges(PatchBlock* cur, FuncSummary* summary,
       continue;
     visited.insert(e);
     PatchBlock* target = e->trg();
+    bool targetHasIndJump = false;
+    for (auto te : target->targets()) {
+      if (skipPatchEdges(te))
+        continue;
+      if (te->type() == ParseAPI::INDIRECT) {
+        targetHasIndJump = true;
+        break;
+      }
+    }
     if (summary->unsafe_blocks.find(target->block()) !=
-        summary->unsafe_blocks.end()) {
+        summary->unsafe_blocks.end() ||
+        targetHasIndJump) {
       redirect.insert(e);
     } else {
       RedirectTransitionEdges(target, summary, redirect, visited);
@@ -416,9 +429,6 @@ bool DoInstrumentationLowering(BPatch_function* function, FuncSummary* summary,
                                PatchMgr::Ptr patcher) {
   if (FLAGS_disable_lowering) return false;
   if (!summary || !summary->lowerInstrumentation()) {
-    if (summary->has_indirect_cf) {
-      func_with_indirect_jmp += 1;
-    }
     return false;
   }
   PatchFunction* f = PatchAPI::convert(function);
@@ -477,9 +487,12 @@ bool DoInstrumentationLowering(BPatch_function* function, FuncSummary* summary,
       stack_push =
           RegisterPushSnippet::create(new RegisterPushSnippet(summary, height));
     } else if (mid == nullptr) {
+      lowering_dead_reg_site += 1;
+      lowering_no_dead_reg_entry_site += 1;
       stack_push = StackPushSnippet::create(
           new StackPushSnippet(summary, false, height));
     } else {
+      lowering_dead_reg_site += 1;
       stack_push = StackPushSnippet::create(
           new StackPushSnippet(summary, false, height, true));
     }
@@ -505,9 +518,12 @@ bool DoInstrumentationLowering(BPatch_function* function, FuncSummary* summary,
       stack_push =
           RegisterPushSnippet::create(new RegisterPushSnippet(summary, height));
     } else if (mid == nullptr) {
+      lowering_dead_reg_site += 1;
+      lowering_no_dead_reg_entry_site += 1;
       stack_push = StackPushSnippet::create(
           new StackPushSnippet(summary, false, height));
     } else {
+      lowering_dead_reg_site += 1;
       p = patcher->findPoint(
           PatchAPI::Location::InstructionInstance(f, b, mid->newInstAddress),
           Point::PreInsn);
@@ -535,8 +551,11 @@ bool DoInstrumentationLowering(BPatch_function* function, FuncSummary* summary,
     if (useRegisterFrame) {
       stack_pop = RegisterPopSnippet::create(new RegisterPopSnippet(summary));
     } else if (mid == nullptr) {
+      lowering_dead_reg_site += 1;
+      lowering_no_dead_reg_exit_site += 1;
       stack_pop = StackPopSnippet::create(new StackPopSnippet(summary, false));
     } else {
+      lowering_dead_reg_site += 1;
       p = patcher->findPoint(PatchAPI::Location::InstructionInstance(
                                  f, cloneB, mid->newInstAddress),
                              Point::PreInsn);
@@ -547,6 +566,7 @@ bool DoInstrumentationLowering(BPatch_function* function, FuncSummary* summary,
     assert(parser.parser->markPatchBlockInstrumented(cloneB));
   }
 
+  f->setContainsClonedBlocks(true);
   return true;
 }
 
@@ -576,6 +596,7 @@ bool Skippable(BPatch_function* function, FuncSummary* summary) {
 
 bool MoveInstrumentation(BPatch_point*& p, FuncSummary* s) {
   if (FLAGS_disable_reg_save_opt) return false;
+  if (s == nullptr) return false;
   ++total_dead_reg_site;
   if (p->getPointType() == BPatch_locEntry) {
     BPatch_function* f = p->getFunction();
@@ -602,7 +623,6 @@ bool MoveInstrumentation(BPatch_point*& p, FuncSummary* s) {
     MoveInstData* mid =
         s->getMoveInstDataAtEntry(func_entry->getStartAddress());
     if (mid == nullptr) {
-      fprintf(stderr, "Cannot find dead register for func entry instrumentation %s at %p\n", f->getName().c_str(), f->getBaseAddr());
       ++no_dead_reg_site;
       return false;
     }
@@ -654,6 +674,7 @@ void MarkExceptionSafeCalls(BPatch_function* function) {
 }
 
 void CountMemoryWrites(FuncSummary* s) {
+  if (s == nullptr) return;
   for (auto const &it : s->all_writes) {
     auto const& w = it.second;
     memory_writes += 1;
@@ -696,12 +717,14 @@ void InstrumentFunction(BPatch_function* function,
         reinterpret_cast<uintptr_t>(function->getBaseAddr())));
     if (it != analyses.end())
       summary = (*it).second;
-    if (summary->has_unknown_cf || !summary->plt_calls.empty())
-      func_with_indirect_or_plt_call++;
-    if (summary->has_unknown_cf)
-      func_with_indirect_call++;
-    if (!summary->plt_calls.empty())
-      func_with_plt_call++;
+    if (summary != nullptr) {
+      if (summary->has_unknown_cf || !summary->plt_calls.empty())
+        func_with_indirect_or_plt_call++;
+      if (summary->has_unknown_cf)
+        func_with_indirect_call++;
+      if (!summary->plt_calls.empty())
+        func_with_plt_call++;
+    }
 
     CountMemoryWrites(summary);
 
@@ -737,7 +760,7 @@ void InstrumentFunction(BPatch_function* function,
     // Apply fast path optimization if applicable.
     BPatch_basicBlock* condNotTakenEntry = NULL;
     vector<BPatch_basicBlock*> condNotTakenExits;
-    if (CheckFastPathFunction(condNotTakenEntry, condNotTakenExits, function)) {
+    if (summary != nullptr && CheckFastPathFunction(condNotTakenEntry, condNotTakenExits, function)) {
       res->lowered_fns.push_back(fn_name);
       StdOut(Color::RED, FLAGS_vv)
           << "      Optimized fast path instrumentation for function at 0x"
@@ -1027,7 +1050,7 @@ void Instrument(std::string binary, const litecfi::Parser& parser) {
     binary_edit->writeFile(FLAGS_output.c_str());
   }
 
-  StdOut(Color::RED) << "Safe functions : " << std::dec << res->safe_fns.size()
+  StdOut(Color::RED) << "Safe functions : " << std::dec << res->safe_fns.size() << "(" << res->safe_fns.size() * 100.0 / total_func << "%)"
                      << "\n  ";
   /*
   for (auto it : res->safe_fns) {
@@ -1037,14 +1060,14 @@ void Instrument(std::string binary, const litecfi::Parser& parser) {
   StdOut(Color::BLUE) << Endl << Endl;
 
   StdOut(Color::RED) << "Register stack functions : "
-                     << res->reg_stack_fns.size() << "\n  ";
+                     << res->reg_stack_fns.size() << "(" << res->reg_stack_fns.size() * 100.0 / total_func << "%)"<< "\n  ";
   /*
   for (auto it : res->reg_stack_fns) {
     StdOut(Color::BLUE) << it << " ";
   }
   */
   StdOut(Color::BLUE) << Endl << Endl;
-  StdOut(Color::RED) << "Lowering stack functions : " << res->lowered_fns.size()
+  StdOut(Color::RED) << "Lowering stack functions : " << res->lowered_fns.size() << "(" << res->lowered_fns.size() * 100.0 / total_func << "%)"
                      << "\n  ";
   /*
   for (auto it : res->lowered_fns) {
@@ -1052,9 +1075,6 @@ void Instrument(std::string binary, const litecfi::Parser& parser) {
   }
   */
   StdOut(Color::BLUE) << Endl;
-  StdOut(Color::RED) << "Functions with indirect jumps : "
-                     << func_with_indirect_jmp
-                     << Endl;
   StdOut(Color::RED) << "Functions with indirect call or plt calls : "
                      << func_with_indirect_or_plt_call
                      << Endl;
@@ -1065,12 +1085,16 @@ void Instrument(std::string binary, const litecfi::Parser& parser) {
                      << Endl;
   StdOut(Color::RED) << "Total functions : " << total_func << Endl;
 
+  // Temprarily not count these three types
+  heap_writes = 0;
+  arg_writes = 0;
+  heap_or_arg_writes = 0;
   StdOut(Color::RED) << "Total memory writes : " << memory_writes << Endl;
-  StdOut(Color::RED) << "\tStack writes : " << stack_writes << Endl;
-  StdOut(Color::RED) << "\tGlobal writes : " << global_writes << Endl;
-  StdOut(Color::RED) << "\tHeap writes : " << heap_writes <<  Endl;
-  StdOut(Color::RED) << "\tArg writes : " << arg_writes <<  Endl;
-  StdOut(Color::RED) << "\tHeap_or_arg writes : " << heap_or_arg_writes <<  Endl;
+  StdOut(Color::RED) << "\tStack writes : " << stack_writes << "(" << stack_writes * 100.0 / memory_writes << "%)" << Endl;
+  StdOut(Color::RED) << "\tGlobal writes : " << global_writes <<  "(" << global_writes * 100.0 / memory_writes << "%)" << Endl;
+  StdOut(Color::RED) << "\tHeap writes : " << heap_writes << "(" << heap_writes * 100.0 / memory_writes << "%)" << Endl;
+  StdOut(Color::RED) << "\tArg writes : " << arg_writes << "(" << arg_writes * 100.0 / memory_writes << "%)" <<  Endl;
+  StdOut(Color::RED) << "\tHeap_or_arg writes : " << heap_or_arg_writes << "(" << heap_or_arg_writes * 100.0 / memory_writes << "%)" <<  Endl;
 
   int unknown = memory_writes;
   unknown -= stack_writes;
@@ -1078,6 +1102,8 @@ void Instrument(std::string binary, const litecfi::Parser& parser) {
   unknown -= heap_writes;
   unknown -= arg_writes;
   unknown -= heap_or_arg_writes;
-  StdOut(Color::RED) << "\tUnknown writes : " << unknown << Endl;
+  StdOut(Color::RED) << "\tUnknown writes : " << unknown << "(" << unknown * 100.0 / memory_writes << "%)" <<  Endl;
   StdOut(Color::RED) << "Dead register optimization : " << no_dead_reg_site << "/" << total_dead_reg_site << Endl;
+  StdOut(Color::RED) << "Lowering dead register optimization : " << lowering_no_dead_reg_entry_site << "/" << lowering_no_dead_reg_exit_site << "/" << lowering_dead_reg_site << Endl;
+
 }
