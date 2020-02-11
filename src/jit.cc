@@ -407,7 +407,12 @@ std::string JitRegisterPush(Dyninst::PatchAPI::Point* pt, FuncSummary* s,
   Assembler* a = ah.GetAssembler();
   //a->push(reg);
   //a->pushfq();
-  a->mov(ptr(rsp, height - 128), reg);
+  asmjit::x86::Mem scratch;
+  scratch.setSize(8);
+  scratch.setSegment(gs);
+  scratch = scratch.cloneAdjusted(8);
+
+  a->mov(scratch, reg);
   if (FLAGS_dry_run != "only-save")
     a->mov(reg, ptr(rsp, height));
   //a->popfq();
@@ -473,6 +478,10 @@ std::string JitRegisterPop(Dyninst::PatchAPI::Point* pt, FuncSummary* s,
 
     a->bind(success);
   }
-  a->mov(reg, ptr(rsp, -128));
+  asmjit::x86::Mem scratch;
+  scratch.setSize(8);
+  scratch.setSegment(gs);
+  scratch = scratch.cloneAdjusted(8);
+  a->mov(reg, scratch);
   return "";
 }

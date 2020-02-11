@@ -256,22 +256,6 @@ struct FuncSummary {
       return false;
     if (has_unknown_cf || !plt_calls.empty())
       return false;
-
-    // If this function creates a stack frame, it may over-write
-    // the red-zone location at the function entry
-    if (moveDownSP)
-      return false;
-    auto it = redZoneAccess.begin();
-    if (it != redZoneAccess.end()) {
-      // We always try to use [-128, -120) range of the red zone.
-      // So, if the original code uses any byte in this range,
-      // we cannot perform the optimization.
-      //
-      // Here I assume that if the original code uses a deeper red zone
-      // location, it must have used any space shallower in the red zone.
-      if (*it < -120)
-        return false;
-    }
     return true;
   }
 

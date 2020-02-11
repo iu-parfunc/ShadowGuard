@@ -431,6 +431,7 @@ bool DoInstrumentationLowering(BPatch_function* function, FuncSummary* summary,
   if (!summary || !summary->lowerInstrumentation()) {
     return false;
   }
+  if (summary->has_indirect_cf) return false;
   PatchFunction* f = PatchAPI::convert(function);
   std::set<PatchEdge*> visited;
   std::set<PatchEdge*> redirect;
@@ -443,15 +444,6 @@ bool DoInstrumentationLowering(BPatch_function* function, FuncSummary* summary,
 
   bool useRegisterFrame = summary->shouldUseRegisterFrame();
   if (FLAGS_disable_reg_frame) useRegisterFrame = false;
-  if (useRegisterFrame) {
-    for (auto e : redirect) {
-      int height = summary->blockEndSPHeight[e->src()->start()];
-      if (height >= 128) {
-        useRegisterFrame = false;
-        break;
-      }
-    }
-  }
   if (!useRegisterFrame && summary->redZoneAccess.size() > 0) {
     for (auto e : redirect) {
       MoveInstData* mid =
@@ -972,7 +964,7 @@ void InstrumentCodeObject(BPatch_object* object, const litecfi::Parser& parser,
         ->AddPass(new LargeFunctionFilter())
         ->AddPass(new StackHeightAnalysis())
         ->AddPass(new CFGAnalysis())
-        ->AddPass(new HeapWriteAnalysis())
+//        ->AddPass(new HeapWriteAnalysis())
         ->AddPass(new InterProceduralMemoryAnalysis())
         ->AddPass(new FunctionExceptionAnalysis())
         ->AddPass(new UnsafeCallBlockAnalysis())
@@ -1085,10 +1077,6 @@ void Instrument(std::string binary, const litecfi::Parser& parser) {
                      << Endl;
   StdOut(Color::RED) << "Total functions : " << total_func << Endl;
 
-  // Temprarily not count these three types
-  heap_writes = 0;
-  arg_writes = 0;
-  heap_or_arg_writes = 0;
   StdOut(Color::RED) << "Total memory writes : " << memory_writes << Endl;
   StdOut(Color::RED) << "\tStack writes : " << stack_writes << "(" << stack_writes * 100.0 / memory_writes << "%)" << Endl;
   StdOut(Color::RED) << "\tGlobal writes : " << global_writes <<  "(" << global_writes * 100.0 / memory_writes << "%)" << Endl;

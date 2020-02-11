@@ -31,12 +31,16 @@ static const long long __stack_sz = 8 * 1024 * 1024;  // 8 MB
 //           ---------
 //           |  0x0  | Guard Word [16 bytes](To catch underflows)
 //           ---------
+//           |  0x0  | Sratch space for register frame
+//           ---------
 // gs:0x0 -> |  SP   | Stack Pointer
 //           ---------
 CONSTRUCTOR(0) static void __shadow_guard_init_stack() {
   unsigned long addr = (unsigned long)malloc(__stack_sz);
   if (syscall(SYS_arch_prctl, ARCH_SET_GS, addr) < 0)
     abort();
+  addr += 8;
+  *((unsigned long *)addr) = 0;
   addr += 8;
   *((unsigned long *)addr) = 0;
   addr += 8;
