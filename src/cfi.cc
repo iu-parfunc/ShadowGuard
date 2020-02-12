@@ -19,6 +19,8 @@ DEFINE_bool(validate_frame, false,
 DEFINE_bool(disable_lowering, false, "Disable instrumentation lowering");
 DEFINE_bool(disable_reg_frame, false, "Disable register frame");
 DEFINE_bool(disable_reg_save_opt, false, "Disable register save optimization");
+DEFINE_bool(disable_inline, false, "Disable function inlining");
+DEFINE_bool(disable_sfe, false, "Disable safe function elision");
 
 DEFINE_bool(libs, false, "Protect shared libraries as well.");
 

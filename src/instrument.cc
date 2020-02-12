@@ -46,6 +46,8 @@ DECLARE_string(skip_list);
 DECLARE_bool(disable_lowering);
 DECLARE_bool(disable_reg_frame);
 DECLARE_bool(disable_reg_save_opt);
+DECLARE_bool(disable_inline);
+DECLARE_bool(disable_sfe);
 
 std::set<Address> exception_free_func;
 
@@ -563,11 +565,13 @@ bool DoInstrumentationLowering(BPatch_function* function, FuncSummary* summary,
 }
 
 void AddInlineHint(BPatch_function* function, const litecfi::Parser& parser) {
+  if (FLAGS_disable_inline) return;
   Address entry = (Address)(function->getBaseAddr());
   parser.parser->addInliningEntry(entry);
 }
 
 bool Skippable(BPatch_function* function, FuncSummary* summary) {
+  if (FLAGS_disable_sfe) return false;
   if (summary != nullptr && summary->safe) {
     StdOut(Color::RED, FLAGS_vv)
         << "      Skipping function : " << function->getName() << Endl;
