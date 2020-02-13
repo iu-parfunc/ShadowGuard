@@ -564,8 +564,10 @@ bool DoInstrumentationLowering(BPatch_function* function, FuncSummary* summary,
   return true;
 }
 
-void AddInlineHint(BPatch_function* function, const litecfi::Parser& parser) {
+void AddInlineHint(BPatch_function* function, const litecfi::Parser& parser, FuncSummary * summary) {
   if (FLAGS_disable_inline) return;
+  // Do no attempt to inline functions that we do not need to instrument
+  if (summary != nullptr && summary->safe) return;
   Address entry = (Address)(function->getBaseAddr());
   parser.parser->addInliningEntry(entry);
 }
@@ -733,7 +735,7 @@ void InstrumentFunction(BPatch_function* function,
     MarkExceptionSafeCalls(function);
 
     // Add inlining hint so that writeFile may inline small leaf functions.
-    AddInlineHint(function, parser);
+    AddInlineHint(function, parser, summary);
 
     // If possible check and lower the instrumentation to within non frequently
     // executed unsafe control flow paths.
