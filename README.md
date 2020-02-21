@@ -1,5 +1,5 @@
-# liteCFI
-Lightweight backward-edge CFI using a low overhead shadow stack.
+# ShadowGuard
+Low overhead shadow stack implementation which uses binary static analysis.
 
 # Installation
 
