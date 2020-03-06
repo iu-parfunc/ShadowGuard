@@ -1,5 +1,6 @@
 # ShadowGuard
-Low overhead shadow stack implementation which uses binary static analysis.
+Low overhead shadow stack implementation which uses binary static analysis. Please see the 
+associated paper at https://arxiv.org/abs/2002.07748.
 
 # Installation
 
