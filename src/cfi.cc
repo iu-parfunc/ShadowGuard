@@ -32,6 +32,14 @@ DEFINE_string(
     "             deemed safe\n"
     "   * full :  Add run-time checks at every function\n");
 
+DEFINE_string(
+    sfi, "none",
+    "\n Software fault isolation for guarding unknown memory writes.\n"
+    "\n Valid values are\n"
+    "   * none  : Do not deploy SFI\n"
+    "   * full  : Deploy SFI for every memory write\n"
+    "   * light : Deploy SFI for statically unknown memory write\n");
+
 DEFINE_string(output, "", "\n Output binary.\n");
 
 DEFINE_string(stats, "",

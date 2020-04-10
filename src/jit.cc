@@ -17,7 +17,7 @@ DECLARE_string(dry_run);
 
 static std::map<std::string, Gp> kRegisterMap = {
     {"x86_64::rax", rax}, {"x86_64::rbx", rbx}, {"x86_64::rcx", rcx},
-    {"x86_64::rdx", rdx}, /*{"x86_64::rsp", rsp},*/ {"x86_64::rbp", rbp},
+    {"x86_64::rdx", rdx}, {"x86_64::rsp", rsp}, {"x86_64::rbp", rbp},
     {"x86_64::rsi", rsi}, {"x86_64::rdi", rdi}, {"x86_64::r8", r8},
     {"x86_64::r9", r9},   {"x86_64::r10", r10}, {"x86_64::r11", r11},
     {"x86_64::r12", r12}, {"x86_64::r13", r13}, {"x86_64::r14", r14},
@@ -32,7 +32,7 @@ struct TempRegisters {
   bool tmp3_saved;
   int sp_offset;
 
-  TempRegisters(std::set<std::string> exclude = {}, int height = 0)
+  TempRegisters(std::set<std::string> exclude = {"x86_64::rsp"}, int height = 0)
       : tmp1_saved(true), tmp2_saved(true), tmp3_saved(true),
         sp_offset(height /* flag saving always takes 8 bytes */) {
     int count = 0;
@@ -103,7 +103,7 @@ TempRegisters UseSpecifiedRegisters(Assembler *a, MoveInstData* mid, int height 
 
 TempRegisters SaveTempRegisters(Assembler* a,
                                 std::set<std::string>& dead_registers,
-                                std::set<std::string> exclude = {},
+                                std::set<std::string> exclude = {"x86_64::rsp"},
                                 int height = 0) {
   TempRegisters t(exclude, height);
   if ((FLAGS_optimize_regs && dead_registers.empty()) || !FLAGS_optimize_regs) {
@@ -483,5 +483,217 @@ std::string JitRegisterPop(Dyninst::PatchAPI::Point* pt, FuncSummary* s,
   scratch.setSegment(gs);
   scratch = scratch.cloneAdjusted(8);
   a->mov(reg, scratch);
+  return "";
+}
+
+#include "Instruction.h"
+#include "BinaryFunction.h"
+#include "Immediate.h"
+#include "Register.h"
+#include "Dereference.h"
+#include "Visitor.h"
+#include "Result.h"
+#include "register_utils.h"
+
+class AddressingModeVisitor: public Dyninst::InstructionAPI::Visitor {
+
+public:
+  AddressingModeVisitor():
+    scale(0), disp(0), hasBaseReg(false), hasIndexReg(false) {}
+
+  Dyninst::MachRegister baseReg;
+  Dyninst::MachRegister indexReg;
+  int scale;
+  int64_t disp;
+
+  bool hasBaseReg;
+  bool hasIndexReg;
+
+  std::vector<Dyninst::InstructionAPI::RegisterAST*> regStack;
+  std::vector<Dyninst::InstructionAPI::Immediate*> immStack;
+
+  void finalize() {
+    if (regStack.size() > 0) {
+      assert(regStack.size() == 1);
+      hasBaseReg = true;
+      baseReg = regStack[0]->getID().getBaseRegister();
+      regStack.clear();
+    }
+    if (immStack.size() > 0) {
+      assert(immStack.size() == 1);
+      disp = getImmediate(immStack[0]);
+      immStack.clear();
+    }
+  }
+
+  int64_t getImmediate(Dyninst::InstructionAPI::Immediate* imm) {
+    const Dyninst::InstructionAPI::Result& r = imm->eval();
+    return r.convert<int64_t>();
+  }
+
+  void visit(Dyninst::InstructionAPI::BinaryFunction *b) {
+    std::vector<Dyninst::InstructionAPI::Expression::Ptr> children;
+    b->getChildren(children);
+    if (b->isAdd()) {
+      if (immStack.size() > 0) {
+        Dyninst::InstructionAPI::Immediate *imm = *immStack.rbegin();
+        immStack.pop_back();
+        disp = getImmediate(imm);
+      }
+      if (regStack.size() >= 1) {
+        hasBaseReg = true;
+        Dyninst::InstructionAPI::RegisterAST* reg = regStack[0];
+        baseReg = reg->getID().getBaseRegister();
+        if (regStack.size() == 2) {
+          hasIndexReg = true;
+          reg = regStack[1];
+          indexReg = reg->getID().getBaseRegister();
+        }
+        regStack.clear();
+      }
+    } else if (b->isMultiply()) {
+      Dyninst::InstructionAPI::RegisterAST* reg = *regStack.rbegin();
+      regStack.pop_back();
+      hasIndexReg = true;
+      indexReg = reg->getID().getBaseRegister();
+
+      Dyninst::InstructionAPI::Immediate *imm = *immStack.rbegin();
+      immStack.pop_back();
+      int64_t val = getImmediate(imm);
+      switch (val) {
+        case 1: {
+          scale = 0;
+          break;
+        }
+        case 2: {
+          scale = 1;
+          break;
+        }
+        case 4: {
+          scale = 2;
+          break;
+        }
+        case 8: {
+          scale = 3;
+          break;
+        }
+        default:
+          fprintf(stderr, "Unhandled scale %d\n", (int)val);
+      }
+    }
+  }
+  void visit(Dyninst::InstructionAPI::Immediate* i) {
+    immStack.push_back(i);
+  }
+  void visit(Dyninst::InstructionAPI::RegisterAST* r) {
+    regStack.push_back(r);
+  }
+  void visit(Dyninst::InstructionAPI::Dereference * d) {
+  }
+};
+
+void JitConditionalBranch(Assembler* a, Gp& eff_reg, int off, asmjit::Label& label) {
+  asmjit::x86::Mem bound;
+  bound.setSize(8);
+  bound.setSegment(gs);
+  bound = bound.cloneAdjusted(off);
+  a->cmp(eff_reg, bound);
+  a->jb(label);
+}
+
+
+std::string JitSFI(Dyninst::PatchAPI::Point* point, FuncSummary *s, AssemblerHolder& ah) {
+  if (FLAGS_dry_run == "empty") return "";
+  Assembler* a = ah.GetAssembler();
+
+  // Get the instruction that writes memory
+  const Dyninst::InstructionAPI::Instruction& insn = point->insn();
+
+  // Get effective address expression
+  std::set<Dyninst::InstructionAPI::Expression::Ptr> effectiveAddressExprs;
+  insn.getMemoryWriteOperands(effectiveAddressExprs);
+  assert(effectiveAddressExprs.size() == 1);
+  Dyninst::InstructionAPI::Expression::Ptr expr = *(effectiveAddressExprs.begin());
+
+  // Analyze the addressing mode to determine whether we need a scratch register
+  // to compute the effective address
+  bool needScratchReg = false;
+  AddressingModeVisitor amv;
+  expr->apply(&amv);
+  amv.finalize();
+
+  Gp eff_reg;
+  Gp base;
+  Gp index;
+  bool baseIsPC = false;
+
+  // There is no need to use a scratch register
+  // when the addressing mode contains only the base register
+  if (amv.disp == 0 && !amv.hasIndexReg && amv.hasBaseReg) {
+    std::string baseName = NormalizeRegisterName(amv.baseReg.name());
+    assert(kRegisterMap.find(baseName) != kRegisterMap.end());
+    eff_reg = kRegisterMap[baseName];
+  } else {
+    needScratchReg = true;
+    std::set<std::string> exclude;
+    exclude.insert("x86_64::rsp");
+    if (amv.hasBaseReg) {
+      std::string baseName = NormalizeRegisterName(amv.baseReg.name());
+      if (baseName == "x86_64::rip") {
+        baseIsPC = true;
+      } else {
+        assert(kRegisterMap.find(baseName) != kRegisterMap.end());
+        base = kRegisterMap[baseName];
+        exclude.insert(baseName);
+      }
+    }
+    if (amv.hasIndexReg) {
+      std::string indexName = NormalizeRegisterName(amv.indexReg.name());
+      assert(kRegisterMap.find(indexName) != kRegisterMap.end());
+      assert(indexName != "x86_64::rip");
+      index = kRegisterMap[indexName];
+      exclude.insert(indexName);
+    }
+    TempRegisters t(exclude);
+    eff_reg = t.tmp1; 
+  }
+  if (baseIsPC) return "";
+  asmjit::Label done = a->newLabel();
+  asmjit::Label error = a->newLabel();
+
+  // Move down SP to avoid overwriting red-zone space
+  a->lea(rsp, ptr(rsp, -128));
+  // Save flags
+  a->pushfq();
+  if (needScratchReg) {
+    a->push(eff_reg);
+
+    // Emit a lea to calcualte the effective address
+    asmjit::x86::Mem mem;
+    mem.setSize(8);
+    if (baseIsPC) {
+      mem.setBase(rip);
+    } else {
+      mem.setBase(base);
+    }
+    mem.setIndex(index);
+    mem.setOffset(amv.disp);
+    mem.setShift(amv.scale);
+    a->lea(eff_reg, mem);
+  }
+
+  JitConditionalBranch(a, eff_reg, 32, done);
+  JitConditionalBranch(a, eff_reg, 24, error);
+  JitConditionalBranch(a, eff_reg, 16, done);
+
+  a->bind(error);
+  // Cause a SIGILL instead of SIGTRAP to ease debuggability with GDB.
+  const char sigill = 0x62;
+  a->embed(&sigill, sizeof(char));
+
+  a->bind(done);
+  if (needScratchReg) a->pop(eff_reg);
+  a->popfq();
+  a->lea(rsp, ptr(rsp, 128));
   return "";
 }

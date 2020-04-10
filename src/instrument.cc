@@ -42,6 +42,7 @@ DECLARE_string(shadow_stack);
 DECLARE_string(threat_model);
 DECLARE_string(stats);
 DECLARE_string(skip_list);
+DECLARE_string(sfi);
 
 DECLARE_bool(disable_lowering);
 DECLARE_bool(disable_reg_frame);
@@ -149,6 +150,39 @@ class RegisterPopSnippet : public StackOpSnippet {
       : StackOpSnippet(summary, false, 0, false) {
     jit_fn_ = JitRegisterPop;
   }
+};
+
+
+class SFISnippet : public Dyninst::PatchAPI::Snippet {
+ public:
+  explicit SFISnippet(FuncSummary* summary)
+      : summary_(summary) {
+        jit_fn_ = JitSFI;
+      }
+
+  bool generate(Dyninst::PatchAPI::Point* pt, Dyninst::Buffer& buf) override {
+    AssemblerHolder ah;
+    jit_fn_(pt, summary_, ah);
+
+    size_t size = ah.GetCode()->codeSize();
+    char* temp_buf = (char*)malloc(size);
+
+    ah.GetCode()->relocateToBase((uint64_t)temp_buf);
+
+    size = ah.GetCode()->codeSize();
+    ah.GetCode()->copyFlattenedData(temp_buf, size,
+                                    asmjit::CodeHolder::kCopyWithPadding);
+
+    buf.copy(temp_buf, size);
+    return true;
+  }
+
+ protected:
+  std::string (*jit_fn_)(Dyninst::PatchAPI::Point* pt, FuncSummary* summary,
+                         AssemblerHolder&);
+
+ private:
+  FuncSummary* summary_;
 };
 
 bool IsNonreturningCall(Point* point) {
@@ -697,7 +731,7 @@ void CountMemoryWrites(FuncSummary* s) {
   }
 }
 
-void InstrumentFunction(BPatch_function* function,
+bool InstrumentFunction(BPatch_function* function,
                         const litecfi::Parser& parser, PatchMgr::Ptr patcher,
                         const std::map<uint64_t, FuncSummary*>& analyses,
                         InstrumentationResult* res) {
@@ -729,7 +763,7 @@ void InstrumentFunction(BPatch_function* function,
     // Check if this function is safe to skip and do so if it is.
     if (Skippable(function, summary)) {
       res->safe_fns.push_back(fn_name);
-      return;
+      return false;
     }
 
     MarkExceptionSafeCalls(function);
@@ -745,14 +779,14 @@ void InstrumentFunction(BPatch_function* function,
           << "      Optimized instrumentation lowering for function at 0x"
           << std::hex << (uint64_t)function->getBaseAddr() << Endl;
 
-      return;
+      return true;
     }
 
     // For leaf functions we may be able to carry out stack operations using
     // unused registers.
     if (DoStackOpsUsingRegisters(function, summary, parser, patcher)) {
       res->reg_stack_fns.push_back(fn_name);
-      return;
+      return true;
     }
 
     // Apply fast path optimization if applicable.
@@ -809,7 +843,7 @@ void InstrumentFunction(BPatch_function* function,
                                  BPatch_lastSnippet, &is_empty);
       binary_edit->insertSnippet(nopSnippet, points, BPatch_callAfter,
                                  BPatch_lastSnippet, &is_empty);
-      return;
+      return true;
     } else {
       // Attempt to move instrumentation to utilize
       // existing push & pop
@@ -847,7 +881,7 @@ void InstrumentFunction(BPatch_function* function,
                                  BPatch_lastSnippet, &is_empty);
       binary_edit->insertSnippet(nopSnippet, afterPoints, BPatch_callAfter,
                                  BPatch_lastSnippet, &is_empty);
-      return;
+      return true;
     }
   }
 
@@ -870,7 +904,46 @@ void InstrumentFunction(BPatch_function* function,
   function->getExitPoints(points);
   binary_edit->insertSnippet(nopSnippet, points, BPatch_callAfter,
                              BPatch_lastSnippet, &is_empty);
+  return true;
 }
+
+void InstrumentFunctionMemoryWrite(BPatch_function* function,
+                        const litecfi::Parser& parser, PatchMgr::Ptr patcher,
+                        const std::map<uint64_t, FuncSummary*>& analyses,
+                        InstrumentationResult* res) {
+  if (FLAGS_sfi == "none") return;
+  std::string fn_name = Dyninst::PatchAPI::convert(function)->name();
+  StdOut(Color::YELLOW, FLAGS_vv) << "     SFI : " << fn_name << Endl;
+
+  //BPatch_binaryEdit* binary_edit = ((BPatch_binaryEdit*)parser.app);
+  //BPatch_nullExpr nopSnippet;
+  FuncSummary* summary = nullptr;
+  if (FLAGS_shadow_stack == "light") {
+    auto it = analyses.find(static_cast<uint64_t>(
+        reinterpret_cast<uintptr_t>(function->getBaseAddr())));
+    if (it != analyses.end())
+      summary = (*it).second;
+  }
+
+  BPatch_Set<BPatch_opCode> axs;
+  axs.insert(BPatch_opStore);
+
+  vector<BPatch_point*>* points = function->findPoint(axs);
+  for (auto point : *points) {
+      PatchAPI::Point* p = PatchAPI::convert(point, BPatch_callBefore);
+      entryID e = p->insn().getOperation().getID();
+      // Do not perform SFI on call or push instructions
+      if (e == e_call || e == e_push) continue;
+      if (summary != nullptr) {
+        // When we do static analysis, only instrument unknown memory write
+        if (summary->stack_heights.find(p->addr()) != summary->stack_heights.end()) continue;
+      }
+      Snippet::Ptr sfi = SFISnippet::create(new SFISnippet(summary));
+      p->pushBack(sfi);
+  }
+}
+
+
 
 BPatch_function* FindFunctionByName(BPatch_image* image, std::string name) {
   BPatch_Vector<BPatch_function*> funcs;
@@ -937,7 +1010,9 @@ void InstrumentModule(BPatch_module* module, const litecfi::Parser& parser,
     if (symR->getRegionName() != ".text")
       continue;
 
-    InstrumentFunction(function, parser, patcher, analyses, res);
+    bool needSFI = InstrumentFunction(function, parser, patcher, analyses, res);
+    if (needSFI)
+        InstrumentFunctionMemoryWrite(function, parser, patcher, analyses, res);
   }
 }
 

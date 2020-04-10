@@ -21,4 +21,6 @@ std::string JitRegisterPush(Dyninst::PatchAPI::Point* pt, FuncSummary* s,
 std::string JitRegisterPop(Dyninst::PatchAPI::Point* pt, FuncSummary* s,
                            AssemblerHolder& ah, bool, int, bool);
 
+std::string JitSFI(Dyninst::PatchAPI::Point*, FuncSummary* s,
+                           AssemblerHolder& ah);
 #endif  // LITECFI_JIT_H_
