@@ -661,8 +661,10 @@ std::string JitSFI(Dyninst::PatchAPI::Point* point, FuncSummary *s, AssemblerHol
   asmjit::Label done = a->newLabel();
   asmjit::Label error = a->newLabel();
 
-  // Move down SP to avoid overwriting red-zone space
-  a->lea(rsp, ptr(rsp, -128));
+  // If the function uses red zone,
+  // move down SP to avoid overwriting it 
+  if (s->redZoneAccess.size() > 0)
+    a->lea(rsp, ptr(rsp, -128));
   // Save flags
   a->pushfq();
   if (needScratchReg) {
@@ -694,6 +696,7 @@ std::string JitSFI(Dyninst::PatchAPI::Point* point, FuncSummary *s, AssemblerHol
   a->bind(done);
   if (needScratchReg) a->pop(eff_reg);
   a->popfq();
-  a->lea(rsp, ptr(rsp, 128));
+  if (s->redZoneAccess.size() > 0)
+    a->lea(rsp, ptr(rsp, 128));
   return "";
 }
