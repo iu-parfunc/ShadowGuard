@@ -601,7 +601,26 @@ void JitConditionalBranch(Assembler* a, Gp& eff_reg, int off, asmjit::Label& lab
   a->jb(label);
 }
 
+void JitBoundCheck1(Assembler* a, Gp& eff_reg, asmjit::Label& done, asmjit::Label& error) {
+  /*  First version of bound check 
+   *  if (effAddr < global_stack_lower_bound) goto done; // Heap access
+   *  if (effAddr < local_stack_bottom) goto error; // Not heap and smaller than local stack
+   *  if (effAddr < local_stack_top) goto done; // In local stack
+   *  error as it beyond local stack
+   */
+  JitConditionalBranch(a, eff_reg, 32, done);
+  JitConditionalBranch(a, eff_reg, 24, error);
+  JitConditionalBranch(a, eff_reg, 16, done);
+}
 
+void JitBoundCheck2(Assembler* a, Gp& eff_reg, asmjit::Label& done, asmjit::Label&) {
+  a->sub(eff_reg, rsp);
+  a->sar(eff_reg, 24);
+  a->cmp(eff_reg, -128);
+  a->jl(done);
+  a->cmp(eff_reg, 0);
+  a->jz(done);
+}
 std::string JitSFI(Dyninst::PatchAPI::Point* point, FuncSummary *s, AssemblerHolder& ah) {
   if (FLAGS_dry_run == "empty") return "";
   Assembler* a = ah.GetAssembler();
@@ -627,36 +646,27 @@ std::string JitSFI(Dyninst::PatchAPI::Point* point, FuncSummary *s, AssemblerHol
   Gp index;
   bool baseIsPC = false;
 
-  // There is no need to use a scratch register
-  // when the addressing mode contains only the base register
-  if (amv.disp == 0 && !amv.hasIndexReg && amv.hasBaseReg) {
+  std::set<std::string> exclude;
+  exclude.insert("x86_64::rsp");
+  if (amv.hasBaseReg) {
     std::string baseName = NormalizeRegisterName(amv.baseReg.name());
-    assert(kRegisterMap.find(baseName) != kRegisterMap.end());
-    eff_reg = kRegisterMap[baseName];
-  } else {
-    needScratchReg = true;
-    std::set<std::string> exclude;
-    exclude.insert("x86_64::rsp");
-    if (amv.hasBaseReg) {
-      std::string baseName = NormalizeRegisterName(amv.baseReg.name());
-      if (baseName == "x86_64::rip") {
-        baseIsPC = true;
-      } else {
-        assert(kRegisterMap.find(baseName) != kRegisterMap.end());
-        base = kRegisterMap[baseName];
-        exclude.insert(baseName);
-      }
+    if (baseName == "x86_64::rip") {
+      baseIsPC = true;
+    } else {
+      assert(kRegisterMap.find(baseName) != kRegisterMap.end());
+      base = kRegisterMap[baseName];
+      exclude.insert(baseName);
     }
-    if (amv.hasIndexReg) {
-      std::string indexName = NormalizeRegisterName(amv.indexReg.name());
-      assert(kRegisterMap.find(indexName) != kRegisterMap.end());
-      assert(indexName != "x86_64::rip");
-      index = kRegisterMap[indexName];
-      exclude.insert(indexName);
-    }
-    TempRegisters t(exclude);
-    eff_reg = t.tmp1; 
   }
+  if (amv.hasIndexReg) {
+    std::string indexName = NormalizeRegisterName(amv.indexReg.name());
+    assert(kRegisterMap.find(indexName) != kRegisterMap.end());
+    assert(indexName != "x86_64::rip");
+    index = kRegisterMap[indexName];
+    exclude.insert(indexName);
+  }
+  TempRegisters t(exclude);
+  eff_reg = t.tmp1; 
   if (baseIsPC) return "";
   asmjit::Label done = a->newLabel();
   asmjit::Label error = a->newLabel();
@@ -667,34 +677,30 @@ std::string JitSFI(Dyninst::PatchAPI::Point* point, FuncSummary *s, AssemblerHol
     a->lea(rsp, ptr(rsp, -128));
   // Save flags
   a->pushfq();
-  if (needScratchReg) {
-    a->push(eff_reg);
-
-    // Emit a lea to calcualte the effective address
-    asmjit::x86::Mem mem;
-    mem.setSize(8);
-    if (baseIsPC) {
-      mem.setBase(rip);
-    } else {
-      mem.setBase(base);
-    }
-    mem.setIndex(index);
-    mem.setOffset(amv.disp);
-    mem.setShift(amv.scale);
-    a->lea(eff_reg, mem);
+  a->push(eff_reg);
+  
+  // Emit a lea to calcualte the effective address
+  asmjit::x86::Mem mem;
+  mem.setSize(8);
+  if (baseIsPC) {
+    mem.setBase(rip);
+  } else {
+    mem.setBase(base);
   }
+  mem.setIndex(index);
+  mem.setOffset(amv.disp);
+  mem.setShift(amv.scale);
+  a->lea(eff_reg, mem);
 
-  JitConditionalBranch(a, eff_reg, 32, done);
-  JitConditionalBranch(a, eff_reg, 24, error);
-  JitConditionalBranch(a, eff_reg, 16, done);
-
+  JitBoundCheck1(a, eff_reg, done, error);
+  //JitBoundCheck2(a, eff_reg, done, error);
   a->bind(error);
   // Cause a SIGILL instead of SIGTRAP to ease debuggability with GDB.
   const char sigill = 0x62;
   a->embed(&sigill, sizeof(char));
 
   a->bind(done);
-  if (needScratchReg) a->pop(eff_reg);
+  a->pop(eff_reg);
   a->popfq();
   if (s->redZoneAccess.size() > 0)
     a->lea(rsp, ptr(rsp, 128));
