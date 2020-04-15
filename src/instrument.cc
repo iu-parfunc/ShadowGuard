@@ -31,6 +31,9 @@
 #include "Module.h"
 #include "Symbol.h"
 
+#include "Symtab.h"
+#include "Region.h"
+
 using namespace Dyninst;
 using namespace Dyninst::PatchAPI;
 
@@ -51,6 +54,7 @@ DECLARE_bool(disable_inline);
 DECLARE_bool(disable_sfe);
 
 std::set<Address> exception_free_func;
+std::set<Address> init_funcs;
 
 // Thread local shadow stack initialization function name.
 static constexpr char kShadowStackInitFn[] = "litecfi_init_mem_region";
@@ -1009,11 +1013,24 @@ void InstrumentModule(BPatch_module* module, const litecfi::Parser& parser,
     SymtabAPI::Region* symR = symRegion->symRegion();
     if (symR->getRegionName() != ".text")
       continue;
+    if (init_funcs.find(f->addr()) != init_funcs.end())
+      continue;
 
     bool needSFI = InstrumentFunction(function, parser, patcher, analyses, res);
     if (needSFI)
         InstrumentFunctionMemoryWrite(function, parser, patcher, analyses, res);
   }
+}
+
+void IdentifyInitFunctions(Dyninst::SymtabAPI::Symtab* sym) {
+  init_funcs.clear();
+  Dyninst::SymtabAPI::Region *reg = nullptr;
+  sym->findRegion(reg, ".init_array");
+  if (reg == nullptr) return;
+  Address* ptrs = (Address*)(reg->getPtrToRawData());
+  for (size_t i = 0; i < reg->getMemSize() / sizeof(void*); ++i)
+    init_funcs.insert(ptrs[i]);
+  reg = nullptr;
 }
 
 void InstrumentCodeObject(BPatch_object* object, const litecfi::Parser& parser,
@@ -1024,7 +1041,9 @@ void InstrumentCodeObject(BPatch_object* object, const litecfi::Parser& parser,
   } else {
     StdOut(Color::GREEN, FLAGS_vv)
         << "\n    Instrumenting " << object->pathName() << Endl;
+    IdentifyInitFunctions(Dyninst::SymtabAPI::convert(object));
   }
+  assert(Dyninst::SymtabAPI::convert(object)->addLibraryPrereq("/home/xm13/projects/liteCFI/bazel-bin/src/libstackrt.so"));
 
   if (FLAGS_threat_model == "trust_system" && IsSystemCode(object)) {
     return;

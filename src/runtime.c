@@ -95,8 +95,9 @@ static void* global_stack_lower_bound = NULL;
 //
 //  Currently, we allow write to address range
 //  [0, global stack bottom) and [local stack bottom, local stack top)
-//
-CONSTRUCTOR(0) static void __shadow_guard_init_stack() {
+
+
+CONSTRUCTOR(101) static void __shadow_guard_init_stack() {
   unsigned long addr = (unsigned long)malloc(__stack_sz);
   if (syscall(SYS_arch_prctl, ARCH_SET_GS, addr) < 0)
     abort();
