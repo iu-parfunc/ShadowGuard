@@ -1043,7 +1043,7 @@ void InstrumentCodeObject(BPatch_object* object, const litecfi::Parser& parser,
         << "\n    Instrumenting " << object->pathName() << Endl;
     IdentifyInitFunctions(Dyninst::SymtabAPI::convert(object));
   }
-  assert(Dyninst::SymtabAPI::convert(object)->addLibraryPrereq("/home/xm13/projects/liteCFI/bazel-bin/src/libstackrt.so"));
+  assert(Dyninst::SymtabAPI::convert(object)->addLibraryPrereq("libstackrt.so"));
 
   if (FLAGS_threat_model == "trust_system" && IsSystemCode(object)) {
     return;
