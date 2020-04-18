@@ -44,23 +44,25 @@ bool IsSharedLibrary(BPatch_object* object) {
 
 bool IsSystemCode(BPatch_object* object) {
   std::string name = std::string(object->pathName());
-  if (name.find("libc.so.6") != std::string::npos)
+  if (name.find("libstackrt.so") != std::string::npos)
     return true;
   if (name.find("ld-linux-x86-64.so.2") != std::string::npos)
     return true;
-  if (name.find("libdl.so") != std::string::npos)
+  /*
+  if (name.find("libc.so.6") != std::string::npos)
     return true;
   if (name.find("libpthread.so") != std::string::npos)
     return true;
-  if (name.find("libstackrt.so") != std::string::npos)
-    return true;
-/*  
   if (name.find("libgomp.so") != std::string::npos)
     return true;
   if (name.find("libgcc_s.so") != std::string::npos)
     return true;
   if (name.find("libstdc++.so") != std::string::npos)
     return true;
-*/
+  if (name.find("libdl.so") != std::string::npos)
+    return true;
+  if (name.find("libm.so") != std::string::npos)
+    return true;
+  */
   return false;
 }

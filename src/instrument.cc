@@ -82,6 +82,8 @@ static int no_dead_reg_site = 0;
 static int lowering_dead_reg_site = 0;
 static int lowering_no_dead_reg_entry_site = 0;
 static int lowering_no_dead_reg_exit_site = 0;
+static bool isLibc = false;
+static int uninstrumentable = 0;
 
 struct InstrumentationResult {
   std::vector<std::string> safe_fns;
@@ -102,11 +104,11 @@ class StackOpSnippet : public Dyninst::PatchAPI::Snippet {
     size_t size = ah.GetCode()->codeSize();
     char* temp_buf = (char*)malloc(size);
 
-    ah.GetCode()->relocateToBase((uint64_t)temp_buf);
+    assert(ah.GetCode()->relocateToBase((uint64_t)temp_buf) == asmjit::kErrorOk);
 
     size = ah.GetCode()->codeSize();
-    ah.GetCode()->copyFlattenedData(temp_buf, size,
-                                    asmjit::CodeHolder::kCopyWithPadding);
+    assert(ah.GetCode()->copyFlattenedData(temp_buf, size,
+                                    asmjit::CodeHolder::kCopyWithPadding) == asmjit::kErrorOk);
 
     buf.copy(temp_buf, size);
     return true;
@@ -171,11 +173,11 @@ class SFISnippet : public Dyninst::PatchAPI::Snippet {
     size_t size = ah.GetCode()->codeSize();
     char* temp_buf = (char*)malloc(size);
 
-    ah.GetCode()->relocateToBase((uint64_t)temp_buf);
+    assert(ah.GetCode()->relocateToBase((uint64_t)temp_buf) == asmjit::kErrorOk);
 
     size = ah.GetCode()->codeSize();
-    ah.GetCode()->copyFlattenedData(temp_buf, size,
-                                    asmjit::CodeHolder::kCopyWithPadding);
+    assert(ah.GetCode()->copyFlattenedData(temp_buf, size,
+                                    asmjit::CodeHolder::kCopyWithPadding) == asmjit::kErrorOk);
 
     buf.copy(temp_buf, size);
     return true;
@@ -187,6 +189,38 @@ class SFISnippet : public Dyninst::PatchAPI::Snippet {
 
  private:
   FuncSummary* summary_;
+};
+
+class InitSnippet : public Dyninst::PatchAPI::Snippet {
+ public:
+  explicit InitSnippet(Address shadow_region_start)
+      : start_(shadow_region_start) {
+        jit_fn_ = JitInit;
+      }
+
+  bool generate(Dyninst::PatchAPI::Point* pt, Dyninst::Buffer& buf) override {
+    AssemblerHolder ah;
+    jit_fn_(buf.curAddr(), start_, ah);
+
+    size_t size = ah.GetCode()->codeSize();
+    char* temp_buf = (char*)malloc(size);
+
+    assert(ah.GetCode()->relocateToBase((uint64_t)temp_buf) == asmjit::kErrorOk);
+
+    size = ah.GetCode()->codeSize();
+    assert(ah.GetCode()->copyFlattenedData(temp_buf, size,
+                                    asmjit::CodeHolder::kCopyWithPadding) == asmjit::kErrorOk);
+
+    buf.copy(temp_buf, size);
+    free(temp_buf);
+    return true;
+  }
+
+ protected:
+  std::string (*jit_fn_)(Address, Address, AssemblerHolder&);
+
+ private:
+  Address start_;
 };
 
 bool IsNonreturningCall(Point* point) {
@@ -327,8 +361,9 @@ bool DoStackOpsUsingRegisters(BPatch_function* function, FuncSummary* summary,
                               PatchMgr::Ptr patcher) {
   if (FLAGS_disable_reg_frame) return false;
   if (summary != nullptr && summary->shouldUseRegisterFrame()) {
-    fprintf(stdout, "[Register Stack] Function : %s\n",
-            Dyninst::PatchAPI::convert(function)->name().c_str());
+    StdOut(Color::RED, FLAGS_vv)
+        << "      [Register Stack] Function at 0x"
+        << std::hex << (uint64_t)function->getBaseAddr() << Endl;
     Snippet::Ptr stack_push =
         RegisterPushSnippet::create(new RegisterPushSnippet(summary));
     InsertSnippet(function, Point::FuncEntry, stack_push, patcher);
@@ -380,7 +415,7 @@ void CloneFunctionCFG(PatchFunction* f, PatchMgr::Ptr patcher,
   for (auto b : newBlocks) {
     for (auto e : b->targets()) {
       if (skipPatchEdges(e))
-        continue;
+        continue;      
       PatchBlock* newTarget = cloneBlockMap[e->trg()];
       assert(PatchModifier::redirect(e, newTarget));
     }
@@ -468,6 +503,7 @@ bool DoInstrumentationLowering(BPatch_function* function, FuncSummary* summary,
                                const litecfi::Parser& parser,
                                PatchMgr::Ptr patcher) {
   if (FLAGS_disable_lowering) return false;
+  if (isLibc) return false;
   if (!summary || !summary->lowerInstrumentation()) {
     return false;
   }
@@ -977,26 +1013,11 @@ void InstrumentInitFunction(BPatch_function* function,
       << "Failed to instrument init function for stack initialization.";
 }
 
-static void GetIFUNCs(BPatch_module* module,
-                      std::set<Dyninst::Address>& addrs) {
-  SymtabAPI::Module* sym_mod = SymtabAPI::convert(module);
-  std::vector<SymtabAPI::Symbol*> ifuncs;
-
-  // Dyninst represents IFUNC as ST_INDIRECT.
-  sym_mod->getAllSymbolsByType(ifuncs, SymtabAPI::Symbol::ST_INDIRECT);
-  for (auto sit = ifuncs.begin(); sit != ifuncs.end(); ++sit) {
-    addrs.insert((Address)(*sit)->getOffset());
-  }
-}
-
 void InstrumentModule(BPatch_module* module, const litecfi::Parser& parser,
                       PatchMgr::Ptr patcher,
                       const std::map<uint64_t, FuncSummary*>& analyses,
                       InstrumentationResult* res) {
-  std::vector<BPatch_function*>* functions = module->getProcedures();
-
-  std::set<Dyninst::Address> ifuncAddrs;
-  GetIFUNCs(module, ifuncAddrs);
+  std::vector<BPatch_function*>*  functions = module->getProcedures(true);
 
   for (auto it = functions->begin(); it != functions->end(); it++) {
     BPatch_function* function = *it;
@@ -1015,7 +1036,13 @@ void InstrumentModule(BPatch_module* module, const litecfi::Parser& parser,
       continue;
     if (init_funcs.find(f->addr()) != init_funcs.end())
       continue;
-
+    if (!function->isInstrumentable()) {
+      StdOut(Color::YELLOW, FLAGS_vv)
+        << "Uninstrumentable funciton at 0x"
+        << std::hex << (uint64_t)function->getBaseAddr() << Endl;
+      uninstrumentable += 1;
+      continue;
+    }
     bool needSFI = InstrumentFunction(function, parser, patcher, analyses, res);
     if (needSFI)
         InstrumentFunctionMemoryWrite(function, parser, patcher, analyses, res);
@@ -1033,6 +1060,50 @@ void IdentifyInitFunctions(Dyninst::SymtabAPI::Symtab* sym) {
   reg = nullptr;
 }
 
+void SetupInitCode(BPatch_object* object, const litecfi::Parser& parser, PatchMgr::Ptr patcher) {
+  /* 1. Increase .bss section size  */
+  BPatch_binaryEdit* binary_edit = ((BPatch_binaryEdit*)parser.app);
+  std::vector<BPatch_function *> funcs;
+  static std::string loader = "/lib64/ld-linux-x86-64.so.2";  
+  static std::string exec = "";
+  Address shadow_region_start;
+  if (FLAGS_libs) {
+    shadow_region_start = binary_edit->allocateStaticMemoryRegion(8 * 1024 * 1024, loader);
+    object->findFunction("_dl_start", funcs);
+  } else {
+    shadow_region_start = binary_edit->allocateStaticMemoryRegion(8 * 1024 * 1024, exec);
+    object->findFunction("_start", funcs);
+  }
+
+
+  /* 3. Find _start in either the executable when not instrumenting shared library
+   *    or in the ld.so when instrumenting shared libraries                         */
+  assert(funcs.size() == 1);
+
+  /* 4. Find entry point and insert the init snippet */
+  BPatch_function* function = funcs[0];
+  vector<BPatch_point*> points;
+  function->getEntryPoints(points);
+
+  assert(points.size() == 1);
+  PatchAPI::Point* p = PatchAPI::convert(points[0], BPatch_callBefore);
+  Snippet::Ptr init = InitSnippet::create(new InitSnippet(shadow_region_start));
+  p->pushBack(init);
+
+  BPatch_nullExpr nopSnippet;
+  binary_edit->insertSnippet(nopSnippet, points, BPatch_callBefore,
+                             BPatch_lastSnippet, &is_empty);
+
+}
+
+bool IsProgramEntry(BPatch_object *object) {
+  std::string name = std::string(object->pathName());
+  if (FLAGS_libs)
+    return name.find("ld-linux-x86-64.so") != std::string::npos;
+  else
+    return !IsSharedLibrary(object);
+}
+
 void InstrumentCodeObject(BPatch_object* object, const litecfi::Parser& parser,
                           PatchMgr::Ptr patcher, InstrumentationResult* res) {
   if (!IsSharedLibrary(object)) {
@@ -1043,11 +1114,11 @@ void InstrumentCodeObject(BPatch_object* object, const litecfi::Parser& parser,
         << "\n    Instrumenting " << object->pathName() << Endl;
     IdentifyInitFunctions(Dyninst::SymtabAPI::convert(object));
   }
-  assert(Dyninst::SymtabAPI::convert(object)->addLibraryPrereq("libstackrt.so"));
 
-  if (FLAGS_threat_model == "trust_system" && IsSystemCode(object)) {
-    return;
-  }
+  isLibc = (object->pathName().find("libc.so") != std::string::npos);
+
+  if (IsProgramEntry(object))
+    SetupInitCode(object, parser, patcher);
 
   std::vector<BPatch_module*> modules;
   object->modules(modules);
@@ -1077,6 +1148,10 @@ void InstrumentCodeObject(BPatch_object* object, const litecfi::Parser& parser,
     for (auto f : summaries) {
       analyses[f->func->addr()] = f;
     }
+  }
+
+  if (FLAGS_threat_model == "trust_system" && IsSystemCode(object)) {
+    return;
   }
 
   for (auto it = modules.begin(); it != modules.end(); it++) {
@@ -1143,7 +1218,8 @@ void Instrument(std::string binary, const litecfi::Parser& parser) {
   }
 
   StdOut(Color::RED) << "Safe functions : " << std::dec << res->safe_fns.size() << "(" << res->safe_fns.size() * 100.0 / total_func << "%)"
-                     << "\n  ";
+                     << "\n";
+  StdOut(Color::RED) << "Uninstrumentable functions : " << std::dec << uninstrumentable << "\n";
   /*
   for (auto it : res->safe_fns) {
     StdOut(Color::BLUE) << it << " ";

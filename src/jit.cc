@@ -706,3 +706,48 @@ std::string JitSFI(Dyninst::PatchAPI::Point* point, FuncSummary *s, AssemblerHol
     a->lea(rsp, ptr(rsp, 128));
   return "";
 }
+
+std::string JitInit(Dyninst::Address curAddr, Dyninst::Address shadowStart, AssemblerHolder& ah) {
+  Assembler* a = ah.GetAssembler();
+  a->push(rax);
+  a->push(rdi);
+  a->push(rsi);
+  a->push(rdx);
+  a->push(r8);
+  a->push(r9);
+  a->push(r10);
+  a->push(r15);
+  a->lea(r15, ptr(rip, shadowStart - (curAddr + ah.GetCode()->codeSize() + 7)));
+  a->mov(rax, 0x9e);
+  a->mov(rdi, 0x1001);
+  a->mov(rsi, r15);
+  a->mov(rdx, 0);
+  a->mov(r8, 0);
+  a->mov(r9, 0);
+  a->mov(r10, 0);
+  a->syscall();
+  a->mov(qword_ptr(r15, 0x0), 0);
+  a->mov(qword_ptr(r15, 0x8), 0);
+  a->mov(qword_ptr(r15, 0x10), 0);
+  a->mov(qword_ptr(r15, 0x18), 0);
+  a->mov(qword_ptr(r15, 0x20), 0);
+  a->mov(qword_ptr(r15, 0x28), 0);
+  a->mov(qword_ptr(r15, 0x30), 0);
+  a->lea(r15, ptr(r15, 0x38));  
+  asmjit::x86::Mem shadow_ptr;
+  shadow_ptr.setSize(8);
+  shadow_ptr.setSegment(gs);
+  shadow_ptr = shadow_ptr.cloneAdjusted(0);
+  a->mov(shadow_ptr, r15);
+
+  a->pop(r15);
+  a->pop(r10);
+  a->pop(r9);
+  a->pop(r8);
+  a->pop(rdx);
+  a->pop(rsi);
+  a->pop(rdi);
+  a->pop(rax);
+  return "";
+}
+

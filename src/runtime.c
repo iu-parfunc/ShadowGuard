@@ -97,7 +97,7 @@ static void* global_stack_lower_bound = NULL;
 //  [0, global stack bottom) and [local stack bottom, local stack top)
 
 
-CONSTRUCTOR(101) static void __shadow_guard_init_stack() {
+/*CONSTRUCTOR(101)*/ static void __shadow_guard_init_stack() {
   unsigned long addr = (unsigned long)malloc(__stack_sz);
   if (syscall(SYS_arch_prctl, ARCH_SET_GS, addr) < 0)
     abort();
@@ -160,7 +160,7 @@ int pthread_create(pthread_t *thread, pthread_attr_t *attr, pthread_fn_type fn,
 
   return real_create(thread, attr, __pthread_fn_wrapper, info);
 }
-
+/*
 typedef int (*libc_start_main_fn_type) (int *(main) (int, char * *, char * *), 
         int argc, 
         char * * ubp_av, 
@@ -182,6 +182,7 @@ int __libc_start_main(int *(main) (int, char * *, char * *), int argc, char * * 
 
   return real_libc_start_main(main, argc, ubp_av, init, fini, rtld_fini, stack_end);
 }
+*/
 
 #ifdef __cplusplus
 }  // extern "C"
