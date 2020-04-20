@@ -82,7 +82,7 @@ static int no_dead_reg_site = 0;
 static int lowering_dead_reg_site = 0;
 static int lowering_no_dead_reg_entry_site = 0;
 static int lowering_no_dead_reg_exit_site = 0;
-static bool isLibc = false;
+static bool skipLowering = false;
 static int uninstrumentable = 0;
 
 struct InstrumentationResult {
@@ -503,7 +503,7 @@ bool DoInstrumentationLowering(BPatch_function* function, FuncSummary* summary,
                                const litecfi::Parser& parser,
                                PatchMgr::Ptr patcher) {
   if (FLAGS_disable_lowering) return false;
-  if (isLibc) return false;
+  if (skipLowering) return false;
   if (!summary || !summary->lowerInstrumentation()) {
     return false;
   }
@@ -1115,7 +1115,8 @@ void InstrumentCodeObject(BPatch_object* object, const litecfi::Parser& parser,
     IdentifyInitFunctions(Dyninst::SymtabAPI::convert(object));
   }
 
-  isLibc = (object->pathName().find("libc.so") != std::string::npos);
+  skipLowering = (object->pathName().find("libc.so") != std::string::npos);
+  skipLowering |= (object->pathName().find("libgfortran.so") != std::string::npos);
 
   if (IsProgramEntry(object))
     SetupInitCode(object, parser, patcher);
