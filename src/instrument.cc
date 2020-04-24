@@ -82,7 +82,7 @@ static int no_dead_reg_site = 0;
 static int lowering_dead_reg_site = 0;
 static int lowering_no_dead_reg_entry_site = 0;
 static int lowering_no_dead_reg_exit_site = 0;
-static bool skipLowering = false;
+static bool skipOpt = false;
 static int uninstrumentable = 0;
 
 struct InstrumentationResult {
@@ -503,7 +503,7 @@ bool DoInstrumentationLowering(BPatch_function* function, FuncSummary* summary,
                                const litecfi::Parser& parser,
                                PatchMgr::Ptr patcher) {
   if (FLAGS_disable_lowering) return false;
-  if (skipLowering) return false;
+  if (skipOpt) return false;
   if (!summary || !summary->lowerInstrumentation()) {
     return false;
   }
@@ -640,6 +640,7 @@ bool DoInstrumentationLowering(BPatch_function* function, FuncSummary* summary,
 
 void AddInlineHint(BPatch_function* function, const litecfi::Parser& parser, FuncSummary * summary) {
   if (FLAGS_disable_inline) return;
+  //if (skipOpt) return;
   // Do no attempt to inline functions that we do not need to instrument
   if (summary != nullptr && summary->safe) return;
   Address entry = (Address)(function->getBaseAddr());
@@ -1115,8 +1116,8 @@ void InstrumentCodeObject(BPatch_object* object, const litecfi::Parser& parser,
     IdentifyInitFunctions(Dyninst::SymtabAPI::convert(object));
   }
 
-  skipLowering = (object->pathName().find("libc.so") != std::string::npos);
-  skipLowering |= (object->pathName().find("libgfortran.so") != std::string::npos);
+  skipOpt = (object->pathName().find("libc.so") != std::string::npos);
+  skipOpt |= (object->pathName().find("libgfortran.so") != std::string::npos);
 
   if (IsProgramEntry(object))
     SetupInitCode(object, parser, patcher);
